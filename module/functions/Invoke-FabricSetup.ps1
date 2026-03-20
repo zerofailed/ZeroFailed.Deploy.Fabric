@@ -1,0 +1,261 @@
+function Invoke-FabricSetup {
+    <#
+    .SYNOPSIS
+        Orchestrates the full Fabric workspace provisioning pipeline from a topology config.
+    .DESCRIPTION
+        For each environment x workspace combination in the config:
+          1. Resolves the workspace name via naming convention
+          2. Creates the workspace (idempotent)
+          3. Connects to Git (idempotent)
+          4. Provisions Workspace Identity (if enabled)
+          5. Enables workspace monitoring (if enabled)
+        Returns a structured results object with a summary, identity report, and monitoring report.
+    .PARAMETER Config
+        Topology config object produced by New-FabricTopologyConfig.
+    .PARAMETER ConfigPath
+        Path to a JSON file containing the topology config (alternative to -Config).
+    .PARAMETER Environments
+        Subset of environment names to process. Defaults to all environments in config.
+    .PARAMETER SkipGit
+        Skip Git integration for all workspaces.
+    .PARAMETER SkipIdentity
+        Skip identity provisioning for all workspaces.
+    .PARAMETER SkipMonitoring
+        Skip monitoring enablement for all workspaces.
+    .OUTPUTS
+        PSCustomObject with Summary, Identities, Monitoring, and Failures.
+    .EXAMPLE
+        Invoke-FabricSetup -Config $topology -Environments @("Dev") -WhatIf
+    .EXAMPLE
+        Invoke-FabricSetup -ConfigPath "./topology.json" -SkipGit
+    #>
+    [CmdletBinding(DefaultParameterSetName = 'Object', SupportsShouldProcess)]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory, ParameterSetName = 'Object', Position = 0)]
+        [pscustomobject]$Config,
+
+        [Parameter(Mandatory, ParameterSetName = 'File')]
+        [string]$ConfigPath,
+
+        [string[]]$Environments,
+
+        [switch]$SkipGit,
+        [switch]$SkipIdentity,
+        [switch]$SkipMonitoring,
+        [switch]$SkipRbac
+    )
+
+    $ErrorActionPreference = 'Stop'
+
+    # --- 1. Load config ---
+    if ($PSCmdlet.ParameterSetName -eq 'File') {
+        if (-not (Test-Path $ConfigPath)) {
+            throw "Config file not found: $ConfigPath"
+        }
+        $Config = Get-Content -Path $ConfigPath -Raw | ConvertFrom-Json
+    }
+
+    # --- 2. Validate prerequisites ---
+    _Assert-Prerequisites
+
+    # --- 3. Acquire auth token ---
+    Write-Verbose 'Acquiring Fabric auth token...'
+    $tokenInfo = _Get-FabricAuthToken
+    $token     = $tokenInfo.Token
+
+    # Initialise MicrosoftFabricMgmt module session by injecting our already-acquired token.
+    # Set-FabricApiHeaders always triggers a fresh interactive login, so we bypass it and
+    # set the module's internal auth context directly using the token from _Get-FabricAuthToken.
+    # MicrosoftFabricMgmt is guaranteed loaded via RequiredModules in the psd1.
+    $tenantId         = (Get-AzContext -ErrorAction Stop).Tenant.Id
+    $fabricMgmtModule = Get-Module MicrosoftFabricMgmt
+    & $fabricMgmtModule {
+        param($tok, $exp, $tid)
+        $script:FabricAuthContext.FabricHeaders = @{
+            'Content-Type'  = 'application/json; charset=utf-8'
+            'Authorization' = "Bearer $tok"
+        }
+        $script:FabricAuthContext.TokenExpiresOn = $exp.ToString('o')
+        $script:FabricAuthContext.TenantId       = $tid
+        $script:FabricAuthContext.AuthMethod     = 'UserPrincipal'
+    } $token $tokenInfo.ExpiresOn $tenantId
+
+    # --- 4. Determine environments to process ---
+    $targetEnvs = if ($Environments) {
+        $Config.environments | Where-Object { $_.name -in $Environments }
+    }
+    else {
+        $Config.environments
+    }
+
+    if (-not $targetEnvs) {
+        throw "No matching environments found in config for filter: $($Environments -join ', ')"
+    }
+
+    # --- 5. Provision ---
+    $results = [pscustomobject]@{
+        Summary         = [pscustomobject]@{ Created = 0; Skipped = 0; Failed = 0 }
+        Identities      = [System.Collections.Generic.List[hashtable]]::new()
+        Monitoring      = [System.Collections.Generic.List[hashtable]]::new()
+        RoleAssignments = [System.Collections.Generic.List[hashtable]]::new()
+        Failures        = [System.Collections.Generic.List[hashtable]]::new()
+    }
+
+    foreach ($env in $targetEnvs) {
+        Write-Verbose "=== Environment: $($env.name) ==="
+
+        foreach ($ws in $Config.workspaces) {
+
+            # Refresh token if near expiry
+            if (_Test-FabricTokenExpiry -TokenInfo $tokenInfo) {
+                Write-Verbose 'Token nearing expiry — refreshing...'
+                $tokenInfo = _Get-FabricAuthToken
+                $token     = $tokenInfo.Token
+                & $fabricMgmtModule {
+                    param($tok, $exp, $tid)
+                    $script:FabricAuthContext.FabricHeaders = @{
+                        'Content-Type'  = 'application/json; charset=utf-8'
+                        'Authorization' = "Bearer $tok"
+                    }
+                    $script:FabricAuthContext.TokenExpiresOn = $exp.ToString('o')
+                    $script:FabricAuthContext.TenantId       = $tid
+                    $script:FabricAuthContext.AuthMethod     = 'UserPrincipal'
+                } $token $tokenInfo.ExpiresOn $tenantId
+            }
+
+            # a. Resolve workspace name
+            $resolvedName = _Resolve-WorkspaceName -Config $Config -WorkspaceId $ws.id -EnvironmentName $env.name
+            Write-Verbose "Processing: $resolvedName"
+
+            # b. Create workspace (idempotent) — fatal for this workspace if it fails
+            try {
+                $existed = Test-FabricWorkspaceExists -DisplayName $resolvedName
+                if ($existed) {
+                    $workspaceObj = $existed
+                    $results.Summary.Skipped++
+                }
+                else {
+                    $workspaceObj = New-FabricWorkspace `
+                        -DisplayName  $resolvedName `
+                        -CapacityName $env.capacityName
+                    if (-not $WhatIfPreference) {
+                        $results.Summary.Created++
+                    }
+                }
+            }
+            catch {
+                Write-Error "FAILED: $resolvedName — $_" -ErrorAction Continue
+                $results.Failures.Add(@{
+                    WorkspaceName = $resolvedName
+                    Environment   = $env.name
+                    Step          = 'Workspace'
+                    Error         = $_.ToString()
+                })
+                $results.Summary.Failed++
+                continue
+            }
+
+            $workspaceId = $workspaceObj.id
+
+            # c. Git integration — only for the designated git environment, non-fatal
+            if (-not $SkipGit -and $ws.git.enabled -and $Config.gitEnvironment -and $env.name -eq $Config.gitEnvironment) {
+                try {
+                    Set-FabricGitIntegration `
+                        -WorkspaceId   $workspaceId `
+                        -WorkspaceName $resolvedName `
+                        -GitConfig     $ws.git `
+                        -Branch        $ws.git.branch `
+                        -Token         $token
+                }
+                catch {
+                    Write-Warning "Git integration failed for '$resolvedName' — $_"
+                    $results.Failures.Add(@{
+                        WorkspaceName = $resolvedName
+                        Environment   = $env.name
+                        Step          = 'Git'
+                        Error         = $_.ToString()
+                    })
+                }
+            }
+
+            # d. Workspace Identity — non-fatal, log and continue
+            if (-not $SkipIdentity -and $ws.identity.enabled) {
+                try {
+                    $identityEntry = Enable-FabricWorkspaceIdentity `
+                        -WorkspaceId   $workspaceId `
+                        -WorkspaceName $resolvedName `
+                        -Token         $token
+                    $results.Identities.Add($identityEntry)
+                }
+                catch {
+                    Write-Warning "Identity provisioning failed for '$resolvedName' — $_"
+                    $results.Failures.Add(@{
+                        WorkspaceName = $resolvedName
+                        Environment   = $env.name
+                        Step          = 'Identity'
+                        Error         = $_.ToString()
+                    })
+                }
+            }
+
+            # e. Workspace Monitoring — non-fatal, log and continue
+            if (-not $SkipMonitoring -and $ws.monitoring.enabled) {
+                try {
+                    $monitoringEntry = Enable-FabricWorkspaceMonitoring `
+                        -WorkspaceId   $workspaceId `
+                        -WorkspaceName $resolvedName `
+                        -Token         $token
+                    $results.Monitoring.Add($monitoringEntry)
+                }
+                catch {
+                    Write-Warning "Monitoring enablement failed for '$resolvedName' — $_"
+                    $results.Failures.Add(@{
+                        WorkspaceName = $resolvedName
+                        Environment   = $env.name
+                        Step          = 'Monitoring'
+                        Error         = $_.ToString()
+                    })
+                }
+            }
+
+            # f. Role Assignments — non-fatal, log and continue
+            if (-not $SkipRbac) {
+                $rbacEntries = $ws.rbac.$($env.name)
+                if ($rbacEntries -and $rbacEntries.Count -gt 0) {
+                    foreach ($entry in $rbacEntries) {
+                        try {
+                            $rbacResult = Set-FabricWorkspaceRoleAssignment `
+                                -WorkspaceId   $workspaceId `
+                                -WorkspaceName $resolvedName `
+                                -PrincipalId   $entry.principalId `
+                                -PrincipalType $entry.principalType `
+                                -Role          $entry.role `
+                                -Token         $token
+                            $results.RoleAssignments.Add($rbacResult)
+                        }
+                        catch {
+                            Write-Warning "Role assignment failed for '$resolvedName' (principal: $($entry.principalId)) — $_"
+                            $results.Failures.Add(@{
+                                WorkspaceName = $resolvedName
+                                Environment   = $env.name
+                                Step          = 'RoleAssignment'
+                                Error         = $_.ToString()
+                            })
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    # --- 6. Report ---
+    $s = $results.Summary
+    Write-Verbose "=== Provisioning complete — Created: $($s.Created)  Skipped: $($s.Skipped)  Failed: $($s.Failed) ==="
+
+    if ($results.Failures.Count -gt 0) {
+        Write-Warning "$($results.Failures.Count) workspace(s) failed. See `$result.Failures for details."
+    }
+
+    return $results
+}
