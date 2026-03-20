@@ -16,21 +16,7 @@ Describe 'Enable-FabricWorkspaceIdentity' {
         $result.ApplicationId            | Should -Be 'whatif-app-id'
     }
 
-    It 'skips provisioning when identity already exists' {
-        Mock _Invoke-FabricRestMethod {
-            return [pscustomobject]@{ servicePrincipalId = 'sp-123'; applicationId = 'app-456' }
-        } -ModuleName ZeroFailed.Deploy.Fabric
-
-        $result = Enable-FabricWorkspaceIdentity -WorkspaceId 'ws-id' -WorkspaceName 'my-ws' -Token 'tok'
-        $result.ServicePrincipalObjectId | Should -Be 'sp-123'
-        $result.ApplicationId            | Should -Be 'app-456'
-
-        Should -Invoke _Invoke-FabricRestMethod -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
-    }
-
-    It 'provisions identity and waits for LRO when no identity exists' {
-        Mock _Invoke-FabricRestMethod { throw 'not found' } -ModuleName ZeroFailed.Deploy.Fabric
-
+    It 'provisions identity and waits for LRO when provisionIdentity returns 202' {
         Mock Add-FabricWorkspaceIdentity {
             return [pscustomobject]@{ OperationId = 'op-001'; Location = 'https://api/ops/op-001'; RetryAfter = 5 }
         } -ModuleName ZeroFailed.Deploy.Fabric
@@ -47,14 +33,12 @@ Describe 'Enable-FabricWorkspaceIdentity' {
         $result.ServicePrincipalObjectId | Should -Be 'sp-new'
         $result.ApplicationId            | Should -Be 'app-new'
 
-        Should -Invoke Add-FabricWorkspaceIdentity          -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
-        Should -Invoke Get-FabricLongRunningOperation        -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
-        Should -Invoke Get-FabricLongRunningOperationResult  -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
+        Should -Invoke Add-FabricWorkspaceIdentity         -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
+        Should -Invoke Get-FabricLongRunningOperation       -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
+        Should -Invoke Get-FabricLongRunningOperationResult -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
     }
 
     It 'handles LRO result returned as an array' {
-        Mock _Invoke-FabricRestMethod { throw 'not found' } -ModuleName ZeroFailed.Deploy.Fabric
-
         Mock Add-FabricWorkspaceIdentity {
             return [pscustomobject]@{ OperationId = 'op-002'; Location = ''; RetryAfter = 5 }
         } -ModuleName ZeroFailed.Deploy.Fabric
@@ -73,9 +57,38 @@ Describe 'Enable-FabricWorkspaceIdentity' {
         $result.ApplicationId            | Should -Be 'app-arr'
     }
 
-    It 'throws if LRO operation ends in a failed status' {
-        Mock _Invoke-FabricRestMethod { throw 'not found' } -ModuleName ZeroFailed.Deploy.Fabric
+    It 'returns $null when provisionIdentity returns $null (identity already provisioned)' {
+        # Add-FabricWorkspaceIdentity swallows 409/200-no-op and returns $null.
+        # The function should treat this as "already provisioned" and return $null gracefully.
+        Mock Add-FabricWorkspaceIdentity { return $null } -ModuleName ZeroFailed.Deploy.Fabric
 
+        $result = Enable-FabricWorkspaceIdentity -WorkspaceId 'ws-id' -WorkspaceName 'my-ws' -Token 'tok'
+        $result | Should -BeNullOrEmpty
+
+        Should -Invoke Add-FabricWorkspaceIdentity -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
+    }
+
+    It 'returns $null when provisionIdentity returns an empty array (identity already provisioned)' {
+        Mock Add-FabricWorkspaceIdentity { return @() } -ModuleName ZeroFailed.Deploy.Fabric
+
+        $result = Enable-FabricWorkspaceIdentity -WorkspaceId 'ws-id' -WorkspaceName 'my-ws' -Token 'tok'
+        $result | Should -BeNullOrEmpty
+    }
+
+    It 'uses identity details from 200 response when provisionIdentity returns existing identity inline' {
+        # provisionIdentity can return 200 with identity data when identity already exists.
+        # Invoke-FabricAPIRequest wraps this in an array via ToArray().
+        Mock Add-FabricWorkspaceIdentity {
+            return @([pscustomobject]@{ servicePrincipalId = 'sp-existing'; applicationId = 'app-existing' })
+        } -ModuleName ZeroFailed.Deploy.Fabric
+
+        $result = Enable-FabricWorkspaceIdentity -WorkspaceId 'ws-id' -WorkspaceName 'my-ws' -Token 'tok'
+        $result.ServicePrincipalObjectId | Should -Be 'sp-existing'
+        $result.ApplicationId            | Should -Be 'app-existing'
+
+    }
+
+    It 'throws if LRO operation ends in a failed status' {
         Mock Add-FabricWorkspaceIdentity {
             return [pscustomobject]@{ OperationId = 'op-003'; Location = ''; RetryAfter = 5 }
         } -ModuleName ZeroFailed.Deploy.Fabric

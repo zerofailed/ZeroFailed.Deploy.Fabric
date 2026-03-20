@@ -196,7 +196,9 @@ function Invoke-FabricSetup {
                         -WorkspaceId   $workspaceId `
                         -WorkspaceName $resolvedName `
                         -Token         $token
-                    $results.Identities.Add($identityEntry)
+                    if ($identityEntry) {
+                        $results.Identities.Add($identityEntry)
+                    }
                 }
                 catch {
                     Write-Warning "Identity provisioning failed for '$resolvedName' — $_"

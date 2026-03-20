@@ -3,10 +3,14 @@ function Enable-FabricWorkspaceIdentity {
     .SYNOPSIS
         Provisions a Workspace Identity (managed identity) for a Fabric workspace.
     .DESCRIPTION
-        Checks whether an identity already exists via the Fabric REST API, then uses the
-        MicrosoftFabricMgmt module to provision one if needed. Waits for the asynchronous
-        provisioning operation to complete using the module's LRO tracking functions before
-        returning the service principal details.
+        Uses the MicrosoftFabricMgmt module to provision a workspace identity. Waits for the
+        asynchronous provisioning operation to complete using the module's LRO tracking functions
+        before returning the service principal details.
+
+        Idempotent: if the identity is already provisioned, Add-FabricWorkspaceIdentity returns
+        an empty response (the module silently swallows the 409/200-no-op from the API). In that
+        case the function returns $null — no error is raised, but no identity report entry is
+        produced (the SP details are not retrievable via this code path on re-runs).
     .PARAMETER WorkspaceId
         The Fabric workspace GUID.
     .PARAMETER WorkspaceName
@@ -15,6 +19,7 @@ function Enable-FabricWorkspaceIdentity {
         Bearer token string for the Fabric REST API.
     .OUTPUTS
         Hashtable: WorkspaceName, WorkspaceId, ServicePrincipalObjectId, ApplicationId.
+        Returns $null when the identity is already provisioned (idempotent re-run).
     #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([hashtable])]
@@ -30,55 +35,47 @@ function Enable-FabricWorkspaceIdentity {
     )
 
     if ($PSCmdlet.ShouldProcess($WorkspaceName, 'Enable Workspace Identity')) {
-        # Check if identity already exists
-        Write-Debug "Checking existing identity for workspace '$WorkspaceName' ($WorkspaceId)..."
-        $existingIdentity = $null
-        try {
-            $existingIdentity = _Invoke-FabricRestMethod -Method GET `
-                -RelativeUri "workspaces/$WorkspaceId/managedIdentity" `
-                -Token $Token
+        Write-Host "Provisioning Workspace Identity for '$WorkspaceName' (workspaceId: $WorkspaceId)..."
+        $operationInfo = Add-FabricWorkspaceIdentity -WorkspaceId $WorkspaceId -ErrorAction Stop -WarningAction SilentlyContinue
+
+        # Add-FabricWorkspaceIdentity catches all errors internally without rethrowing.
+        # When the identity is already provisioned the API returns 200/409 with an empty or
+        # error body; the module swallows the error and returns $null or an empty array.
+        # Treat either as "already provisioned" — return $null so the caller can skip the
+        # report entry cleanly without raising a failure.
+        $isEmptyResponse = ($null -eq $operationInfo) -or ($operationInfo -is [array] -and $operationInfo.Count -eq 0)
+        if ($isEmptyResponse) {
+            Write-Verbose "Workspace identity for '$WorkspaceName' is already provisioned (provisionIdentity returned no operation). Skipping identity report entry."
+            return $null
         }
-        catch {
-            # No identity yet or endpoint unavailable — proceed to provision
-            Write-Debug "Could not check existing identity for '$WorkspaceName': $_"
-        }
+
+        # Normalise: Invoke-FabricAPIRequest wraps 200 responses in a ToArray() array.
+        $firstItem = if ($operationInfo -is [array]) { $operationInfo[0] } else { $operationInfo }
 
         $identity = $null
 
-        if ($existingIdentity -and $existingIdentity.servicePrincipalId) {
-            Write-Verbose "Workspace '$WorkspaceName' already has an identity. Skipping provisioning."
-            $identity = $existingIdentity
+        if ($firstItem.OperationId) {
+            # 202 Accepted — asynchronous provisioning started
+            Write-Verbose "Identity provisioning accepted (operationId: $($firstItem.OperationId)). Waiting for completion..."
+            $operationStatus = Get-FabricLongRunningOperation `
+                -operationId $firstItem.OperationId `
+                -location    $firstItem.Location `
+                -ErrorAction Stop
+
+            if ($operationStatus.status -notin @('Succeeded', 'Completed')) {
+                throw "Identity provisioning operation ended with status '$($operationStatus.status)' for '$WorkspaceName'."
+            }
+
+            $identityResult = Get-FabricLongRunningOperationResult `
+                -operationId $firstItem.OperationId `
+                -ErrorAction Stop
+
+            # The module returns results as an array via List.ToArray()
+            $identity = if ($identityResult -is [array]) { $identityResult[0] } else { $identityResult }
         }
-        else {
-            # Provision via MicrosoftFabricMgmt module.
-            # Add-FabricWorkspaceIdentity returns an operation-tracking object when the API
-            # responds 202 (async). We use the module's LRO functions to wait for completion
-            # and retrieve the provisioned identity details.
-            Write-Host "Provisioning Workspace Identity for '$WorkspaceName' (workspaceId: $WorkspaceId)..."
-            $operationInfo = Add-FabricWorkspaceIdentity -WorkspaceId $WorkspaceId -ErrorAction Stop -WarningAction SilentlyContinue
-
-            if ($operationInfo -and $operationInfo.OperationId) {
-                Write-Verbose "Identity provisioning accepted (operationId: $($operationInfo.OperationId)). Waiting for completion..."
-                $operationStatus = Get-FabricLongRunningOperation `
-                    -operationId $operationInfo.OperationId `
-                    -location    $operationInfo.Location `
-                    -ErrorAction Stop
-
-                if ($operationStatus.status -notin @('Succeeded', 'Completed')) {
-                    throw "Identity provisioning operation ended with status '$($operationStatus.status)' for '$WorkspaceName'."
-                }
-
-                $identityResult = Get-FabricLongRunningOperationResult `
-                    -operationId $operationInfo.OperationId `
-                    -ErrorAction Stop
-
-                # The module returns results as an array via List.ToArray()
-                $identity = if ($identityResult -is [array]) { $identityResult[0] } else { $identityResult }
-            }
-            elseif ($operationInfo -and $operationInfo.servicePrincipalId) {
-                # Synchronous completion — operation info is the identity itself
-                $identity = $operationInfo
-            }
+        elseif ($firstItem.servicePrincipalId) {
+            # 200 with identity data — already provisioned, API returned existing details
+            $identity = $firstItem
         }
 
         if (-not $identity -or -not $identity.servicePrincipalId) {
