@@ -46,6 +46,10 @@ function New-FabricTopologyConfig {
     .PARAMETER EnableMonitoring
         Array of workspace type names that should have monitoring enabled.
         Defaults to no workspace types (opt-in).
+    .PARAMETER EnablePipelines
+        Array of workspace type names that should have a Fabric deployment pipeline created.
+        Each pipeline spans all environments in order, with one stage per environment.
+        Defaults to no workspace types (opt-in).
     .PARAMETER RoleAssignments
         Array of role assignment rules to apply to workspaces. Each rule is a hashtable with:
           PrincipalId    (required) — Entra object ID of the group, user, or service principal
@@ -109,6 +113,8 @@ function New-FabricTopologyConfig {
         [string[]]$EnableMonitoring,
 
         [hashtable[]]$RoleAssignments,
+
+        [string[]]$EnablePipelines,
 
         [string]$OutputPath
     )
@@ -192,6 +198,9 @@ function New-FabricTopologyConfig {
     # Resolve EnableMonitoring — default to no workspace types (opt-in)
     $monitoringTypes = if ($EnableMonitoring) { $EnableMonitoring } else { @() }
 
+    # Resolve EnablePipelines — default to no workspace types (opt-in)
+    $pipelineTypes = if ($EnablePipelines) { $EnablePipelines } else { @() }
+
     # Build environments list
     $envList = foreach ($envName in $Environments) {
         $shortCode    = $envShortCodes[$envName]
@@ -243,8 +252,9 @@ function New-FabricTopologyConfig {
             [pscustomobject]@{ enabled = $false }
         }
 
-        $identityEnabled   = $wsType -in $identityTypes
+        $identityEnabled  = $wsType -in $identityTypes
         $monitoringEnabled = $wsType -in $monitoringTypes
+        $pipelineEnabled  = $wsType -in $pipelineTypes
 
         # Resolve role assignments per environment for this workspace type
         $rbacByEnv = [ordered]@{}
@@ -274,6 +284,7 @@ function New-FabricTopologyConfig {
             git        = $gitBlock
             identity   = [pscustomobject]@{ enabled = $identityEnabled }
             monitoring = [pscustomobject]@{ enabled = $monitoringEnabled }
+            pipeline   = [pscustomobject]@{ enabled = $pipelineEnabled }
             rbac       = $rbacByEnv
         }
     }

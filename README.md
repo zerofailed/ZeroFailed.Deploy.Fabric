@@ -1,6 +1,6 @@
 # `ZeroFailed.Deploy.Fabric` — Microsoft Fabric Workspace Provisioner
 
-A ZeroFailed extension module for provisioning Microsoft Fabric workspaces across DTAP environments. Workspaces are named from a convention, connected to Git, optionally provisioned with Workspace Identities, optionally configured with workspace monitoring, and optionally have Entra-based RBAC role assignments applied. All provisioning steps are idempotent and safe to re-run.
+A ZeroFailed extension module for provisioning Microsoft Fabric workspaces across DTAP environments. Workspaces are named from a convention, connected to Git, optionally provisioned with Workspace Identities, optionally configured with workspace monitoring, optionally have Entra-based RBAC role assignments applied, and optionally have Fabric deployment pipelines set up across environments. All provisioning steps are idempotent and safe to re-run.
 
 ### Requirements
 
@@ -29,6 +29,7 @@ $FabricSkipGit            = $false
 $FabricSkipIdentity       = $false
 $FabricSkipMonitoring     = $false
 $FabricSkipRbac           = $false
+$FabricSkipPipeline       = $false
 $FabricWhatIf             = $false
 ```
 
@@ -58,6 +59,7 @@ $topology = New-FabricTopologyConfig `
     } `
     -EnableIdentity      @("Bronze", "Silver", "Gold") `
     -EnableMonitoring    @("Bronze", "Silver", "Gold", "Reporting") `
+    -EnablePipelines     @("Bronze", "Silver", "Gold") `
     -RoleAssignments     @(
         # All workspaces, all environments: read-only for the reporting group
         @{ PrincipalId = "aaaaaaaa-0000-0000-0000-000000000001"; PrincipalType = "Group"; Role = "Viewer" }
@@ -80,6 +82,9 @@ $result.Monitoring | Format-Table WorkspaceName, WorkspaceId, Enabled
 
 # 7. Inspect the role assignment report
 $result.RoleAssignments | Format-Table WorkspaceName, PrincipalId, Role, Action
+
+# 8. Inspect the deployment pipeline report
+$result.Pipelines | Format-Table PipelineName, PipelineId, WorkspaceType, StagesAssigned, Action
 ```
 
 ---
@@ -123,6 +128,7 @@ New-FabricTopologyConfig `
     } `
     -EnableIdentity      @("Bronze", "Silver", "Gold") `
     -EnableMonitoring    @("Bronze", "Silver", "Gold", "Reporting") `
+    -EnablePipelines     @("Bronze", "Silver", "Gold") `
     -RoleAssignments     @(
         @{ PrincipalId = "aaaaaaaa-..."; PrincipalType = "Group"; Role = "Viewer" }
         @{ PrincipalId = "bbbbbbbb-..."; PrincipalType = "Group"; Role = "Contributor";
@@ -146,6 +152,7 @@ New-FabricTopologyConfig `
 | `-GitWorkspaceConfig` | `hashtable` | No | — | Per-workspace-type Git configuration (see below) |
 | `-EnableIdentity` | `string[]` | No | All types | Workspace types that should have a Workspace Identity provisioned |
 | `-EnableMonitoring` | `string[]` | No | None | Workspace types that should have monitoring enabled |
+| `-EnablePipelines` | `string[]` | No | None | Workspace types that should have a Fabric deployment pipeline created (one pipeline per type, spanning all environments) |
 | `-RoleAssignments` | `hashtable[]` | No | None | Role assignment rules applied by workspace type and environment (see below) |
 | `-OutputPath` | `string` | No | — | Write the generated config as JSON to this path |
 
@@ -256,7 +263,7 @@ Rules are **additive** — all matching rules apply to a given workspace/environ
 
 #### `Invoke-FabricSetup`
 
-Orchestrates the full provisioning pipeline. For each environment × workspace combination: resolves the name, creates the workspace (idempotent), connects Git (in the designated Git environment only, for configured workspace types), provisions identity, enables monitoring, and applies RBAC role assignments. Returns a structured results object.
+Orchestrates the full provisioning pipeline. For each environment × workspace combination: resolves the name, creates the workspace (idempotent), connects Git (in the designated Git environment only, for configured workspace types), provisions identity, enables monitoring, and applies RBAC role assignments. After the per-workspace loop, creates or updates Fabric deployment pipelines for workspace types with pipelines enabled. Returns a structured results object.
 
 ```powershell
 # Full run from config object
@@ -276,7 +283,8 @@ $result = Invoke-FabricSetup -Config $topology -SkipGit
 $result = Invoke-FabricSetup -Config $topology -SkipIdentity
 $result = Invoke-FabricSetup -Config $topology -SkipMonitoring
 $result = Invoke-FabricSetup -Config $topology -SkipRbac
-$result = Invoke-FabricSetup -Config $topology -SkipGit -SkipIdentity -SkipMonitoring -SkipRbac
+$result = Invoke-FabricSetup -Config $topology -SkipPipeline
+$result = Invoke-FabricSetup -Config $topology -SkipGit -SkipIdentity -SkipMonitoring -SkipRbac -SkipPipeline
 ```
 
 **Parameters:**
@@ -290,6 +298,7 @@ $result = Invoke-FabricSetup -Config $topology -SkipGit -SkipIdentity -SkipMonit
 | `-SkipIdentity` | `switch` | Skip identity provisioning for all workspaces |
 | `-SkipMonitoring` | `switch` | Skip monitoring enablement for all workspaces |
 | `-SkipRbac` | `switch` | Skip role assignment application for all workspaces |
+| `-SkipPipeline` | `switch` | Skip deployment pipeline setup for all workspace types |
 | `-WhatIf` | `switch` | Simulate all operations; no API calls are made |
 
 **Return value:**
@@ -299,7 +308,8 @@ $result.Summary         # @{ Created=int; Skipped=int; Failed=int }
 $result.Identities      # Array of identity entries — handoff for downstream Azure RBAC
 $result.Monitoring      # Array of monitoring report entries
 $result.RoleAssignments # Array of role assignment report entries
-$result.Failures        # Array of per-workspace failure details
+$result.Pipelines       # Array of deployment pipeline report entries
+$result.Failures        # Array of per-workspace/pipeline failure details
 ```
 
 **Identity report structure** (one entry per provisioned identity):
@@ -336,6 +346,18 @@ $result.Failures        # Array of per-workspace failure details
 }
 ```
 
+**Pipeline report structure** (one entry per workspace type with pipelines enabled):
+
+```powershell
+@{
+    PipelineName   = "salesanalytics-Bronze Pipeline"
+    PipelineId     = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+    WorkspaceType  = "Bronze"
+    StagesAssigned = 3        # number of stage-workspace assignments made this run
+    Action         = "Created"  # Created | Updated | Skipped | WhatIf
+}
+```
+
 **Working with results:**
 
 ```powershell
@@ -354,6 +376,10 @@ $result.Monitoring | ForEach-Object { [pscustomobject]$_ } | Format-Table
 # View role assignment report
 $result.RoleAssignments | ForEach-Object { [pscustomobject]$_ } |
     Format-Table WorkspaceName, PrincipalId, Role, Action
+
+# View pipeline report
+$result.Pipelines | ForEach-Object { [pscustomobject]$_ } |
+    Format-Table PipelineName, PipelineId, StagesAssigned, Action
 
 # Check for failures
 if ($result.Failures.Count -gt 0) {
@@ -391,6 +417,20 @@ Normally called by `Invoke-FabricSetup`.
 #### `Set-FabricWorkspaceRoleAssignment`
 
 Applies a single Entra Group, User, or Service Principal role assignment to a Fabric workspace using the role assignment API (`GET/POST/PATCH /workspaces/{id}/roleAssignments`). Idempotent — skips if the principal already holds the correct role, updates if the role has drifted, creates if not present. Normally called by `Invoke-FabricSetup`.
+
+#### `Set-FabricDeploymentPipeline`
+
+Creates or updates a Fabric deployment pipeline for a single workspace type. Each environment in the topology becomes a named stage. Workspaces are assigned to stages where they already exist; stages for environments whose workspaces have not yet been provisioned are left unassigned and can be assigned on a subsequent run.
+
+Idempotent: if the pipeline already exists, only vacant stages are assigned. Stages already assigned to the correct workspace are skipped. Stages assigned to a different workspace emit a warning and are not touched (manual intervention required).
+
+Pipeline naming convention: `{project}-{typeCode} Pipeline` — e.g. `salesanalytics-Bronze Pipeline`.
+
+Normally called by `Invoke-FabricSetup`; can also be used directly.
+
+```powershell
+$pipelineResult = Set-FabricDeploymentPipeline -Config $topology -WorkspaceType 'Bronze' -Token $token
+```
 
 #### `Test-FabricWorkspaceExists`
 
@@ -434,6 +474,16 @@ Invoke-FabricSetup
             ├── same role → skip
             ├── different role → PATCH /roleAssignments/{id}
             └── not found → POST /roleAssignments  → append to $result.RoleAssignments
+│
+└── For each workspace type with pipeline.enabled=true:  (unless -SkipPipeline)
+    └── Set-FabricDeploymentPipeline
+        ├── Test-FabricWorkspaceExists per environment → build stageMap
+        ├── GET /deploymentPipelines  (paginated, find by name)
+        │   ├── not found → POST /deploymentPipelines  (stages defined at creation)
+        │   └── found     → GET /deploymentPipelines/{id}/stages
+        └── For each vacant stage with a known workspace:
+            └── POST /deploymentPipelines/{id}/stages/{stageId}/assignWorkspace
+                → append to $result.Pipelines
 ```
 
 ---
@@ -461,12 +511,23 @@ $result = Invoke-FabricSetup -Config $topology
 # existing Git connections → logged as already connected (Dev only)
 # existing identities → skipped, SP details still returned
 # existing role assignments with correct role → Skipped
+# existing pipelines with correct stage assignments → Skipped
 $result = Invoke-FabricSetup -Config $topology
 ```
 
 **Skip individual steps:**
 
 ```powershell
+$result = Invoke-FabricSetup -Config $topology -SkipGit -SkipIdentity -SkipMonitoring -SkipRbac -SkipPipeline
+```
+
+**Provision workspaces first, then wire up pipelines:**
+
+```powershell
+# Provision all workspaces across all environments
+$result = Invoke-FabricSetup -Config $topology -SkipPipeline
+
+# Once workspaces exist, set up deployment pipelines
 $result = Invoke-FabricSetup -Config $topology -SkipGit -SkipIdentity -SkipMonitoring -SkipRbac
 ```
 
@@ -489,7 +550,8 @@ Invoke-Pester ./module -Output Detailed
 
 The test suite covers:
 - `_Resolve-WorkspaceName` — correct name generation, lowercasing, truncation, error cases
-- `New-FabricTopologyConfig` — environment count, workspace count, capacity assignment, Git opt-in per workspace type (`-GitWorkspaceConfig`), single Git environment (`-GitEnvironment`), identity filtering, monitoring filtering, RBAC role assignment rules (`-RoleAssignments`), `-OutputPath` JSON output, GitHub provider, validation errors
+- `New-FabricTopologyConfig` — environment count, workspace count, capacity assignment, Git opt-in per workspace type (`-GitWorkspaceConfig`), single Git environment (`-GitEnvironment`), identity filtering, monitoring filtering, pipeline opt-in (`-EnablePipelines`), RBAC role assignment rules (`-RoleAssignments`), `-OutputPath` JSON output, GitHub provider, validation errors
+- `Set-FabricDeploymentPipeline` — WhatIf, create+assign all stages, skip when fully assigned, update vacant stages, skip missing workspaces gracefully, pagination across continuation tokens, API error propagation, report field correctness
 - Module-level tests — manifest validation, export checks, private function isolation
 
 ---
@@ -527,6 +589,8 @@ ZeroFailed.Deploy.Fabric/
     │   ├── New-FabricWorkspace.Tests.ps1
     │   ├── Set-FabricGitIntegration.ps1
     │   ├── Set-FabricGitIntegration.Tests.ps1
+    │   ├── Set-FabricDeploymentPipeline.ps1
+    │   ├── Set-FabricDeploymentPipeline.Tests.ps1
     │   ├── Set-FabricWorkspaceRoleAssignment.ps1
     │   ├── Set-FabricWorkspaceRoleAssignment.Tests.ps1
     │   ├── Test-FabricWorkspaceExists.ps1

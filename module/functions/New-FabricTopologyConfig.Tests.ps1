@@ -378,3 +378,35 @@ Describe 'New-FabricTopologyConfig — RBAC configuration' {
         )} | Should -Throw
     }
 }
+
+Describe 'New-FabricTopologyConfig — Pipeline configuration' {
+
+    It 'disables pipelines for all types by default' {
+        $config = New-FabricTopologyConfig @script:commonParams
+        $config.workspaces | ForEach-Object {
+            $_.pipeline.enabled | Should -Be $false
+        }
+    }
+
+    It 'enables pipelines only for specified types' {
+        $config = New-FabricTopologyConfig @script:commonParams -EnablePipelines @('Bronze', 'Gold')
+        $bronzeWs    = $config.workspaces | Where-Object { $_.type -eq 'Bronze' }
+        $silverWs    = $config.workspaces | Where-Object { $_.type -eq 'Silver' }
+        $goldWs      = $config.workspaces | Where-Object { $_.type -eq 'Gold' }
+        $reportingWs = $config.workspaces | Where-Object { $_.type -eq 'Reporting' }
+
+        $bronzeWs.pipeline.enabled    | Should -Be $true
+        $goldWs.pipeline.enabled      | Should -Be $true
+        $silverWs.pipeline.enabled    | Should -Be $false
+        $reportingWs.pipeline.enabled | Should -Be $false
+    }
+
+    It 'enables pipeline for a single type' {
+        $config = New-FabricTopologyConfig @script:commonParams -EnablePipelines @('Reporting')
+        $reportingWs = $config.workspaces | Where-Object { $_.type -eq 'Reporting' }
+        $bronzeWs    = $config.workspaces | Where-Object { $_.type -eq 'Bronze' }
+
+        $reportingWs.pipeline.enabled | Should -Be $true
+        $bronzeWs.pipeline.enabled    | Should -Be $false
+    }
+}

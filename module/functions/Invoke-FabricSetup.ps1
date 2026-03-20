@@ -9,7 +9,11 @@ function Invoke-FabricSetup {
           3. Connects to Git (idempotent)
           4. Provisions Workspace Identity (if enabled)
           5. Enables workspace monitoring (if enabled)
-        Returns a structured results object with a summary, identity report, and monitoring report.
+          6. Applies RBAC role assignments (if configured)
+        Then, for each workspace type with pipelines enabled:
+          7. Creates or updates the deployment pipeline across all environments
+        Returns a structured results object with a summary, identity report, monitoring report,
+        role assignment report, and pipeline report.
     .PARAMETER Config
         Topology config object produced by New-FabricTopologyConfig.
     .PARAMETER ConfigPath
@@ -22,8 +26,12 @@ function Invoke-FabricSetup {
         Skip identity provisioning for all workspaces.
     .PARAMETER SkipMonitoring
         Skip monitoring enablement for all workspaces.
+    .PARAMETER SkipRbac
+        Skip role assignment application for all workspaces.
+    .PARAMETER SkipPipeline
+        Skip deployment pipeline setup for all workspace types.
     .OUTPUTS
-        PSCustomObject with Summary, Identities, Monitoring, and Failures.
+        PSCustomObject with Summary, Identities, Monitoring, RoleAssignments, Pipelines, and Failures.
     .EXAMPLE
         Invoke-FabricSetup -Config $topology -Environments @("Dev") -WhatIf
     .EXAMPLE
@@ -43,7 +51,8 @@ function Invoke-FabricSetup {
         [switch]$SkipGit,
         [switch]$SkipIdentity,
         [switch]$SkipMonitoring,
-        [switch]$SkipRbac
+        [switch]$SkipRbac,
+        [switch]$SkipPipeline
     )
 
     $ErrorActionPreference = 'Stop'
@@ -99,6 +108,7 @@ function Invoke-FabricSetup {
         Identities      = [System.Collections.Generic.List[hashtable]]::new()
         Monitoring      = [System.Collections.Generic.List[hashtable]]::new()
         RoleAssignments = [System.Collections.Generic.List[hashtable]]::new()
+        Pipelines       = [System.Collections.Generic.List[hashtable]]::new()
         Failures        = [System.Collections.Generic.List[hashtable]]::new()
     }
 
@@ -249,7 +259,30 @@ function Invoke-FabricSetup {
         }
     }
 
-    # --- 6. Report ---
+    # --- 6. Deployment Pipelines (per workspace type, spans all environments) ---
+    if (-not $SkipPipeline) {
+        $pipelineWorkspaces = $Config.workspaces | Where-Object { $_.pipeline.enabled }
+        foreach ($ws in $pipelineWorkspaces) {
+            try {
+                $pipelineResult = Set-FabricDeploymentPipeline `
+                    -Config        $Config `
+                    -WorkspaceType $ws.type `
+                    -Token         $token
+                $results.Pipelines.Add($pipelineResult)
+            }
+            catch {
+                Write-Warning "Deployment pipeline setup failed for '$($ws.type)' — $_"
+                $results.Failures.Add(@{
+                    WorkspaceName = "$($ws.type) pipeline"
+                    Environment   = 'all'
+                    Step          = 'Pipeline'
+                    Error         = $_.ToString()
+                })
+            }
+        }
+    }
+
+    # --- 7. Report ---
     $s = $results.Summary
     Write-Verbose "=== Provisioning complete — Created: $($s.Created)  Skipped: $($s.Skipped)  Failed: $($s.Failed) ==="
 
