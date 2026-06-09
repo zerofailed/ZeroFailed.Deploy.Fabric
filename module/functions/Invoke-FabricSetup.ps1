@@ -76,9 +76,14 @@ function Invoke-FabricSetup {
     # Initialise MicrosoftFabricMgmt module session by injecting our already-acquired token.
     # Set-FabricApiHeaders always triggers a fresh interactive login, so we bypass it and
     # set the module's internal auth context directly using the token from _Get-FabricAuthToken.
-    # MicrosoftFabricMgmt is guaranteed loaded via RequiredModules in the psd1.
+    # Import and resolve a single module instance explicitly to avoid invalid '&' invocation.
+    Import-Module MicrosoftFabricMgmt -ErrorAction Stop
     $tenantId         = (Get-AzContext -ErrorAction Stop).Tenant.Id
-    $fabricMgmtModule = Get-Module MicrosoftFabricMgmt
+    $fabricMgmtModules = Get-Module MicrosoftFabricMgmt -All
+    if (-not $fabricMgmtModules) {
+        throw "MicrosoftFabricMgmt is not loaded. Ensure the module is installed and importable."
+    }
+    $fabricMgmtModule = $fabricMgmtModules | Sort-Object Version -Descending | Select-Object -First 1
     & $fabricMgmtModule {
         param($tok, $exp, $tid)
         $script:FabricAuthContext.FabricHeaders = @{
