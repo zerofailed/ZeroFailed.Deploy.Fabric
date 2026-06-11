@@ -24,7 +24,8 @@ New-FabricTopologyConfig [-Project] <string> [-WorkspaceTypes] <string[]> [-Envi
  [-CapacityMap] <hashtable> [[-GitProvider] <string>] [[-GitOrganisation] <string>]
  [[-GitProject] <string>] [[-GitEnvironment] <string>] [[-GitWorkspaceConfig] <hashtable>]
  [[-EnableIdentity] <string[]>] [[-EnableMonitoring] <string[]>] [[-RoleAssignments] <hashtable[]>]
- [[-EnablePipelines] <string[]>] [[-OutputPath] <string>] [<CommonParameters>]
+ [[-EnablePipelines] <string[]>] [[-TypeShortCodes] <hashtable>] [[-EnvShortCodes] <hashtable>]
+ [[-OutputPath] <string>] [<CommonParameters>]
 ```
 
 ## ALIASES
@@ -158,6 +159,11 @@ HelpMessage: ''
 
 Array of DTAP environment names.
 Valid values: Dev, Test, Acceptance, Production.
+Array of environment names.
+Any name is accepted.
+Dev, Test, Acceptance, and Production have built-in display short codes (DEV, TEST, ACC, PROD);
+any other name is uppercased with whitespace removed to form its short code,
+unless overridden via -EnvShortCodes.
 
 ```yaml
 Type: System.String[]
@@ -168,6 +174,30 @@ ParameterSets:
 - Name: (All)
   Position: 2
   IsRequired: true
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
+```
+
+### -EnvShortCodes
+
+Optional hashtable mapping environment names to the display short code used in workspace names.
+Overrides built-in defaults and the generated fallback.
+E.g.
+@{ Staging = 'STG' }.
+
+```yaml
+Type: System.Collections.Hashtable
+DefaultValue: ''
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: (All)
+  Position: 14
+  IsRequired: false
   ValueFromPipeline: false
   ValueFromPipelineByPropertyName: false
   ValueFromRemainingArguments: false
@@ -309,7 +339,7 @@ SupportsWildcards: false
 Aliases: []
 ParameterSets:
 - Name: (All)
-  Position: 13
+  Position: 15
   IsRequired: false
   ValueFromPipeline: false
   ValueFromPipelineByPropertyName: false
@@ -370,11 +400,40 @@ AcceptedValues: []
 HelpMessage: ''
 ```
 
+### -TypeShortCodes
+
+Optional hashtable mapping workspace type names to the display short code used in workspace names.
+Overrides built-in defaults and the generated fallback.
+E.g.
+@{ Lakehouse = 'LH' }.
+
+```yaml
+Type: System.Collections.Hashtable
+DefaultValue: ''
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: (All)
+  Position: 13
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
+```
+
 ### -WorkspaceTypes
 
 Array of workspace type names to provision.
 Valid values:
 Bronze, Silver, Gold, ETL, Storage, Reporting.
+Array of workspace type names to provision.
+Any name is accepted.
+Bronze, Silver, Gold, ETL, Storage, and Reporting have built-in display short codes;
+any other name uses the name itself (with whitespace removed) as its short code,
+unless overridden via -TypeShortCodes.
 
 ```yaml
 Type: System.String[]

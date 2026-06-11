@@ -271,6 +271,69 @@ Describe 'Config shape validation' {
     }
 }
 
+Describe 'New-FabricTopologyConfig — custom workspace types and environments' {
+
+    It 'accepts workspace type and environment names outside the built-in lists' {
+        $config = New-FabricTopologyConfig `
+            -Project        'test' `
+            -WorkspaceTypes @('Lakehouse', 'Warehouse') `
+            -Environments   @('Sandbox', 'Staging') `
+            -CapacityMap    @{ Sandbox = 'cap-sandbox'; Staging = 'cap-staging' }
+
+        $config.workspaces.Count   | Should -Be 2
+        $config.environments.Count | Should -Be 2
+        ($config.workspaces | Where-Object { $_.type -eq 'Lakehouse' }) | Should -Not -BeNullOrEmpty
+    }
+
+    It 'generates an uppercased, whitespace-stripped short code for a custom environment' {
+        $config = New-FabricTopologyConfig `
+            -Project        'test' `
+            -WorkspaceTypes @('Lakehouse') `
+            -Environments   @('Pre Prod') `
+            -CapacityMap    @{ 'Pre Prod' = 'cap-preprod' }
+
+        $config.namingConvention.envShortCodes.'Pre Prod' | Should -Be 'PREPROD'
+    }
+
+    It 'generates a whitespace-stripped, case-preserved short code for a custom workspace type' {
+        $config = New-FabricTopologyConfig `
+            -Project        'test' `
+            -WorkspaceTypes @('Data Science') `
+            -Environments   @('Dev') `
+            -CapacityMap    @{ Dev = 'cap-dev' }
+
+        $config.namingConvention.typeShortCodes.'Data Science' | Should -Be 'DataScience'
+    }
+
+    It 'still applies built-in short codes for known names alongside custom ones' {
+        $config = New-FabricTopologyConfig `
+            -Project        'test' `
+            -WorkspaceTypes @('Reporting', 'Lakehouse') `
+            -Environments   @('Production', 'Sandbox') `
+            -CapacityMap    @{ Production = 'cap-prod'; Sandbox = 'cap-sandbox' }
+
+        $config.namingConvention.typeShortCodes.Reporting | Should -Be 'Report'
+        $config.namingConvention.typeShortCodes.Lakehouse | Should -Be 'Lakehouse'
+        $config.namingConvention.envShortCodes.Production | Should -Be 'PROD'
+        $config.namingConvention.envShortCodes.Sandbox    | Should -Be 'SANDBOX'
+    }
+
+    It 'honours -TypeShortCodes and -EnvShortCodes overrides above defaults and fallbacks' {
+        $config = New-FabricTopologyConfig `
+            -Project        'test' `
+            -WorkspaceTypes @('Reporting', 'Lakehouse') `
+            -Environments   @('Production', 'Sandbox') `
+            -CapacityMap    @{ Production = 'cap-prod'; Sandbox = 'cap-sandbox' } `
+            -TypeShortCodes @{ Reporting = 'RPT'; Lakehouse = 'LH' } `
+            -EnvShortCodes  @{ Production = 'LIVE'; Sandbox = 'SBX' }
+
+        $config.namingConvention.typeShortCodes.Reporting | Should -Be 'RPT'
+        $config.namingConvention.typeShortCodes.Lakehouse | Should -Be 'LH'
+        $config.namingConvention.envShortCodes.Production | Should -Be 'LIVE'
+        $config.namingConvention.envShortCodes.Sandbox    | Should -Be 'SBX'
+    }
+}
+
 Describe 'New-FabricTopologyConfig — RBAC configuration' {
 
     It 'produces an empty rbac entry per environment when no RoleAssignments are specified' {

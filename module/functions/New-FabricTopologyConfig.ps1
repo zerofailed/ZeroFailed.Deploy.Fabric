@@ -14,10 +14,15 @@ function New-FabricTopologyConfig {
         Project name used as the first segment of every workspace name (e.g. "SalesAnalytics").
         Casing is preserved as-is; only characters outside [A-Za-z0-9-] are replaced with hyphens.
     .PARAMETER WorkspaceTypes
-        Array of workspace type names to provision. Valid values:
-        Bronze, Silver, Gold, ETL, Storage, Reporting.
+        Array of workspace type names to provision. Any name is accepted.
+        Bronze, Silver, Gold, ETL, Storage, and Reporting have built-in display short codes;
+        any other name uses the name itself (with whitespace removed) as its short code,
+        unless overridden via -TypeShortCodes.
     .PARAMETER Environments
-        Array of DTAP environment names. Valid values: Dev, Test, Acceptance, Production.
+        Array of environment names. Any name is accepted.
+        Dev, Test, Acceptance, and Production have built-in display short codes (DEV, TEST, ACC, PROD);
+        any other name is uppercased with whitespace removed to form its short code,
+        unless overridden via -EnvShortCodes.
     .PARAMETER CapacityMap
         Hashtable mapping each environment name to its Fabric capacity name.
         E.g. @{ Dev="cap-dev"; Test="cap-test"; Acceptance="cap-acc"; Production="cap-prod" }
@@ -58,6 +63,12 @@ function New-FabricTopologyConfig {
           WorkspaceTypes (optional) — array of workspace type names this rule applies to; omit for all types
           Environments   (optional) — array of environment names this rule applies to; omit for all environments
         Each rule is resolved per workspace type and environment and stored in the topology config.
+    .PARAMETER TypeShortCodes
+        Optional hashtable mapping workspace type names to the display short code used in workspace names.
+        Overrides built-in defaults and the generated fallback. E.g. @{ Lakehouse = 'LH' }.
+    .PARAMETER EnvShortCodes
+        Optional hashtable mapping environment names to the display short code used in workspace names.
+        Overrides built-in defaults and the generated fallback. E.g. @{ Staging = 'STG' }.
     .PARAMETER OutputPath
         Optional file path to write the generated config as JSON.
         If omitted, the config object is returned only.
@@ -87,11 +98,11 @@ function New-FabricTopologyConfig {
         [string]$Project,
 
         [Parameter(Mandatory)]
-        [ValidateSet('Bronze', 'Silver', 'Gold', 'ETL', 'Storage', 'Reporting')]
+        [ValidateNotNullOrEmpty()]
         [string[]]$WorkspaceTypes,
 
         [Parameter(Mandatory)]
-        [ValidateSet('Dev', 'Test', 'Acceptance', 'Production')]
+        [ValidateNotNullOrEmpty()]
         [string[]]$Environments,
 
         [Parameter(Mandatory)]
@@ -115,6 +126,10 @@ function New-FabricTopologyConfig {
         [hashtable[]]$RoleAssignments,
 
         [string[]]$EnablePipelines,
+
+        [hashtable]$TypeShortCodes,
+
+        [hashtable]$EnvShortCodes,
 
         [string]$OutputPath
     )
@@ -176,8 +191,8 @@ function New-FabricTopologyConfig {
     # Normalise project name — preserve casing, replace non-alphanumeric/hyphen chars
     $projectNorm = $Project -replace '[^a-zA-Z0-9\-]', '-' -replace '-{2,}', '-'
 
-    # Fixed short-code maps — values define exact display casing in workspace names
-    $typeShortCodes = @{
+    # Built-in short codes — values define exact display casing in workspace names
+    $defaultTypeShortCodes = @{
         Bronze    = 'Bronze'
         Silver    = 'Silver'
         Gold      = 'Gold'
@@ -185,11 +200,30 @@ function New-FabricTopologyConfig {
         Storage   = 'Storage'
         Reporting = 'Report'
     }
-    $envShortCodes = @{
+    $defaultEnvShortCodes = @{
         Dev        = 'DEV'
         Test       = 'TEST'
         Acceptance = 'ACC'
         Production = 'PROD'
+    }
+
+    # Resolve a short code for each requested type/environment.
+    # Precedence: caller override > built-in default > generated fallback.
+    # Type fallback: name with whitespace removed (casing preserved).
+    # Env fallback:  name uppercased with whitespace removed.
+    $resolvedTypeShortCodes = @{}
+    foreach ($wsType in $WorkspaceTypes) {
+        $resolvedTypeShortCodes[$wsType] =
+            if ($TypeShortCodes -and $TypeShortCodes.ContainsKey($wsType)) { $TypeShortCodes[$wsType] }
+            elseif ($defaultTypeShortCodes.ContainsKey($wsType))           { $defaultTypeShortCodes[$wsType] }
+            else                                                           { $wsType -replace '\s', '' }
+    }
+    $resolvedEnvShortCodes = @{}
+    foreach ($envName in $Environments) {
+        $resolvedEnvShortCodes[$envName] =
+            if ($EnvShortCodes -and $EnvShortCodes.ContainsKey($envName)) { $EnvShortCodes[$envName] }
+            elseif ($defaultEnvShortCodes.ContainsKey($envName))          { $defaultEnvShortCodes[$envName] }
+            else                                                          { ($envName -replace '\s', '').ToUpper() }
     }
 
     # Resolve EnableIdentity — default to all workspace types
@@ -203,7 +237,7 @@ function New-FabricTopologyConfig {
 
     # Build environments list
     $envList = foreach ($envName in $Environments) {
-        $shortCode    = $envShortCodes[$envName]
+        $shortCode    = $resolvedEnvShortCodes[$envName]
         $capacityName = $CapacityMap[$envName]
         if (-not $capacityName) {
             throw "CapacityMap is missing an entry for environment '$envName'."
@@ -217,7 +251,7 @@ function New-FabricTopologyConfig {
 
     # Build workspace list
     $workspaceList = foreach ($wsType in $WorkspaceTypes) {
-        $typeCode      = $typeShortCodes[$wsType]
+        $typeCode      = $resolvedTypeShortCodes[$wsType]
         $wsGitConfig   = if ($GitWorkspaceConfig) { $GitWorkspaceConfig[$wsType] } else { $null }
         $gitEnabled    = $null -ne $wsGitConfig -and -not [string]::IsNullOrEmpty($GitEnvironment)
 
@@ -298,8 +332,8 @@ function New-FabricTopologyConfig {
         namingConvention  = [pscustomobject]@{
             template       = '{project}-{type} [{env}]'
             maxLength      = 64
-            typeShortCodes = [pscustomobject]$typeShortCodes
-            envShortCodes  = [pscustomobject]$envShortCodes
+            typeShortCodes = [pscustomobject]$resolvedTypeShortCodes
+            envShortCodes  = [pscustomobject]$resolvedEnvShortCodes
         }
         environments      = @($envList)
         workspaces        = @($workspaceList)
