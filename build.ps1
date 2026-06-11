@@ -1,46 +1,65 @@
-<#
-.SYNOPSIS
-    InvokeBuild bootstrapper for ZeroFailed.Deploy.Fabric.
-.DESCRIPTION
-    Downloads and bootstraps the ZeroFailed build framework, then delegates
-    to Invoke-Build with the tasks defined in .zf/config.ps1.
-.PARAMETER Tasks
-    The build task(s) to run. Defaults to the default task defined in config.ps1.
-.PARAMETER Configuration
-    Build configuration (e.g. Debug, Release). Defaults to 'Release'.
-.PARAMETER NuGetApiKey
-    NuGet API key used when publishing the module.
-#>
 [CmdletBinding()]
-param(
-    [string[]]$Tasks = @('.'),
-    [string]$Configuration = 'Release',
-    [string]$NuGetApiKey
+param (
+    [Parameter(Position=0)]
+    [string[]] $Tasks = @("."),
+
+    [Parameter()]
+    [string] $Configuration = "Debug",
+
+    [Parameter()]
+    [string] $SourcesDir = $PWD,
+
+    [Parameter()]
+    [string] $PackagesDir = "_packages",
+
+    [Parameter()]
+    [ValidateSet("minimal","normal","detailed")]
+    [string] $LogLevel = "minimal",
+
+    [Parameter()]
+    [string] $ZfModuleVersion = "1.0.6",
+
+    [Parameter()]
+    [version] $InvokeBuildModuleVersion = "5.12.1"
 )
-
-Set-StrictMode -Version 3
 $ErrorActionPreference = 'Stop'
+$here = Split-Path -Parent $PSCommandPath
 
-# Bootstrap: ensure InvokeBuild is available
-if (-not (Get-Module -ListAvailable -Name InvokeBuild)) {
-    Write-Host 'Installing InvokeBuild...' -ForegroundColor Cyan
-    Install-Module InvokeBuild -Scope CurrentUser -Force -ErrorAction Stop
+#region InvokeBuild setup
+# This handles calling the build engine when this file is run like a normal PowerShell script
+# (i.e. avoids the need to have another script to setup the InvokeBuild environment and issue the 'Invoke-Build' command )
+if ($MyInvocation.ScriptName -notlike '*Invoke-Build.ps1') {
+    Install-PSResource InvokeBuild -Version $InvokeBuildModuleVersion -Scope CurrentUser -TrustRepository | Out-Null
+    try {
+        Invoke-Build $Tasks $MyInvocation.MyCommand.Path @PSBoundParameters
+    }
+    catch {
+        if ($env:GITHUB_ACTIONS) {
+            Write-Host ("::error file={0},line={1},col={2}::{3}" -f `
+                            $_.InvocationInfo.ScriptName,
+                            $_.InvocationInfo.ScriptLineNumber,
+                            $_.InvocationInfo.OffsetInLine,
+                            $_.Exception.Message
+                        )
+        }
+        Write-Host -f Yellow "`n`n***`n*** Build Failure Summary - check previous logs for more details`n***"
+        Write-Host -f Yellow $_.Exception.Message
+        Write-Host -f Yellow $_.ScriptStackTrace
+        exit 1
+    }
+    return
 }
+#endregion
 
-Import-Module InvokeBuild -ErrorAction Stop
+#region Initialise build framework
+Import-Module Microsoft.PowerShell.PSResourceGet
+Install-PSResource ZeroFailed -Version $ZfModuleVersion -Scope CurrentUser -TrustRepository | Out-Null
+# Ensure only 1 version of the module is loaded
+Get-Module ZeroFailed | Remove-Module
+Import-Module ZeroFailed -RequiredVersion ($ZfModuleVersion -split '-')[0] -Force -Verbose:$false
+$ver = "{0} {1}" -f (Get-Module ZeroFailed).Version, (Get-Module ZeroFailed).PrivateData.PsData.PreRelease
+Write-Host "Using ZeroFailed module version: $ver"
+#endregion
 
-# Bootstrap ZeroFailed framework
-$zfPath = Join-Path $PSScriptRoot '.zf'
-if (-not (Test-Path (Join-Path $zfPath 'ZeroFailed.tasks.ps1'))) {
-    Write-Host 'Bootstrapping ZeroFailed framework...' -ForegroundColor Cyan
-
-    $bootstrapUrl = 'https://raw.githubusercontent.com/zerofailed/ZeroFailed/main/bootstrap.ps1'
-    $bootstrapScript = Join-Path ([System.IO.Path]::GetTempPath()) 'zf-bootstrap.ps1'
-    Invoke-WebRequest -Uri $bootstrapUrl -OutFile $bootstrapScript -ErrorAction Stop
-    & $bootstrapScript -ZfPath $zfPath
-}
-
-# Run the build
-Invoke-Build -File (Join-Path $PSScriptRoot '.zf/config.ps1') -Task $Tasks `
-    -Configuration $Configuration `
-    -NuGetApiKey $NuGetApiKey
+# Load the build configuration
+. $here/.zf/config.ps1
