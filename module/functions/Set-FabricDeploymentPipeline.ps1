@@ -16,8 +16,10 @@ function Set-FabricDeploymentPipeline {
         The workspace type name to create the pipeline for (e.g. "Bronze").
     .PARAMETER Token
         Bearer token string for the Fabric REST API.
-    .OUTPUTS
-        Hashtable: PipelineName, PipelineId, WorkspaceType, StagesAssigned, Action.
+    .EXAMPLE
+        Set-FabricDeploymentPipeline -Config $topology -WorkspaceType 'Bronze' -Token $token
+
+        Creates or updates the deployment pipeline for the Bronze workspace type across all environments.
     #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([hashtable])]

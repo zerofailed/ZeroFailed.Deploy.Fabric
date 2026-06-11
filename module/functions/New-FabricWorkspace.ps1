@@ -2,12 +2,17 @@ function New-FabricWorkspace {
     <#
     .SYNOPSIS
         Creates a Fabric workspace idempotently (skips creation if it already exists).
+    .DESCRIPTION
+        Checks whether a workspace with the given display name already exists and returns it if so.
+        Otherwise creates a new workspace on the specified capacity and returns the created object.
     .PARAMETER DisplayName
         The display name for the workspace.
     .PARAMETER CapacityName
         The Fabric capacity to assign to the workspace.
-    .OUTPUTS
-        The workspace object (existing or newly created).
+    .EXAMPLE
+        New-FabricWorkspace -DisplayName 'SalesAnalytics-ETL [DEV]' -CapacityName 'cap-dev'
+
+        Creates the workspace on the cap-dev capacity, or returns it if it already exists.
     #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([pscustomobject])]

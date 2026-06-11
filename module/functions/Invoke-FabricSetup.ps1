@@ -30,12 +30,14 @@ function Invoke-FabricSetup {
         Skip role assignment application for all workspaces.
     .PARAMETER SkipPipeline
         Skip deployment pipeline setup for all workspace types.
-    .OUTPUTS
-        PSCustomObject with Summary, Identities, Monitoring, RoleAssignments, Pipelines, and Failures.
     .EXAMPLE
         Invoke-FabricSetup -Config $topology -Environments @("Dev") -WhatIf
+
+        Runs the provisioning pipeline for the Dev environment in WhatIf mode.
     .EXAMPLE
         Invoke-FabricSetup -ConfigPath "./topology.json" -SkipGit
+
+        Runs the full provisioning pipeline from a saved topology config, skipping Git integration.
     #>
     [CmdletBinding(DefaultParameterSetName = 'Object', SupportsShouldProcess)]
     [OutputType([pscustomobject])]

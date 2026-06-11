@@ -20,8 +20,10 @@ function Set-FabricWorkspaceRoleAssignment {
         The type of principal: Group, User, or ServicePrincipal.
     .PARAMETER Role
         The workspace role to assign: Admin, Contributor, Member, or Viewer.
-    .OUTPUTS
-        Hashtable: WorkspaceName, WorkspaceId, PrincipalId, PrincipalType, Role, Action.
+    .EXAMPLE
+        Set-FabricWorkspaceRoleAssignment -WorkspaceId $ws.id -WorkspaceName 'SalesAnalytics-ETL [DEV]' -PrincipalId $groupId -PrincipalType 'Group' -Role 'Member' -Token $token
+
+        Ensures the given Entra group holds the Member role on the workspace, applying the change idempotently.
     #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([hashtable])]
