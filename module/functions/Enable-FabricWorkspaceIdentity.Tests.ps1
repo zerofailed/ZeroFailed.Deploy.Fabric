@@ -4,6 +4,16 @@
 BeforeAll {
     $modulePath = Join-Path $PSScriptRoot '..' 'ZeroFailed.Deploy.Fabric.psd1'
     Import-Module $modulePath -Force -ErrorAction Stop
+
+    # MicrosoftFabricMgmt is a runtime-only dependency that is not installed in CI. Define
+    # stubs in the module's scope so its cmdlets can be mocked below without the real module.
+    InModuleScope ZeroFailed.Deploy.Fabric {
+        foreach ($cmd in 'Add-FabricWorkspaceIdentity', 'Get-FabricLongRunningOperation', 'Get-FabricLongRunningOperationResult') {
+            if (-not (Get-Command $cmd -ErrorAction SilentlyContinue)) {
+                Set-Item -Path "function:script:$cmd" -Value { }
+            }
+        }
+    }
 }
 
 Describe 'Enable-FabricWorkspaceIdentity' {
