@@ -7,7 +7,10 @@
     Description       = 'ZeroFailed extension module for provisioning Microsoft Fabric workspaces across DTAP environments.'
     PowerShellVersion = '7.0'
     CompatiblePSEditions = @('Core')
-    RequiredModules   = @('MicrosoftFabricMgmt')
+    # RequiredModules intentionally left empty. Runtime dependencies (MicrosoftFabricMgmt,
+    # Az.Accounts) are validated by _Assert-Prerequisites and imported on demand within the
+    # functions that need them, so they are not required at module-import time (e.g. for docs).
+    RequiredModules = @()
     FunctionsToExport = '*'
     CmdletsToExport   = @()
     VariablesToExport = @()
