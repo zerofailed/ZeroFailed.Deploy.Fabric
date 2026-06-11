@@ -428,3 +428,4 @@ _packages/
 *.sbom.*
 PesterCodeCoverage.xml
 PesterTestResults.xml
+topology.json
