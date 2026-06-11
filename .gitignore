@@ -426,3 +426,5 @@ FodyWeavers.xsd
 _codeCoverage/
 _packages/
 *.sbom.*
+PesterCodeCoverage.xml
+PesterTestResults.xml
