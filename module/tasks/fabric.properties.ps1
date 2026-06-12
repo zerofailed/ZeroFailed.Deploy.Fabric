@@ -8,4 +8,5 @@ $FabricSkipIdentity      ??= $false
 $FabricSkipMonitoring    ??= $false
 $FabricSkipRbac          ??= $false
 $FabricSkipPipeline      ??= $false
+$FabricSkipPipelineRbac  ??= $false
 $FabricWhatIf            ??= $false

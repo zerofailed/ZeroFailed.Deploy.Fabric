@@ -63,6 +63,14 @@ function New-FabricTopologyConfig {
           WorkspaceTypes (optional) — array of workspace type names this rule applies to; omit for all types
           Environments   (optional) — array of environment names this rule applies to; omit for all environments
         Each rule is resolved per workspace type and environment and stored in the topology config.
+    .PARAMETER PipelineRoleAssignments
+        Array of role assignment rules to apply to deployment pipelines. Each rule is a hashtable with:
+          PrincipalId    (required) — Entra object ID of the group, user, or service principal
+          PrincipalType  (required) — Group, User, or ServicePrincipal
+          Role           (optional) — only 'Admin' is supported by Fabric deployment pipelines; defaults to 'Admin'
+          WorkspaceTypes (optional) — array of workspace type names this rule applies to; omit for all types
+        Pipelines span all environments, so these rules are not environment-scoped. Each rule is
+        resolved per workspace type and stored on the workspace's pipeline block in the topology config.
     .PARAMETER TypeShortCodes
         Optional hashtable mapping workspace type names to the display short code used in workspace names.
         Overrides built-in defaults and the generated fallback. E.g. @{ Lakehouse = 'LH' }.
@@ -127,6 +135,8 @@ function New-FabricTopologyConfig {
 
         [string[]]$EnablePipelines,
 
+        [hashtable[]]$PipelineRoleAssignments,
+
         [hashtable]$TypeShortCodes,
 
         [hashtable]$EnvShortCodes,
@@ -183,6 +193,26 @@ function New-FabricTopologyConfig {
             foreach ($envName in @($rule.Environments)) {
                 if ($envName -and $envName -notin $Environments) {
                     throw "-RoleAssignments entry for '$($rule.PrincipalId)' references environment '$envName' which is not in -Environments."
+                }
+            }
+        }
+    }
+
+    # Validate PipelineRoleAssignments rules — deployment pipelines only support the 'Admin' role
+    if ($PipelineRoleAssignments) {
+        foreach ($rule in $PipelineRoleAssignments) {
+            if (-not $rule.PrincipalId) {
+                throw "Each -PipelineRoleAssignments entry must include 'PrincipalId'."
+            }
+            if ($rule.PrincipalType -notin $validPrincipalTypes) {
+                throw "-PipelineRoleAssignments entry for '$($rule.PrincipalId)' has invalid PrincipalType '$($rule.PrincipalType)'. Valid values: $($validPrincipalTypes -join ', ')."
+            }
+            if ($rule.ContainsKey('Role') -and $rule.Role -ne 'Admin') {
+                throw "-PipelineRoleAssignments entry for '$($rule.PrincipalId)' has invalid Role '$($rule.Role)'. Fabric deployment pipelines only support the 'Admin' role."
+            }
+            foreach ($wsType in @($rule.WorkspaceTypes)) {
+                if ($wsType -and $wsType -notin $WorkspaceTypes) {
+                    throw "-PipelineRoleAssignments entry for '$($rule.PrincipalId)' references workspace type '$wsType' which is not in -WorkspaceTypes."
                 }
             }
         }
@@ -312,13 +342,29 @@ function New-FabricTopologyConfig {
             )
         }
 
+        # Resolve pipeline role assignments for this workspace type (pipelines span all environments).
+        # Only meaningful when the pipeline is enabled — otherwise there is no pipeline to assign to.
+        $pipelineRbac = @(
+            if ($pipelineEnabled -and $PipelineRoleAssignments) {
+                $PipelineRoleAssignments |
+                    Where-Object { -not $_.WorkspaceTypes -or $wsType -in $_.WorkspaceTypes } |
+                    ForEach-Object {
+                        [pscustomobject]@{
+                            principalId   = $_.PrincipalId
+                            principalType = $_.PrincipalType
+                            role          = if ($_.ContainsKey('Role') -and $_.Role) { $_.Role } else { 'Admin' }
+                        }
+                    }
+            }
+        )
+
         [pscustomobject]@{
             id         = $typeCode
             type       = $wsType
             git        = $gitBlock
             identity   = [pscustomobject]@{ enabled = $identityEnabled }
             monitoring = [pscustomobject]@{ enabled = $monitoringEnabled }
-            pipeline   = [pscustomobject]@{ enabled = $pipelineEnabled }
+            pipeline   = [pscustomobject]@{ enabled = $pipelineEnabled; roleAssignments = $pipelineRbac }
             rbac       = $rbacByEnv
         }
     }

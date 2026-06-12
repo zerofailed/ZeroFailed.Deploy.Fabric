@@ -12,8 +12,9 @@ function Invoke-FabricSetup {
           6. Applies RBAC role assignments (if configured)
         Then, for each workspace type with pipelines enabled:
           7. Creates or updates the deployment pipeline across all environments
+          8. Applies deployment pipeline role assignments (if configured)
         Returns a structured results object with a summary, identity report, monitoring report,
-        role assignment report, and pipeline report.
+        role assignment report, pipeline report, and pipeline role assignment report.
     .PARAMETER Config
         Topology config object produced by New-FabricTopologyConfig.
     .PARAMETER ConfigPath
@@ -30,6 +31,8 @@ function Invoke-FabricSetup {
         Skip role assignment application for all workspaces.
     .PARAMETER SkipPipeline
         Skip deployment pipeline setup for all workspace types.
+    .PARAMETER SkipPipelineRbac
+        Skip deployment pipeline role assignment application for all workspace types.
     .EXAMPLE
         Invoke-FabricSetup -Config $topology -Environments @("Dev") -WhatIf
 
@@ -54,7 +57,8 @@ function Invoke-FabricSetup {
         [switch]$SkipIdentity,
         [switch]$SkipMonitoring,
         [switch]$SkipRbac,
-        [switch]$SkipPipeline
+        [switch]$SkipPipeline,
+        [switch]$SkipPipelineRbac
     )
 
     $ErrorActionPreference = 'Stop'
@@ -116,6 +120,7 @@ function Invoke-FabricSetup {
         Monitoring      = [System.Collections.Generic.List[hashtable]]::new()
         RoleAssignments = [System.Collections.Generic.List[hashtable]]::new()
         Pipelines       = [System.Collections.Generic.List[hashtable]]::new()
+        PipelineRoleAssignments = [System.Collections.Generic.List[hashtable]]::new()
         Failures        = [System.Collections.Generic.List[hashtable]]::new()
     }
 
@@ -287,6 +292,35 @@ function Invoke-FabricSetup {
                     Step          = 'Pipeline'
                     Error         = $_.ToString()
                 })
+                continue
+            }
+
+            # Pipeline Role Assignments — non-fatal, log and continue
+            if (-not $SkipPipelineRbac) {
+                $pipelineRbac = $ws.pipeline.roleAssignments
+                if ($pipelineRbac -and $pipelineRbac.Count -gt 0) {
+                    foreach ($entry in $pipelineRbac) {
+                        try {
+                            $rbacResult = Set-FabricDeploymentPipelineRoleAssignment `
+                                -PipelineId    $pipelineResult.PipelineId `
+                                -PipelineName  $pipelineResult.PipelineName `
+                                -PrincipalId   $entry.principalId `
+                                -PrincipalType $entry.principalType `
+                                -Role          $entry.role `
+                                -Token         $token
+                            $results.PipelineRoleAssignments.Add($rbacResult)
+                        }
+                        catch {
+                            Write-Warning "Pipeline role assignment failed for '$($pipelineResult.PipelineName)' (principal: $($entry.principalId)) — $_"
+                            $results.Failures.Add(@{
+                                WorkspaceName = "$($ws.type) pipeline"
+                                Environment   = 'all'
+                                Step          = 'PipelineRoleAssignment'
+                                Error         = $_.ToString()
+                            })
+                        }
+                    }
+                }
             }
         }
     }

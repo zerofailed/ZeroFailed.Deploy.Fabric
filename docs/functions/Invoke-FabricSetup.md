@@ -21,14 +21,16 @@ Orchestrates the full Fabric workspace provisioning pipeline from a topology con
 
 ```
 Invoke-FabricSetup [-Config] <psobject> [-Environments <string[]>] [-SkipGit] [-SkipIdentity]
- [-SkipMonitoring] [-SkipRbac] [-SkipPipeline] [-WhatIf] [-Confirm] [<CommonParameters>]
+ [-SkipMonitoring] [-SkipRbac] [-SkipPipeline] [-SkipPipelineRbac] [-WhatIf] [-Confirm]
+ [<CommonParameters>]
 ```
 
 ### File
 
 ```
 Invoke-FabricSetup -ConfigPath <string> [-Environments <string[]>] [-SkipGit] [-SkipIdentity]
- [-SkipMonitoring] [-SkipRbac] [-SkipPipeline] [-WhatIf] [-Confirm] [<CommonParameters>]
+ [-SkipMonitoring] [-SkipRbac] [-SkipPipeline] [-SkipPipelineRbac] [-WhatIf] [-Confirm]
+ [<CommonParameters>]
 ```
 
 ## ALIASES
@@ -51,8 +53,10 @@ Applies RBAC role assignments (if configured)
 Then, for each workspace type with pipelines enabled:
   7.
 Creates or updates the deployment pipeline across all environments
+  8.
+Applies deployment pipeline role assignments (if configured)
 Returns a structured results object with a summary, identity report, monitoring report,
-role assignment report, and pipeline report.
+role assignment report, pipeline report, and pipeline role assignment report.
 
 ## EXAMPLES
 
@@ -222,6 +226,27 @@ HelpMessage: ''
 ### -SkipPipeline
 
 Skip deployment pipeline setup for all workspace types.
+
+```yaml
+Type: System.Management.Automation.SwitchParameter
+DefaultValue: False
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: (All)
+  Position: Named
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
+```
+
+### -SkipPipelineRbac
+
+Skip deployment pipeline role assignment application for all workspace types.
 
 ```yaml
 Type: System.Management.Automation.SwitchParameter

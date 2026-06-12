@@ -33,6 +33,7 @@ task provisionFabricWorkspaces -After DeployCore {
         SkipMonitoring = $FabricSkipMonitoring
         SkipRbac      = $FabricSkipRbac
         SkipPipeline  = $FabricSkipPipeline
+        SkipPipelineRbac = $FabricSkipPipelineRbac
         WhatIf        = $FabricWhatIf
     }
 

@@ -24,7 +24,8 @@ New-FabricTopologyConfig [-Project] <string> [-WorkspaceTypes] <string[]> [-Envi
  [-CapacityMap] <hashtable> [[-GitProvider] <string>] [[-GitOrganisation] <string>]
  [[-GitProject] <string>] [[-GitEnvironment] <string>] [[-GitWorkspaceConfig] <hashtable>]
  [[-EnableIdentity] <string[]>] [[-EnableMonitoring] <string[]>] [[-RoleAssignments] <hashtable[]>]
- [[-EnablePipelines] <string[]>] [[-TypeShortCodes] <hashtable>] [[-EnvShortCodes] <hashtable>]
+ [[-EnablePipelines] <string[]>] [[-PipelineRoleAssignments] <hashtable[]>]
+ [[-TypeShortCodes] <hashtable>] [[-EnvShortCodes] <hashtable>]
  [[-OutputPath] <string>] [<CommonParameters>]
 ```
 
@@ -340,6 +341,34 @@ Aliases: []
 ParameterSets:
 - Name: (All)
   Position: 15
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
+```
+
+### -PipelineRoleAssignments
+
+Array of role assignment rules to apply to deployment pipelines.
+Each rule is a hashtable with:
+  PrincipalId    (required) — Entra object ID of the group, user, or service principal
+  PrincipalType  (required) — Group, User, or ServicePrincipal
+  Role           (optional) — only 'Admin' is supported by Fabric deployment pipelines; defaults to 'Admin'
+  WorkspaceTypes (optional) — array of workspace type names this rule applies to; omit for all types
+Pipelines span all environments, so these rules are not environment-scoped.
+Each rule is resolved per workspace type and stored on the workspace's pipeline block in the topology config.
+
+```yaml
+Type: System.Collections.Hashtable[]
+DefaultValue: ''
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: (All)
+  Position: 13
   IsRequired: false
   ValueFromPipeline: false
   ValueFromPipelineByPropertyName: false
