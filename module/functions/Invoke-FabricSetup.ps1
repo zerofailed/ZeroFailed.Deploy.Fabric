@@ -153,7 +153,7 @@ function Invoke-FabricSetup {
                     $results.Summary.Skipped++
                 }
                 else {
-                    $workspaceObj = New-FabricWorkspace `
+                    $workspaceObj = ZeroFailed.Deploy.Fabric\New-FabricWorkspace `
                         -DisplayName  $resolvedName `
                         -CapacityName $env.capacityName
                     if (-not $WhatIfPreference) {
