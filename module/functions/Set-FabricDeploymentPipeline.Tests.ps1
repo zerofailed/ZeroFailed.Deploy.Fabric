@@ -220,3 +220,53 @@ Describe 'Set-FabricDeploymentPipeline' {
         $result.WorkspaceType | Should -Be 'Bronze'
     }
 }
+
+Describe 'Set-FabricDeploymentPipeline — StrictMode safety' {
+
+    # The ZeroFailed build harness (e.g. in Azure DevOps) runs under Set-StrictMode, where
+    # accessing a property the API omitted throws "The property X cannot be found on this object".
+    # The real Fabric API omits 'continuationToken' on the last page and 'workspaceId' on
+    # unassigned stages. InModuleScope runs in the module's session state so StrictMode applies
+    # to the function under test, reproducing the ADO condition.
+    It 'completes when responses omit continuationToken and stage workspaceId' {
+        InModuleScope ZeroFailed.Deploy.Fabric {
+            Set-StrictMode -Version Latest
+
+            $cfg = New-FabricTopologyConfig `
+                -Project         'salesanalytics' `
+                -WorkspaceTypes  @('Bronze') `
+                -Environments    @('Dev', 'Test', 'Production') `
+                -CapacityMap     @{ Dev = 'cap-dev'; Test = 'cap-test'; Production = 'cap-prod' } `
+                -EnablePipelines @('Bronze')
+
+            Mock Test-FabricWorkspaceExists {
+                param($DisplayName)
+                [pscustomobject]@{ id = "ws-$($DisplayName -replace '.*\[(\w+)\].*', '$1')" }
+            }
+
+            Mock _Invoke-FabricRestMethod {
+                param($Method, $RelativeUri)
+                if ($Method -eq 'GET' -and $RelativeUri -eq 'deploymentPipelines') {
+                    # Single/last page — API omits continuationToken entirely
+                    return [pscustomobject]@{ value = @() }
+                }
+                if ($Method -eq 'POST' -and $RelativeUri -eq 'deploymentPipelines') {
+                    # Freshly created stages carry no workspaceId property at all
+                    return [pscustomobject]@{
+                        id     = 'pipeline-001'
+                        stages = @(
+                            [pscustomobject]@{ id = 'stage-dev';  order = 0; displayName = 'Dev' }
+                            [pscustomobject]@{ id = 'stage-test'; order = 1; displayName = 'Test' }
+                            [pscustomobject]@{ id = 'stage-prod'; order = 2; displayName = 'Production' }
+                        )
+                    }
+                }
+                return $null
+            }
+
+            $result = Set-FabricDeploymentPipeline -Config $cfg -WorkspaceType 'Bronze' -Token 'tok'
+            $result.Action         | Should -Be 'Created'
+            $result.StagesAssigned | Should -Be 3
+        }
+    }
+}

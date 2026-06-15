@@ -58,8 +58,11 @@ function Set-FabricDeploymentPipeline {
         do {
             $page             = _Invoke-FabricRestMethod -Method GET -RelativeUri $nextUri -Token $Token -ErrorAction Stop
             $existingPipeline = $page.value | Where-Object { $_.displayName -eq $pipelineName } | Select-Object -First 1
-            $nextUri          = if ($page.continuationToken) {
-                "deploymentPipelines?continuationToken=$($page.continuationToken)"
+            # continuationToken is only present when more pages remain. Guard the access so it
+            # does not throw under Set-StrictMode (as enforced by the ZeroFailed build harness).
+            $continuationToken = if ($page.PSObject.Properties.Name -contains 'continuationToken') { $page.continuationToken } else { $null }
+            $nextUri          = if ($continuationToken) {
+                "deploymentPipelines?continuationToken=$continuationToken"
             }
             else { $null }
         } while (-not $existingPipeline -and $nextUri)
@@ -110,13 +113,17 @@ function Set-FabricDeploymentPipeline {
                 continue
             }
 
-            if ($stage.workspaceId -eq $workspaceId) {
+            # workspaceId is absent on unassigned stages. Guard the access so it does not throw
+            # under Set-StrictMode (as enforced by the ZeroFailed build harness).
+            $stageWorkspaceId = if ($stage.PSObject.Properties.Name -contains 'workspaceId') { $stage.workspaceId } else { $null }
+
+            if ($stageWorkspaceId -eq $workspaceId) {
                 Write-Verbose "Stage '$($stage.displayName)' already assigned to the correct workspace. Skipping."
                 continue
             }
 
-            if ($stage.workspaceId) {
-                Write-Warning "Stage '$($stage.displayName)' is already assigned to workspace '$($stage.workspaceId)' (expected '$workspaceId'). Unassign manually if a change is needed."
+            if ($stageWorkspaceId) {
+                Write-Warning "Stage '$($stage.displayName)' is already assigned to workspace '$stageWorkspaceId' (expected '$workspaceId'). Unassign manually if a change is needed."
                 continue
             }
 

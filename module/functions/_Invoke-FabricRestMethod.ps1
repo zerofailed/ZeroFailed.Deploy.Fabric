@@ -88,14 +88,18 @@ function _Invoke-FabricRestMethod {
                 throw "LRO poll failed on $locationUrl : $($_.ErrorDetails.Message)"
             }
 
-            $opStatus = $pollResponse.status ?? $pollResponse.operationStatus ?? 'Running'
+            # Guard optional property access so it does not throw under Set-StrictMode.
+            $status          = if ($pollResponse.PSObject.Properties.Name -contains 'status')          { $pollResponse.status }          else { $null }
+            $operationStatus = if ($pollResponse.PSObject.Properties.Name -contains 'operationStatus') { $pollResponse.operationStatus } else { $null }
+            $opStatus        = if ($status) { $status } elseif ($operationStatus) { $operationStatus } else { 'Running' }
             Write-Debug "LRO status: $opStatus"
 
             if ($opStatus -in @('Succeeded', 'Completed')) {
                 return $pollResponse
             }
             elseif ($opStatus -in @('Failed', 'Canceled')) {
-                $errMsg = $pollResponse.error.message ?? 'Unknown LRO failure'
+                $errObj = if ($pollResponse.PSObject.Properties.Name -contains 'error') { $pollResponse.error } else { $null }
+                $errMsg = if ($errObj -and $errObj.PSObject.Properties.Name -contains 'message') { $errObj.message } else { 'Unknown LRO failure' }
                 throw "LRO operation failed with status '$opStatus': $errMsg"
             }
         }

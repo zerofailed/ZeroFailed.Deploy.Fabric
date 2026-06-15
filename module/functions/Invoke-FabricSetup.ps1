@@ -83,7 +83,10 @@ function Invoke-FabricSetup {
     # Set-FabricApiHeaders always triggers a fresh interactive login, so we bypass it and
     # set the module's internal auth context directly using the token from _Get-FabricAuthToken.
     # Import and resolve a single module instance explicitly to avoid invalid '&' invocation.
-    Import-Module MicrosoftFabricMgmt -ErrorAction Stop
+    # Import with -Global: MicrosoftFabricMgmt also exports a 'New-FabricWorkspace', and importing
+    # into this module's session state would shadow our own function. Keeping its commands in the
+    # global session state lets our module-local New-FabricWorkspace win by module-scope precedence.
+    Import-Module MicrosoftFabricMgmt -Global -ErrorAction Stop
     $tenantId         = (Get-AzContext -ErrorAction Stop).Tenant.Id
     $fabricMgmtModules = Get-Module MicrosoftFabricMgmt -All
     if (-not $fabricMgmtModules) {
@@ -158,7 +161,11 @@ function Invoke-FabricSetup {
                     $results.Summary.Skipped++
                 }
                 else {
-                    $workspaceObj = ZeroFailed.Deploy.Fabric\New-FabricWorkspace `
+                    # Bare call resolves to our module-local New-FabricWorkspace (module-scope
+                    # precedence over the global MicrosoftFabricMgmt one imported above). A
+                    # module-qualified call here fails under Azure DevOps with a spurious
+                    # "module could not be loaded" auto-load error.
+                    $workspaceObj = New-FabricWorkspace `
                         -DisplayName  $resolvedName `
                         -CapacityName $env.capacityName
                     if (-not $WhatIfPreference) {
