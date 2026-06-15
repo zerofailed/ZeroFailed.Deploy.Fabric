@@ -20,8 +20,8 @@ Creates a Fabric workspace idempotently (skips creation if it already exists).
 ### __AllParameterSets
 
 ```
-New-FabricWorkspace [-DisplayName] <string> [-CapacityName] <string> [-WhatIf] [-Confirm]
- [<CommonParameters>]
+New-FabricWorkspace [-DisplayName] <string> [-CapacityName] <string> [-Token] <string> [-WhatIf]
+ [-Confirm] [<CommonParameters>]
 ```
 
 ## ALIASES
@@ -30,12 +30,14 @@ New-FabricWorkspace [-DisplayName] <string> [-CapacityName] <string> [-WhatIf] [
 
 Checks whether a workspace with the given display name already exists and returns it if so.
 Otherwise creates a new workspace on the specified capacity and returns the created object.
+Tolerates a WorkspaceNameAlreadyExists (HTTP 409) conflict by resolving and returning the
+existing workspace, so creation is idempotent.
 
 ## EXAMPLES
 
 ### EXAMPLE 1
 
-New-FabricWorkspace -DisplayName 'SalesAnalytics-ETL [DEV]' -CapacityName 'cap-dev'
+New-FabricWorkspace -DisplayName 'SalesAnalytics-ETL [DEV]' -CapacityName 'cap-dev' -Token $token
 
 Creates the workspace on the cap-dev capacity, or returns it if it already exists.
 
@@ -96,6 +98,27 @@ Aliases: []
 ParameterSets:
 - Name: (All)
   Position: 0
+  IsRequired: true
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
+```
+
+### -Token
+
+Bearer token string for the Fabric REST API, used for the idempotency lookup.
+
+```yaml
+Type: System.String
+DefaultValue: ''
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: (All)
+  Position: 2
   IsRequired: true
   ValueFromPipeline: false
   ValueFromPipelineByPropertyName: false

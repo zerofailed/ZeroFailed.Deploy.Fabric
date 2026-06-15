@@ -45,7 +45,7 @@ function Set-FabricDeploymentPipeline {
         $stageMap = [ordered]@{}
         foreach ($env in $Config.environments) {
             $wsDisplayName = _Resolve-WorkspaceName -Config $Config -WorkspaceId $typeCode -EnvironmentName $env.name
-            $wsObj         = Test-FabricWorkspaceExists -DisplayName $wsDisplayName
+            $wsObj         = Test-FabricWorkspaceExists -DisplayName $wsDisplayName -Token $Token
             $stageMap[$env.name] = if ($wsObj) { $wsObj.id } else { $null }
             if (-not $wsObj) {
                 Write-Verbose "Workspace '$wsDisplayName' not found — stage '$($env.name)' will not be assigned."

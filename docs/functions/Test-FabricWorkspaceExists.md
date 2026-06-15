@@ -20,22 +20,22 @@ Checks whether a Fabric workspace with the given display name already exists.
 ### __AllParameterSets
 
 ```
-Test-FabricWorkspaceExists [-DisplayName] <string> [<CommonParameters>]
+Test-FabricWorkspaceExists [-DisplayName] <string> [-Token] <string> [<CommonParameters>]
 ```
 
 ## ALIASES
 
 ## DESCRIPTION
 
-Queries the Fabric workspaces for one matching the given display name and returns it if
-found.
-Returns $null when no matching workspace exists.
+Lists the Fabric workspaces via the REST API and returns the one whose displayName matches
+exactly, or $null when none match. Uses the same bearer-token REST path as the rest of the
+module, paginates across continuation tokens, and is safe under Set-StrictMode.
 
 ## EXAMPLES
 
 ### EXAMPLE 1
 
-Test-FabricWorkspaceExists -DisplayName 'SalesAnalytics-ETL [DEV]'
+Test-FabricWorkspaceExists -DisplayName 'SalesAnalytics-ETL [DEV]' -Token $token
 
 Returns the workspace object if it exists, otherwise $null.
 
@@ -53,6 +53,27 @@ Aliases: []
 ParameterSets:
 - Name: (All)
   Position: 0
+  IsRequired: true
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
+```
+
+### -Token
+
+Bearer token string for the Fabric REST API.
+
+```yaml
+Type: System.String
+DefaultValue: ''
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: (All)
+  Position: 1
   IsRequired: true
   ValueFromPipeline: false
   ValueFromPipelineByPropertyName: false

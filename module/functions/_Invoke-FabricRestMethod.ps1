@@ -63,6 +63,24 @@ function _Invoke-FabricRestMethod {
     catch [Microsoft.PowerShell.Commands.HttpResponseException] {
         $statusCode = [int]$_.Exception.Response.StatusCode
         $content    = $_.ErrorDetails.Message
+
+        # ErrorDetails.Message is sometimes empty (e.g. some 400s), which hides the Fabric
+        # errorCode/message. Fall back to reading the response body directly, then to the
+        # reason phrase / exception message, so the real cause is never silently lost.
+        if ([string]::IsNullOrWhiteSpace($content)) {
+            try {
+                $respContent = $_.Exception.Response.Content
+                if ($respContent) {
+                    $content = $respContent.ReadAsStringAsync().GetAwaiter().GetResult()
+                }
+            }
+            catch { }
+        }
+        if ([string]::IsNullOrWhiteSpace($content)) {
+            $reason  = $_.Exception.Response.ReasonPhrase
+            $content = if (-not [string]::IsNullOrWhiteSpace($reason)) { $reason } else { $_.Exception.Message }
+        }
+
         throw "Fabric API error $statusCode on $Method $uri : $content"
     }
 

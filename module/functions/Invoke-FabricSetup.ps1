@@ -155,7 +155,7 @@ function Invoke-FabricSetup {
 
             # b. Create workspace (idempotent) — fatal for this workspace if it fails
             try {
-                $existed = Test-FabricWorkspaceExists -DisplayName $resolvedName
+                $existed = Test-FabricWorkspaceExists -DisplayName $resolvedName -Token $token
                 if ($existed) {
                     $workspaceObj = $existed
                     $results.Summary.Skipped++
@@ -167,7 +167,8 @@ function Invoke-FabricSetup {
                     # "module could not be loaded" auto-load error.
                     $workspaceObj = New-FabricWorkspace `
                         -DisplayName  $resolvedName `
-                        -CapacityName $env.capacityName
+                        -CapacityName $env.capacityName `
+                        -Token        $token
                     if (-not $WhatIfPreference) {
                         $results.Summary.Created++
                     }
