@@ -27,37 +27,56 @@ task ensureFabricModules -Before setupModules {
 
 # Provisions Fabric workspaces after the core deploy tasks complete.
 task provisionFabricWorkspaces -After DeployCore {
-    Write-Build Cyan "Provisioning Fabric workspaces from: $FabricTopologyConfigPath"
 
-    if (-not (Test-Path $FabricTopologyConfigPath)) {
-        throw "Fabric topology config not found: $FabricTopologyConfigPath"
-    }
+    # Acquire a Fabric token for the *current* (SP) context
+    $secure  = (Get-AzAccessToken -ResourceUrl 'https://analysis.windows.net/powerbi/api' -AsSecureString).Token
+    $token   = [System.Net.NetworkCredential]::new('', $secure).Password
+    $headers = @{ Authorization = "Bearer $token"; 'Content-Type' = 'application/json' }
 
-    $setupParams = @{
-        ConfigPath    = $FabricTopologyConfigPath
-        SkipGit       = $FabricSkipGit
-        SkipIdentity  = $FabricSkipIdentity
-        SkipMonitoring = $FabricSkipMonitoring
-        SkipRbac      = $FabricSkipRbac
-        SkipPipeline  = $FabricSkipPipeline
-        SkipPipelineRbac = $FabricSkipPipelineRbac
-        WhatIf        = $FabricWhatIf
-    }
+    # List every deployment pipeline the SP can see (paginated)
+    $pipelines = [System.Collections.Generic.List[object]]::new()
+    $uri = 'https://api.fabric.microsoft.com/v1/deploymentPipelines'
+    do {
+        $page = Invoke-RestMethod -Method GET -Uri $uri -Headers $headers
+        $page.value | ForEach-Object { $pipelines.Add($_) }
+        $uri = if ($page.PSObject.Properties.Name -contains 'continuationToken' -and $page.continuationToken) {
+            "https://api.fabric.microsoft.com/v1/deploymentPipelines?continuationToken=$($page.continuationToken)"
+        } else { $null }
+    } while ($uri)
 
-    if ($FabricEnvironmentFilter -and $FabricEnvironmentFilter.Count -gt 0) {
-        $setupParams.Environments = $FabricEnvironmentFilter
-    }
+    $pipelines | Format-Table id, displayName 
 
-    $result = Invoke-FabricSetup @setupParams
+    # Write-Build Cyan "Provisioning Fabric workspaces from: $FabricTopologyConfigPath"
 
-    $s = $result.Summary
-    Write-Build Green "Provisioning complete — Created: $($s.Created)  Skipped: $($s.Skipped)  Failed: $($s.Failed)"
+    # if (-not (Test-Path $FabricTopologyConfigPath)) {
+    #     throw "Fabric topology config not found: $FabricTopologyConfigPath"
+    # }
 
-    if ($result.Failures.Count -gt 0) {
-        Write-Build Red "$($result.Failures.Count) workspace(s) failed:"
-        $result.Failures | ForEach-Object {
-            Write-Build Red "  $($_.WorkspaceName) [$($_.Environment)]: $($_.Error)"
-        }
-        throw "Fabric provisioning completed with $($result.Failures.Count) failure(s)."
-    }
+    # $setupParams = @{
+    #     ConfigPath    = $FabricTopologyConfigPath
+    #     SkipGit       = $FabricSkipGit
+    #     SkipIdentity  = $FabricSkipIdentity
+    #     SkipMonitoring = $FabricSkipMonitoring
+    #     SkipRbac      = $FabricSkipRbac
+    #     SkipPipeline  = $FabricSkipPipeline
+    #     SkipPipelineRbac = $FabricSkipPipelineRbac
+    #     WhatIf        = $FabricWhatIf
+    # }
+
+    # if ($FabricEnvironmentFilter -and $FabricEnvironmentFilter.Count -gt 0) {
+    #     $setupParams.Environments = $FabricEnvironmentFilter
+    # }
+
+    # $result = Invoke-FabricSetup @setupParams
+
+    # $s = $result.Summary
+    # Write-Build Green "Provisioning complete — Created: $($s.Created)  Skipped: $($s.Skipped)  Failed: $($s.Failed)"
+
+    # if ($result.Failures.Count -gt 0) {
+    #     Write-Build Red "$($result.Failures.Count) workspace(s) failed:"
+    #     $result.Failures | ForEach-Object {
+    #         Write-Build Red "  $($_.WorkspaceName) [$($_.Environment)]: $($_.Error)"
+    #     }
+    #     throw "Fabric provisioning completed with $($result.Failures.Count) failure(s)."
+    # }
 }
