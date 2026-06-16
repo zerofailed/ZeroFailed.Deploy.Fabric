@@ -354,7 +354,7 @@ function Invoke-FabricSetup {
             if (-not $SkipPipelineRbac) {
                 # $pipelineRbac = $ws.pipeline.roleAssignments
                 # if ($pipelineRbac -and $pipelineRbac.Count -gt 0) {
-                    foreach ($entry in $pipelineRbac) {
+                    # foreach ($entry in $pipelineRbac) {
                         try {
                             $rbacResult = Set-FabricDeploymentPipelineRoleAssignment `
                                 -PipelineId    $pipelineResult.PipelineId `
@@ -366,7 +366,7 @@ function Invoke-FabricSetup {
                             $results.PipelineRoleAssignments.Add($rbacResult)
                         }
                         catch {
-                            Write-Warning "Pipeline role assignment failed for '$($pipelineResult.PipelineName)' (principal: $($entry.principalId)) — $_"
+                            Write-Warning "Pipeline role assignment failed for '$($pipelineResult.PipelineName)' — $_"
                             $results.Failures.Add(@{
                                 # WorkspaceName = "$($ws.type) pipeline"
                                 Environment   = 'all'
@@ -374,7 +374,7 @@ function Invoke-FabricSetup {
                                 Error         = $_.ToString()
                             })
                         }
-                    }
+                    # }
                 # }
             }
         }
