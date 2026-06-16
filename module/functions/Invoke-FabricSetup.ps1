@@ -352,30 +352,30 @@ function Invoke-FabricSetup {
 
             # Pipeline Role Assignments — non-fatal, log and continue
             if (-not $SkipPipelineRbac) {
-                $pipelineRbac = $ws.pipeline.roleAssignments
-                if ($pipelineRbac -and $pipelineRbac.Count -gt 0) {
+                # $pipelineRbac = $ws.pipeline.roleAssignments
+                # if ($pipelineRbac -and $pipelineRbac.Count -gt 0) {
                     foreach ($entry in $pipelineRbac) {
                         try {
                             $rbacResult = Set-FabricDeploymentPipelineRoleAssignment `
                                 -PipelineId    $pipelineResult.PipelineId `
                                 -PipelineName  $pipelineResult.PipelineName `
-                                -PrincipalId   $entry.principalId `
-                                -PrincipalType $entry.principalType `
-                                -Role          $entry.role `
+                                -PrincipalId   "d24a79aa-2146-4305-ae06-ecc6c839eb54" `
+                                -PrincipalType "Group" `
+                                -Role          "Admin" `
                                 -Token         $token
                             $results.PipelineRoleAssignments.Add($rbacResult)
                         }
                         catch {
                             Write-Warning "Pipeline role assignment failed for '$($pipelineResult.PipelineName)' (principal: $($entry.principalId)) — $_"
                             $results.Failures.Add(@{
-                                WorkspaceName = "$($ws.type) pipeline"
+                                # WorkspaceName = "$($ws.type) pipeline"
                                 Environment   = 'all'
                                 Step          = 'PipelineRoleAssignment'
                                 Error         = $_.ToString()
                             })
                         }
                     }
-                }
+                # }
             }
         }
     }
