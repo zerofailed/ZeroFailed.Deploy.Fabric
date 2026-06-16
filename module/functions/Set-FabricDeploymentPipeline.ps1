@@ -57,6 +57,10 @@ function Set-FabricDeploymentPipeline {
         $nextUri          = 'deploymentPipelines'
         do {
             $page             = _Invoke-FabricRestMethod -Method GET -RelativeUri $nextUri -Token $Token -ErrorAction Stop
+
+
+            Write-Verbose "Found deployment pipelines: $($page.value | ForEach-Object { $_.displayName } -join ', ')"
+
             $existingPipeline = $page.value | Where-Object { $_.displayName -eq $pipelineName } | Select-Object -First 1
             # continuationToken is only present when more pages remain. Guard the access so it
             # does not throw under Set-StrictMode (as enforced by the ZeroFailed build harness).
