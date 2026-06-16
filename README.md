@@ -301,7 +301,9 @@ Deployment pipelines have their own access control, separate from the workspaces
 
 #### `Invoke-FabricSetup`
 
-Orchestrates the full provisioning pipeline. For each environment × workspace combination: resolves the name, creates the workspace (idempotent), connects Git (in the designated Git environment only, for configured workspace types), provisions identity, enables monitoring, and applies RBAC role assignments. After the per-workspace loop, creates or updates Fabric deployment pipelines for workspace types with pipelines enabled, then applies each pipeline's role assignments. Returns a structured results object.
+Orchestrates the full provisioning pipeline. For each environment × workspace combination: resolves the name, creates the workspace (idempotent), grants the deploying identity Admin on the workspace, connects Git (in the designated Git environment only, for configured workspace types), provisions identity, enables monitoring, and applies RBAC role assignments. After the per-workspace loop, creates or updates Fabric deployment pipelines for workspace types with pipelines enabled, then applies each pipeline's role assignments. Returns a structured results object.
+
+> **Deploying identity auto-grant:** every workspace is granted the identity running the deployment the **Admin** role — idempotently, and independently of `-SkipRbac`. The identity (and its Entra **object id**, which Fabric role assignments require) is resolved with `Get-AzContext` plus `Get-AzADServicePrincipal`/`Get-AzADUser` (mirroring ZeroFailed.Deploy.Azure's `getDeploymentIdentity`), so it works both as the Azure DevOps service principal and as a locally signed-in user. This guarantees the deployer can always see and re-manage the workspace on later runs — without it, a re-run hits `WorkspaceNameAlreadyExists` (names are unique tenant-wide) but cannot resolve the workspace via `GET /workspaces`. No topology config required.
 
 ```powershell
 # Full run from config object
@@ -516,13 +518,15 @@ Invoke-FabricSetup
 ├── _Assert-Prerequisites       (checks Az.Accounts and MicrosoftFabricMgmt are installed)
 ├── _Get-FabricAuthToken        (Get-AzAccessToken for Fabric API)
 ├── Inject token into MicrosoftFabricMgmt internal auth context (bypasses interactive login)
+├── _Get-FabricDeploymentIdentity  → deploying identity object id + type (Get-AzContext + Get-AzAD*)
 │
 └── For each environment × workspace:
     ├── [token refresh if < 5 min remaining]
     ├── _Resolve-WorkspaceName  → e.g. "salesanalytics-Bronze [DEV]"
-    ├── Test-FabricWorkspaceExists
+    ├── Test-FabricWorkspaceExists  → GET /workspaces (paginated, exact displayName match)
     │   ├── exists  → skip creation, increment Skipped
-    │   └── missing → New-FabricWorkspace, increment Created
+    │   └── missing → New-FabricWorkspace (POST /workspaces; 409 → resolve existing), increment Created
+    ├── Set-FabricWorkspaceRoleAssignment  (deploying identity → Admin; idempotent, independent of -SkipRbac)
     ├── Set-FabricGitIntegration    (unless -SkipGit; only when env=gitEnvironment and ws.git.enabled)
     │   ├── POST /git/connect
     │   └── POST /git/initializeConnection  [LRO polled if HTTP 202]

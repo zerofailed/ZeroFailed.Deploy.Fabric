@@ -6,13 +6,14 @@ function Invoke-FabricSetup {
         For each environment x workspace combination in the config:
           1. Resolves the workspace name via naming convention
           2. Creates the workspace (idempotent)
-          3. Connects to Git (idempotent)
-          4. Provisions Workspace Identity (if enabled)
-          5. Enables workspace monitoring (if enabled)
-          6. Applies RBAC role assignments (if configured)
+          3. Grants the deploying identity Admin on the workspace (so re-runs can resolve it)
+          4. Connects to Git (idempotent)
+          5. Provisions Workspace Identity (if enabled)
+          6. Enables workspace monitoring (if enabled)
+          7. Applies RBAC role assignments (if configured)
         Then, for each workspace type with pipelines enabled:
-          7. Creates or updates the deployment pipeline across all environments
-          8. Applies deployment pipeline role assignments (if configured)
+          8. Creates or updates the deployment pipeline across all environments
+          9. Applies deployment pipeline role assignments (if configured)
         Returns a structured results object with a summary, identity report, monitoring report,
         role assignment report, pipeline report, and pipeline role assignment report.
     .PARAMETER Config
@@ -104,6 +105,18 @@ function Invoke-FabricSetup {
         $script:FabricAuthContext.AuthMethod     = 'UserPrincipal'
     } $token $tokenInfo.ExpiresOn $tenantId
 
+    # --- 3b. Resolve the deploying identity (object id + type). ---
+    # Each workspace is granted this principal as Admin on creation so the deployer can always
+    # see and re-manage it on subsequent runs (otherwise a re-run hits WorkspaceNameAlreadyExists
+    # but cannot resolve the workspace via GET /workspaces). Best-effort: warn and continue.
+    $deployerPrincipal = _Get-FabricDeploymentIdentity
+    if ($deployerPrincipal) {
+        Write-Verbose "Deploying identity resolved: $($deployerPrincipal.Id) ($($deployerPrincipal.Type)). Will be granted Admin on each workspace."
+    }
+    else {
+        Write-Warning "Could not determine the deploying identity; workspaces will not be auto-granted Admin for the deployer."
+    }
+
     # --- 4. Determine environments to process ---
     $targetEnvs = if ($Environments) {
         $Config.environments | Where-Object { $_.name -in $Environments }
@@ -187,6 +200,31 @@ function Invoke-FabricSetup {
             }
 
             $workspaceId = $workspaceObj.id
+
+            # b2. Grant the deploying identity Admin on the workspace (idempotent, non-fatal).
+            # Guarantees the deployer can resolve the workspace on future runs. Independent of
+            # -SkipRbac, which governs only the topology's configured role assignments.
+            if ($deployerPrincipal) {
+                try {
+                    $deployerRbac = Set-FabricWorkspaceRoleAssignment `
+                        -WorkspaceId   $workspaceId `
+                        -WorkspaceName $resolvedName `
+                        -PrincipalId   $deployerPrincipal.Id `
+                        -PrincipalType $deployerPrincipal.Type `
+                        -Role          'Admin' `
+                        -Token         $token
+                    $results.RoleAssignments.Add($deployerRbac)
+                }
+                catch {
+                    Write-Warning "Failed to grant the deploying identity Admin on '$resolvedName' — $_"
+                    $results.Failures.Add(@{
+                        WorkspaceName = $resolvedName
+                        Environment   = $env.name
+                        Step          = 'DeployerRoleAssignment'
+                        Error         = $_.ToString()
+                    })
+                }
+            }
 
             # c. Git integration — only for the designated git environment, non-fatal
             if (-not $SkipGit -and $ws.git.enabled -and $Config.gitEnvironment -and $env.name -eq $Config.gitEnvironment) {

@@ -54,6 +54,8 @@ Describe 'Invoke-FabricSetup' {
             Mock Import-Module {} -ModuleName ZeroFailed.Deploy.Fabric
             Mock _Assert-Prerequisites {} -ModuleName ZeroFailed.Deploy.Fabric
             Mock _Get-FabricAuthToken { @{ Token = 'tok'; ExpiresOn = [DateTimeOffset]::UtcNow.AddHours(1) } } -ModuleName ZeroFailed.Deploy.Fabric
+            # Default: deploying identity cannot be determined (overridden in the dedicated tests).
+            Mock _Get-FabricDeploymentIdentity { $null } -ModuleName ZeroFailed.Deploy.Fabric
             Mock _Test-FabricTokenExpiry { $false } -ModuleName ZeroFailed.Deploy.Fabric
             Mock _Resolve-WorkspaceName { "$($args[0])" } -ModuleName ZeroFailed.Deploy.Fabric
             Mock Test-FabricWorkspaceExists { $null } -ModuleName ZeroFailed.Deploy.Fabric
@@ -81,6 +83,28 @@ Describe 'Invoke-FabricSetup' {
             Should -Invoke Set-FabricGitIntegration -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric  # only the git environment
             Should -Invoke Set-FabricDeploymentPipeline -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
             Should -Invoke Set-FabricDeploymentPipelineRoleAssignment -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
+        }
+
+        It 'grants the deploying identity Admin on each workspace when it can be resolved' {
+            Mock _Get-FabricDeploymentIdentity { @{ Id = 'deployer-oid'; Type = 'ServicePrincipal' } } -ModuleName ZeroFailed.Deploy.Fabric
+
+            $r = Invoke-FabricSetup -Config (New-TestConfig) -Environments @('Dev')
+
+            # Configured rbac for Dev (1) + deployer Admin (1)
+            $r.RoleAssignments.Count | Should -Be 2
+            Should -Invoke Set-FabricWorkspaceRoleAssignment -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric `
+                -ParameterFilter { $PrincipalId -eq 'deployer-oid' -and $Role -eq 'Admin' -and $PrincipalType -eq 'ServicePrincipal' }
+        }
+
+        It 'still grants the deploying identity Admin when -SkipRbac is set' {
+            Mock _Get-FabricDeploymentIdentity { @{ Id = 'deployer-oid'; Type = 'ServicePrincipal' } } -ModuleName ZeroFailed.Deploy.Fabric
+
+            $r = Invoke-FabricSetup -Config (New-TestConfig) -Environments @('Dev') -SkipRbac
+
+            # Configured rbac skipped, but the deployer Admin grant still happens
+            $r.RoleAssignments.Count | Should -Be 1
+            Should -Invoke Set-FabricWorkspaceRoleAssignment -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric `
+                -ParameterFilter { $PrincipalId -eq 'deployer-oid' -and $Role -eq 'Admin' }
         }
 
         It 'counts an existing workspace as skipped rather than created' {

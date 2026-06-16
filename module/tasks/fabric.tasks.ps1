@@ -1,6 +1,6 @@
 . $PSScriptRoot/fabric.properties.ps1
 
-# Registers Az.Accounts and MicrosoftFabricMgmt as required modules before the
+# Registers Az.Accounts, Az.Resources and MicrosoftFabricMgmt as required modules before the
 # main setupModules task runs.
 task ensureFabricModules -Before setupModules {
     Write-Build Cyan 'Registering Fabric required modules...'
@@ -8,6 +8,13 @@ task ensureFabricModules -Before setupModules {
     if (-not (Get-Module -ListAvailable -Name Az.Accounts)) {
         Write-Build Yellow 'Az.Accounts not found — installing...'
         Install-Module Az.Accounts -Scope CurrentUser -Force -ErrorAction Stop
+    }
+
+    # Az.Resources provides Get-AzADServicePrincipal / Get-AzADUser, used to resolve the
+    # deploying identity's object id so it can be granted Admin on each workspace.
+    if (-not (Get-Module -ListAvailable -Name Az.Resources)) {
+        Write-Build Yellow 'Az.Resources not found — installing...'
+        Install-Module Az.Resources -Scope CurrentUser -Force -ErrorAction Stop
     }
 
     if (-not (Get-Module -ListAvailable -Name MicrosoftFabricMgmt)) {

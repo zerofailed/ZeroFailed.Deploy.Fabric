@@ -43,17 +43,19 @@ Resolves the workspace name via naming convention
   2.
 Creates the workspace (idempotent)
   3.
-Connects to Git (idempotent)
+Grants the deploying identity Admin on the workspace (so re-runs can resolve it)
   4.
-Provisions Workspace Identity (if enabled)
+Connects to Git (idempotent)
   5.
-Enables workspace monitoring (if enabled)
+Provisions Workspace Identity (if enabled)
   6.
+Enables workspace monitoring (if enabled)
+  7.
 Applies RBAC role assignments (if configured)
 Then, for each workspace type with pipelines enabled:
-  7.
-Creates or updates the deployment pipeline across all environments
   8.
+Creates or updates the deployment pipeline across all environments
+  9.
 Applies deployment pipeline role assignments (if configured)
 Returns a structured results object with a summary, identity report, monitoring report,
 role assignment report, pipeline report, and pipeline role assignment report.
