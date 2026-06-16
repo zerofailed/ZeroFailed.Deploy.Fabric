@@ -44,6 +44,7 @@ task provisionFabricWorkspaces -After DeployCore {
         } else { $null }
     } while ($uri)
 
+    Write-Build Cyan "tenant: $tenantId username $env:AZURE_CLIENT_ID federated-token $env:AZURE_FEDERATED_TOKEN"
 
     Write-Build Cyan $pipelines
 
