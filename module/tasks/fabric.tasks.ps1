@@ -45,7 +45,7 @@ task provisionFabricWorkspaces -After DeployCore {
     } while ($uri)
 
 
-    Write-Build $pipelines
+    Write-Build Cyan $pipelines
 
     # Write-Build Cyan "Provisioning Fabric workspaces from: $FabricTopologyConfigPath"
 
