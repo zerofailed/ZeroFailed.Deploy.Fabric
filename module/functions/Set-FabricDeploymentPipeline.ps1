@@ -59,7 +59,7 @@ function Set-FabricDeploymentPipeline {
             $page             = _Invoke-FabricRestMethod -Method GET -RelativeUri $nextUri -Token $Token -ErrorAction Stop
 
 
-            Write-Verbose "Found deployment pipelines: $page"
+            Write-Host "Found deployment pipelines: $page"
 
             $existingPipeline = $page.value | Where-Object { $_.displayName -eq $pipelineName } | Select-Object -First 1
             # continuationToken is only present when more pages remain. Guard the access so it
