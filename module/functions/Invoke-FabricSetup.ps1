@@ -329,7 +329,7 @@ function Invoke-FabricSetup {
         foreach ($pipelineResult in $page.value | Select-Object -Property displayName, id) {
 
 
-            Write-Verbose "Existing pipeline: $($pipelineResult.displayName) (id: $($pipelineResult.id))"
+            Write-Host "Existing pipeline: $($pipelineResult.displayName) (id: $($pipelineResult.id))"
 
 #        foreach ($ws in $pipelineWorkspaces) {
             # try {
@@ -357,8 +357,8 @@ function Invoke-FabricSetup {
                     # foreach ($entry in $pipelineRbac) {
                         try {
                             $rbacResult = Set-FabricDeploymentPipelineRoleAssignment `
-                                -PipelineId    $pipelineResult.PipelineId `
-                                -PipelineName  $pipelineResult.PipelineName `
+                                -PipelineId    $pipelineResult.id `
+                                -PipelineName  $pipelineResult.displayName `
                                 -PrincipalId   "d24a79aa-2146-4305-ae06-ecc6c839eb54" `
                                 -PrincipalType "Group" `
                                 -Role          "Admin" `
