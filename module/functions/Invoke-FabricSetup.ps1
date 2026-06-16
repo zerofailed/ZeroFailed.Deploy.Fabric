@@ -322,24 +322,33 @@ function Invoke-FabricSetup {
     # --- 6. Deployment Pipelines (per workspace type, spans all environments) ---
     if (-not $SkipPipeline) {
         $pipelineWorkspaces = $Config.workspaces | Where-Object { $_.pipeline.enabled }
-        foreach ($ws in $pipelineWorkspaces) {
-            try {
-                $pipelineResult = Set-FabricDeploymentPipeline `
-                    -Config        $Config `
-                    -WorkspaceType $ws.type `
-                    -Token         $token
-                $results.Pipelines.Add($pipelineResult)
-            }
-            catch {
-                Write-Warning "Deployment pipeline setup failed for '$($ws.type)' — $_"
-                $results.Failures.Add(@{
-                    WorkspaceName = "$($ws.type) pipeline"
-                    Environment   = 'all'
-                    Step          = 'Pipeline'
-                    Error         = $_.ToString()
-                })
-                continue
-            }
+
+        $nextUri          = 'deploymentPipelines'
+
+        $page = _Invoke-FabricRestMethod -Method GET -RelativeUri $nextUri -Token $token -ErrorAction Stop
+        foreach ($pipelineResult in $page.value | Select-Object -Property displayName, id) {
+
+
+            Write-Verbose "Existing pipeline: $($pipelineResult.displayName) (id: $($pipelineResult.id))"
+
+#        foreach ($ws in $pipelineWorkspaces) {
+            # try {
+            #     $pipelineResult = Set-FabricDeploymentPipeline `
+            #         -Config        $Config `
+            #         -WorkspaceType $ws.type `
+            #         -Token         $token
+            #     $results.Pipelines.Add($pipelineResult)
+            # }
+            # catch {
+            #     Write-Warning "Deployment pipeline setup failed for '$($ws.type)' — $_"
+            #     $results.Failures.Add(@{
+            #         WorkspaceName = "$($ws.type) pipeline"
+            #         Environment   = 'all'
+            #         Step          = 'Pipeline'
+            #         Error         = $_.ToString()
+            #     })
+            #     continue
+            # }
 
             # Pipeline Role Assignments — non-fatal, log and continue
             if (-not $SkipPipelineRbac) {
