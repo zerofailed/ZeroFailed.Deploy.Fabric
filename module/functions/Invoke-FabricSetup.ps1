@@ -323,59 +323,51 @@ function Invoke-FabricSetup {
     if (-not $SkipPipeline) {
         $pipelineWorkspaces = $Config.workspaces | Where-Object { $_.pipeline.enabled }
 
-        $nextUri          = 'deploymentPipelines'
-
-        $page = _Invoke-FabricRestMethod -Method GET -RelativeUri $nextUri -Token $token -ErrorAction Stop
-        foreach ($pipelineResult in $page.value | Select-Object -Property displayName, id) {
-
-
-            Write-Host "Existing pipeline: $($pipelineResult.displayName) (id: $($pipelineResult.id))"
-
-#        foreach ($ws in $pipelineWorkspaces) {
-            # try {
-            #     $pipelineResult = Set-FabricDeploymentPipeline `
-            #         -Config        $Config `
-            #         -WorkspaceType $ws.type `
-            #         -Token         $token
-            #     $results.Pipelines.Add($pipelineResult)
-            # }
-            # catch {
-            #     Write-Warning "Deployment pipeline setup failed for '$($ws.type)' — $_"
-            #     $results.Failures.Add(@{
-            #         WorkspaceName = "$($ws.type) pipeline"
-            #         Environment   = 'all'
-            #         Step          = 'Pipeline'
-            #         Error         = $_.ToString()
-            #     })
-            #     continue
-            # }
+        foreach ($ws in $pipelineWorkspaces) {
+            try {
+                $pipelineResult = Set-FabricDeploymentPipeline `
+                    -Config        $Config `
+                    -WorkspaceType $ws.type `
+                    -Token         $token
+                $results.Pipelines.Add($pipelineResult)
+            }
+            catch {
+                Write-Warning "Deployment pipeline setup failed for '$($ws.type)' — $_"
+                $results.Failures.Add(@{
+                    WorkspaceName = "$($ws.type) pipeline"
+                    Environment   = 'all'
+                    Step          = 'Pipeline'
+                    Error         = $_.ToString()
+                })
+                continue
+            }
 
             # Pipeline Role Assignments — non-fatal, log and continue
             if (-not $SkipPipelineRbac) {
-                # $pipelineRbac = $ws.pipeline.roleAssignments
-                # if ($pipelineRbac -and $pipelineRbac.Count -gt 0) {
-                    # foreach ($entry in $pipelineRbac) {
+                $pipelineRbac = $ws.pipeline.roleAssignments
+                if ($pipelineRbac -and $pipelineRbac.Count -gt 0) {
+                    foreach ($entry in $pipelineRbac) {
                         try {
                             $rbacResult = Set-FabricDeploymentPipelineRoleAssignment `
-                                -PipelineId    $pipelineResult.id `
-                                -PipelineName  $pipelineResult.displayName `
-                                -PrincipalId   "d24a79aa-2146-4305-ae06-ecc6c839eb54" `
-                                -PrincipalType "Group" `
-                                -Role          "Admin" `
+                                -PipelineId    $pipelineResult.PipelineId `
+                                -PipelineName  $pipelineResult.PipelineName `
+                                -PrincipalId   $entry.principalId `
+                                -PrincipalType $entry.principalType `
+                                -Role          $entry.role `
                                 -Token         $token
                             $results.PipelineRoleAssignments.Add($rbacResult)
                         }
                         catch {
-                            Write-Warning "Pipeline role assignment failed for '$($pipelineResult.PipelineName)' — $_"
+                            Write-Warning "Pipeline role assignment failed for '$($pipelineResult.PipelineName)' (principal: $($entry.principalId)) — $_"
                             $results.Failures.Add(@{
-                                # WorkspaceName = "$($ws.type) pipeline"
+                                WorkspaceName = "$($ws.type) pipeline"
                                 Environment   = 'all'
                                 Step          = 'PipelineRoleAssignment'
                                 Error         = $_.ToString()
                             })
                         }
-                    # }
-                # }
+                    }
+                }
             }
         }
     }
