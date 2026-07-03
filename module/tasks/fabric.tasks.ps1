@@ -38,6 +38,7 @@ task provisionFabricWorkspaces -After DeployCore {
         SkipGit       = $FabricSkipGit
         SkipIdentity  = $FabricSkipIdentity
         SkipMonitoring = $FabricSkipMonitoring
+        SkipEnvironment = $FabricSkipEnvironment
         SkipRbac      = $FabricSkipRbac
         SkipPipeline  = $FabricSkipPipeline
         SkipPipelineRbac = $FabricSkipPipelineRbac

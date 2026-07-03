@@ -10,7 +10,8 @@ function Invoke-FabricSetup {
           4. Connects to Git (idempotent)
           5. Provisions Workspace Identity (if enabled)
           6. Enables workspace monitoring (if enabled)
-          7. Applies RBAC role assignments (if configured)
+          7. Provisions a Spark Environment and (optionally) sets it as workspace default (if enabled)
+          8. Applies RBAC role assignments (if configured)
         Then, for each workspace type with pipelines enabled:
           8. Creates or updates the deployment pipeline across all environments
           9. Applies deployment pipeline role assignments (if configured)
@@ -28,6 +29,8 @@ function Invoke-FabricSetup {
         Skip identity provisioning for all workspaces.
     .PARAMETER SkipMonitoring
         Skip monitoring enablement for all workspaces.
+    .PARAMETER SkipEnvironment
+        Skip Spark Environment provisioning for all workspaces.
     .PARAMETER SkipRbac
         Skip role assignment application for all workspaces.
     .PARAMETER SkipPipeline
@@ -57,6 +60,7 @@ function Invoke-FabricSetup {
         [switch]$SkipGit,
         [switch]$SkipIdentity,
         [switch]$SkipMonitoring,
+        [switch]$SkipEnvironment,
         [switch]$SkipRbac,
         [switch]$SkipPipeline,
         [switch]$SkipPipelineRbac
@@ -134,6 +138,7 @@ function Invoke-FabricSetup {
         Summary         = [pscustomobject]@{ Created = 0; Skipped = 0; Failed = 0 }
         Identities      = [System.Collections.Generic.List[hashtable]]::new()
         Monitoring      = [System.Collections.Generic.List[hashtable]]::new()
+        Environments    = [System.Collections.Generic.List[hashtable]]::new()
         RoleAssignments = [System.Collections.Generic.List[hashtable]]::new()
         Pipelines       = [System.Collections.Generic.List[hashtable]]::new()
         PipelineRoleAssignments = [System.Collections.Generic.List[hashtable]]::new()
@@ -289,7 +294,50 @@ function Invoke-FabricSetup {
                 }
             }
 
-            # f. Role Assignments — non-fatal, log and continue
+            # f. Spark Environment — non-fatal, log and continue
+            $wsEnvironment = if ($ws.PSObject.Properties.Name -contains 'environment') { $ws.environment } else { $null }
+            if (-not $SkipEnvironment -and $wsEnvironment -and $wsEnvironment.enabled) {
+                try {
+                    # Resolve the environment display name from the naming convention template.
+                    $envTemplate = if ($Config.namingConvention.PSObject.Properties.Name -contains 'environmentNameTemplate') {
+                        $Config.namingConvention.environmentNameTemplate
+                    }
+                    else { '{workspace} Env' }
+                    $envName = $envTemplate -replace '\{workspace\}', $resolvedName
+
+                    $environmentObj = New-FabricEnvironment `
+                        -WorkspaceId $workspaceId `
+                        -DisplayName $envName `
+                        -Token       $token
+                    $results.Environments.Add(@{
+                        WorkspaceName   = $resolvedName
+                        WorkspaceId     = $workspaceId
+                        EnvironmentName = $envName
+                        EnvironmentId   = $environmentObj.id
+                    })
+
+                    if ($wsEnvironment.setAsWorkspaceDefault) {
+                        $defaultResult = Set-FabricWorkspaceDefaultEnvironment `
+                            -WorkspaceId     $workspaceId `
+                            -WorkspaceName   $resolvedName `
+                            -EnvironmentName $envName `
+                            -RuntimeVersion  $wsEnvironment.runtimeVersion `
+                            -Token           $token
+                        $results.Environments.Add($defaultResult)
+                    }
+                }
+                catch {
+                    Write-Warning "Environment provisioning failed for '$resolvedName' — $_"
+                    $results.Failures.Add(@{
+                        WorkspaceName = $resolvedName
+                        Environment   = $env.name
+                        Step          = 'Environment'
+                        Error         = $_.ToString()
+                    })
+                }
+            }
+
+            # g. Role Assignments — non-fatal, log and continue
             if (-not $SkipRbac) {
                 $rbacEntries = $ws.rbac.$($env.name)
                 if ($rbacEntries -and $rbacEntries.Count -gt 0) {

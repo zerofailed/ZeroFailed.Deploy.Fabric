@@ -6,6 +6,7 @@ $FabricEnvironmentFilter ??= @()
 $FabricSkipGit           ??= $false
 $FabricSkipIdentity      ??= $false
 $FabricSkipMonitoring    ??= $false
+$FabricSkipEnvironment   ??= $false
 $FabricSkipRbac          ??= $false
 $FabricSkipPipeline      ??= $false
 $FabricSkipPipelineRbac  ??= $false
