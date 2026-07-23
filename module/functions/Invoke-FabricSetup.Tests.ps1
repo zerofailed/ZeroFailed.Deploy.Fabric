@@ -172,6 +172,18 @@ Describe 'Invoke-FabricSetup' {
             Should -Invoke New-FabricEnvironment -Times 0 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
         }
 
+        It 'provisions an environment only in the stages configured for the workspace type' {
+            $config = New-TestConfig
+            # Scope the Spark Environment to Dev only, even though the config spans Dev + Test.
+            $config.workspaces[0].environment | Add-Member -NotePropertyName stages -NotePropertyValue @('Dev') -Force
+            $r = Invoke-FabricSetup -Config $config
+
+            # Only Dev provisions (create + set-default); Test is skipped. Without scoping this
+            # would be invoked twice (once per environment).
+            $r.Environments.Count | Should -Be 2
+            Should -Invoke New-FabricEnvironment -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
+        }
+
         It 'records a non-fatal failure when environment provisioning throws' {
             Mock New-FabricEnvironment { throw 'env boom' } -ModuleName ZeroFailed.Deploy.Fabric
             $r = Invoke-FabricSetup -Config (New-TestConfig) -Environments @('Dev')

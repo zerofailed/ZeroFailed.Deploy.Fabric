@@ -91,6 +91,12 @@ $topology = New-FabricTopologyConfig `
     -EnableMonitoring    @("Bronze", "Silver", "Gold", "Reporting") `
     -EnablePipelines     @("Bronze", "Silver", "Gold") `
     -EnableEnvironments  @("Bronze", "Silver", "Gold") `
+    -EnvironmentStages   @{
+        # Restrict which environments get a Spark Environment (omit a type for all environments)
+        Bronze = @("Dev", "Production")
+        Silver = @("Dev", "Production")
+        Gold   = @("Production")
+    } `
     -SetEnvironmentAsDefault `
     -RoleAssignments     @(
         # All workspaces, all environments: read-only for the reporting group
@@ -172,6 +178,11 @@ New-FabricTopologyConfig `
     -EnableMonitoring    @("Bronze", "Silver", "Gold", "Reporting") `
     -EnablePipelines     @("Bronze", "Silver", "Gold") `
     -EnableEnvironments  @("Bronze", "Silver", "Gold") `
+    -EnvironmentStages   @{
+        Bronze = @("Dev", "Production")   # Spark Environment only in these stages
+        Gold   = @("Production")
+        # Silver omitted -> Spark Environment in every environment
+    } `
     -SetEnvironmentAsDefault `
     -RoleAssignments     @(
         @{ PrincipalId = "aaaaaaaa-..."; PrincipalType = "Group"; Role = "Viewer" }
@@ -202,6 +213,7 @@ New-FabricTopologyConfig `
 | `-EnableMonitoring` | `string[]` | No | None | Workspace types that should have monitoring enabled |
 | `-EnablePipelines` | `string[]` | No | None | Workspace types that should have a Fabric deployment pipeline created (one pipeline per type, spanning all environments) |
 | `-EnableEnvironments` | `string[]` | No | None | Workspace types that should have a Fabric Spark Environment provisioned (one environment per workspace) |
+| `-EnvironmentStages` | `hashtable` | No | All environments | Per-workspace-type map restricting *which* environments get a Spark Environment (see below) |
 | `-SetEnvironmentAsDefault` | `switch` | No | Off | When set, environment-enabled workspaces have their environment registered as the workspace default |
 | `-EnvironmentRuntimeVersion` | `string` | No | `1.3` | Spark runtime version used for provisioned environments |
 | `-RoleAssignments` | `hashtable[]` | No | None | Role assignment rules applied by workspace type and environment (see below) |
@@ -339,6 +351,25 @@ Deployment pipelines have their own access control, separate from the workspaces
 **`-EnableEnvironments` — Spark Environments:**
 
 Fabric Spark Environments are the mechanism for deploying custom Python packages (`.whl`) and shared Spark compute/library configuration so notebooks and Spark job definitions can consume them. Environment provisioning is opt-in per workspace type via `-EnableEnvironments`; each enabled workspace gets its own environment (one per workspace), named from the `{workspace} Env` template (e.g. `salesanalytics-Bronze [DEV] Env`).
+
+By default, an enabled workspace type gets a Spark Environment in **every** environment (Dev, Test, …). Use `-EnvironmentStages` to restrict *which* environments get one, per workspace type — for example, provision Bronze's environment only in Dev and Production, and Gold's only in Production:
+
+```powershell
+New-FabricTopologyConfig `
+    -Project            "salesanalytics" `
+    -WorkspaceTypes     @("Bronze", "Silver", "Gold") `
+    -Environments       @("Dev", "Test", "Acceptance", "Production") `
+    -CapacityMap        @{ Dev="cap-dev"; Test="cap-test"; Acceptance="cap-acc"; Production="cap-prod" } `
+    -EnableEnvironments @("Bronze", "Gold") `
+    -EnvironmentStages  @{
+        Bronze = @("Dev", "Production")   # Spark Environment only in Dev + Production
+        Gold   = @("Production")          # Spark Environment only in Production
+        # Silver is not environment-enabled, so it gets none
+        # A type omitted here but present in -EnableEnvironments defaults to all environments
+    }
+```
+
+`-EnvironmentStages` is keyed by workspace type; each value is the list of environment names that should receive a Spark Environment for that type. Keys must be listed in `-EnableEnvironments` and reference environments present in `-Environments`, or `New-FabricTopologyConfig` throws. A type that is environment-enabled but omitted from `-EnvironmentStages` keeps the default behaviour (every environment). This scoping is stored as `environment.stages` on each workspace in the config, and is honoured by both `Invoke-FabricSetup` (only provisions the environment in the listed stages) and `Invoke-FabricArtefactDeploy` (only deploys packages into workspaces whose environment is enabled for the target stage).
 
 When `-SetEnvironmentAsDefault` is supplied, each enabled workspace's environment is registered as the **workspace default** (via the Spark settings API), so notebooks and jobs using *Workspace default* inherit its compute and libraries. Setting the default requires the workspace **Admin** role — already satisfied because `Invoke-FabricSetup` auto-grants the deploying identity Admin on every workspace.
 
@@ -607,7 +638,7 @@ Once workspaces and their Spark Environments have been provisioned, `Invoke-Fabr
 **Design:**
 
 - **Stages are owned by the calling pipeline.** One invocation targets a single stage (`-Stage`). Your ADO/CI pipeline defines the stages and calls the script once per stage — there is no stage loop inside the module.
-- **Targets are automatic.** Every workspace in the topology with a Spark Environment enabled (`environment.enabled`) receives the package for that stage. There is no per-package on/off config.
+- **Targets are automatic.** Every workspace in the topology with a Spark Environment enabled (`environment.enabled`) for the target stage (`environment.stages`, set via `-EnvironmentStages`) receives the package. Workspaces whose environment is not provisioned for that stage are skipped. There is no per-package on/off config.
 - **The package is a runtime parameter.** `-PackageName` / `-PackageVersion` flow from the build, so the version isn't baked into the topology config. The topology is used only to resolve workspace and environment names.
 - **Dependencies are resolved automatically.** `pip download` reads the package metadata from the feed and pulls the full transitive dependency closure — no dependency list is maintained anywhere. All resulting files (the package plus every dependency) are uploaded as custom libraries.
 
@@ -755,7 +786,7 @@ Invoke-FabricSetup
     │   └── GET workspaces/{id}/items  → check for Monitoring Eventhouse
     │       ├── found   → append to $result.Monitoring
     │       └── missing → throw (manual portal setup required)
-    ├── New-FabricEnvironment  (unless -SkipEnvironment or environment.enabled=false)
+    ├── New-FabricEnvironment  (unless -SkipEnvironment, environment.enabled=false, or the environment is not in environment.stages)
     │   ├── _Resolve-FabricEnvironment → GET /environments (paginated, by displayName)
     │   ├── missing → POST /environments (409 → resolve existing)  → append to $result.Environments
     │   └── if environment.setAsWorkspaceDefault:
@@ -852,7 +883,7 @@ Invoke-Pester ./module -Output Detailed
 
 The test suite covers:
 - `_Resolve-WorkspaceName` — correct name generation, lowercasing, truncation, error cases
-- `New-FabricTopologyConfig` — environment count, workspace count, capacity assignment, Git opt-in per workspace type (`-GitWorkspaceConfig`), single Git environment (`-GitEnvironment`), identity filtering, monitoring filtering, pipeline opt-in (`-EnablePipelines`), Spark Environment opt-in (`-EnableEnvironments`, `-SetEnvironmentAsDefault`, `-EnvironmentRuntimeVersion`), RBAC role assignment rules (`-RoleAssignments`), pipeline role assignment rules (`-PipelineRoleAssignments`), `-OutputPath` JSON output, GitHub provider, validation errors
+- `New-FabricTopologyConfig` — environment count, workspace count, capacity assignment, Git opt-in per workspace type (`-GitWorkspaceConfig`), single Git environment (`-GitEnvironment`), identity filtering, monitoring filtering, pipeline opt-in (`-EnablePipelines`), Spark Environment opt-in (`-EnableEnvironments`, `-SetEnvironmentAsDefault`, `-EnvironmentRuntimeVersion`), per-type Spark Environment stage scoping (`-EnvironmentStages`, defaulting, validation errors), RBAC role assignment rules (`-RoleAssignments`), pipeline role assignment rules (`-PipelineRoleAssignments`), `-OutputPath` JSON output, GitHub provider, validation errors
 - `New-FabricEnvironment` — WhatIf, idempotent skip when present, create via POST, description in body, 409 conflict resolution, non-conflict error propagation
 - `Set-FabricWorkspaceDefaultEnvironment` — WhatIf, PATCH body shape, custom runtime version, skip when default already matches
 - `Set-FabricDeploymentPipeline` — WhatIf, create+assign all stages, skip when fully assigned, update vacant stages, skip missing workspaces gracefully, pagination across continuation tokens, API error propagation, report field correctness
@@ -864,7 +895,7 @@ The test suite covers:
 - `Publish-FabricEnvironment` — publish endpoint + timeout passthrough, "no pending changes" idempotent skip, error propagation, WhatIf
 - `Get-FabricEnvironmentLibraries` — custom-library name flattening, published vs staging endpoint, empty/404 handling
 - `Save-FabricLibraryPackage` — pip download invocation (package/version/dest/authenticated feed index), target-runtime wheel resolution (`--only-binary`/`--python-version`/`--abi`/`--platform`), CPython ABI tag derivation, malformed target version rejection, constraints-file pass-through/omission/missing-file error, destination creation, no-files and pip-failure errors
-- `Invoke-FabricArtefactDeploy` — targets only environment-enabled workspaces, single download for many targets, uploads every file, clear-down of stale staged libraries (and retention of desired ones), deploy rather than skip when a stale version is published, idempotent skip when already published, `-Force` re-publish, non-fatal missing-workspace failure, unknown-stage error, `-SkipDownload`, runtime-target pass-through, constraints-file pass-through and missing-file error
+- `Invoke-FabricArtefactDeploy` — targets only environment-enabled workspaces (and only those whose environment is enabled for the target stage), single download for many targets, uploads every file, clear-down of stale staged libraries (and retention of desired ones), deploy rather than skip when a stale version is published, idempotent skip when already published, `-Force` re-publish, non-fatal missing-workspace failure, unknown-stage error, `-SkipDownload`, runtime-target pass-through, constraints-file pass-through and missing-file error
 - Module-level tests — manifest validation, export checks, private function isolation
 
 ---

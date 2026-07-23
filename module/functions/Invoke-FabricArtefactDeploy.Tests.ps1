@@ -65,6 +65,28 @@ Describe 'Invoke-FabricArtefactDeploy' {
         Should -Invoke Publish-FabricEnvironment -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
     }
 
+    It 'excludes a workspace whose Spark Environment is not configured for the stage' {
+        $config = New-TestConfig
+        # DataPrep has an environment, but only in a stage other than the one being deployed.
+        $config.workspaces[0].environment | Add-Member -NotePropertyName stages -NotePropertyValue @('PROD') -Force
+
+        $result = Invoke-FabricArtefactDeploy -Config $config @script:deployParams
+
+        $result.Summary.Deployed | Should -Be 0
+        Should -Invoke Save-FabricLibraryPackage -Times 0 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
+        Should -Invoke Publish-FabricEnvironment -Times 0 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
+    }
+
+    It 'includes a workspace whose Spark Environment stages contain the deployed stage' {
+        $config = New-TestConfig
+        $config.workspaces[0].environment | Add-Member -NotePropertyName stages -NotePropertyValue @('DEV') -Force
+
+        $result = Invoke-FabricArtefactDeploy -Config $config @script:deployParams
+
+        $result.Summary.Deployed | Should -Be 1
+        Should -Invoke Publish-FabricEnvironment -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
+    }
+
     It 'downloads the package only once regardless of target count' {
         $config = New-TestConfig
         # Enable the second workspace too.

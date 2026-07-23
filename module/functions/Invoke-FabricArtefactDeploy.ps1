@@ -7,8 +7,8 @@ function Invoke-FabricArtefactDeploy {
         separate pipeline. For a single deployment stage it:
           1. Downloads the named package plus its full dependency closure from an Azure Artifacts
              feed (once), via Save-FabricLibraryPackage.
-          2. For every workspace in the topology that has a Spark Environment enabled, resolves the
-             workspace and its environment for the given stage.
+          2. For every workspace in the topology that has a Spark Environment enabled for the given
+             stage, resolves the workspace and its environment for that stage.
           3. Clears down any staged custom libraries that are not part of the downloaded set, so
              previous versions cannot conflict with the ones being deployed.
           4. Uploads the downloaded files to the environment's custom (staging) libraries and
@@ -141,12 +141,20 @@ function Invoke-FabricArtefactDeploy {
         throw "Stage '$Stage' not found in config. Available: $(($Config.environments.name) -join ', ')."
     }
 
-    # --- 3. Determine target workspaces (those with a Spark Environment provisioned) ---
+    # --- 3. Determine target workspaces (those with a Spark Environment provisioned for this stage) ---
+    # A workspace is a target only if its type has a Spark Environment enabled AND the stage is in the
+    # type's configured stages. A config without a 'stages' list (older config) applies to all stages.
     $targetWorkspaces = $Config.workspaces | Where-Object {
-        $_.PSObject.Properties.Name -contains 'environment' -and $_.environment.enabled
+        $_.PSObject.Properties.Name -contains 'environment' -and
+        $_.environment.enabled -and
+        (
+            -not ($_.environment.PSObject.Properties.Name -contains 'stages') -or
+            -not $_.environment.stages -or
+            $Stage -in @($_.environment.stages)
+        )
     }
     if (-not $targetWorkspaces) {
-        Write-Warning "No workspaces in the topology have a Spark Environment enabled; nothing to deploy."
+        Write-Warning "No workspaces in the topology have a Spark Environment enabled for stage '$Stage'; nothing to deploy."
         return [pscustomobject]@{
             Summary  = [pscustomobject]@{ Deployed = 0; Skipped = 0; Failed = 0 }
             Deployed = @()

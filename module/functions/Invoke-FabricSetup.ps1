@@ -10,7 +10,8 @@ function Invoke-FabricSetup {
           4. Connects to Git (idempotent)
           5. Provisions Workspace Identity (if enabled)
           6. Enables workspace monitoring (if enabled)
-          7. Provisions a Spark Environment and (optionally) sets it as workspace default (if enabled)
+          7. Provisions a Spark Environment and (optionally) sets it as workspace default (if enabled
+             for the type and the current environment is in the type's configured stages)
           8. Applies RBAC role assignments (if configured)
         Then, for each workspace type with pipelines enabled:
           8. Creates or updates the deployment pipeline across all environments
@@ -294,9 +295,16 @@ function Invoke-FabricSetup {
                 }
             }
 
-            # f. Spark Environment — non-fatal, log and continue
+            # f. Spark Environment — non-fatal, log and continue.
+            # Scoped to the environments (stages) configured for this workspace type. A config
+            # without a 'stages' list (older config) applies to every environment — previous behaviour.
             $wsEnvironment = if ($ws.PSObject.Properties.Name -contains 'environment') { $ws.environment } else { $null }
-            if (-not $SkipEnvironment -and $wsEnvironment -and $wsEnvironment.enabled) {
+            $envInStage = $wsEnvironment -and (
+                -not ($wsEnvironment.PSObject.Properties.Name -contains 'stages') -or
+                -not $wsEnvironment.stages -or
+                $env.name -in @($wsEnvironment.stages)
+            )
+            if (-not $SkipEnvironment -and $wsEnvironment -and $wsEnvironment.enabled -and $envInStage) {
                 try {
                     # Resolve the environment display name from the naming convention template.
                     $envTemplate = if ($Config.namingConvention.PSObject.Properties.Name -contains 'environmentNameTemplate') {
