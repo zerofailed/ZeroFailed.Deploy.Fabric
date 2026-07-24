@@ -206,11 +206,6 @@ function Invoke-FabricArtefactDeploy {
         Failures = [System.Collections.Generic.List[hashtable]]::new()
     }
 
-    $envTemplate = if ($Config.namingConvention.PSObject.Properties.Name -contains 'environmentNameTemplate') {
-        $Config.namingConvention.environmentNameTemplate
-    }
-    else { '{workspace} Env' }
-
     foreach ($ws in $targetWorkspaces) {
 
         # Refresh the token if it is close to expiring (publishes can take several minutes each).
@@ -220,8 +215,8 @@ function Invoke-FabricArtefactDeploy {
             $token     = $tokenInfo.Token
         }
 
-        $resolvedName = _Resolve-WorkspaceName -Config $Config -WorkspaceId $ws.id -EnvironmentName $Stage
-        $envName      = $envTemplate -replace '\{workspace\}', $resolvedName
+        $resolvedName = _Resolve-WorkspaceName   -Config $Config -WorkspaceId $ws.id -EnvironmentName $Stage
+        $envName      = _Resolve-EnvironmentName -Config $Config -WorkspaceId $ws.id -EnvironmentName $Stage
 
         try {
             # a. Resolve the workspace (must already exist from provisioning).

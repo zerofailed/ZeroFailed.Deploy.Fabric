@@ -10,7 +10,7 @@ BeforeAll {
             project          = 'THX'
             namingConvention = [pscustomobject]@{
                 template                = '{project}-{type} [{env}]'
-                environmentNameTemplate = '{workspace} Env'
+                environmentNameTemplate = '{project}-{type} Env'
                 maxLength               = 64
                 typeShortCodes          = [pscustomobject]@{ DataPrep = 'DataPrep'; Reporting = 'Report' }
                 envShortCodes           = [pscustomobject]@{ DEV = 'DEV' }
@@ -61,7 +61,7 @@ Describe 'Invoke-FabricArtefactDeploy' {
 
         $result.Summary.Deployed | Should -Be 1
         $result.Deployed[0].WorkspaceName | Should -Be 'THX-DataPrep [DEV]'
-        $result.Deployed[0].EnvironmentName | Should -Be 'THX-DataPrep [DEV] Env'
+        $result.Deployed[0].EnvironmentName | Should -Be 'THX-DataPrep Env'
         Should -Invoke Publish-FabricEnvironment -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
     }
 

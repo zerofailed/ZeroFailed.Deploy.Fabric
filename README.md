@@ -350,7 +350,7 @@ Deployment pipelines have their own access control, separate from the workspaces
 
 **`-EnableEnvironments` — Spark Environments:**
 
-Fabric Spark Environments are the mechanism for deploying custom Python packages (`.whl`) and shared Spark compute/library configuration so notebooks and Spark job definitions can consume them. Environment provisioning is opt-in per workspace type via `-EnableEnvironments`; each enabled workspace gets its own environment (one per workspace), named from the `{workspace} Env` template (e.g. `salesanalytics-Bronze [DEV] Env`).
+Fabric Spark Environments are the mechanism for deploying custom Python packages (`.whl`) and shared Spark compute/library configuration so notebooks and Spark job definitions can consume them. Environment provisioning is opt-in per workspace type via `-EnableEnvironments`; each enabled workspace gets its own environment (one per workspace), named from the `{project}-{type} Env` template (e.g. `salesanalytics-Bronze Env`). The stage (Dev/Prod/…) is deliberately **not** part of the environment name — each stage's environment lives in its own workspace, so the name stays stable across stages.
 
 By default, an enabled workspace type gets a Spark Environment in **every** environment (Dev, Test, …). Use `-EnvironmentStages` to restrict *which* environments get one, per workspace type — for example, provision Bronze's environment only in Dev and Production, and Gold's only in Production:
 
@@ -464,7 +464,7 @@ $result.Failures        # Array of per-workspace/pipeline failure details
 @{
     WorkspaceName   = "salesanalytics-Bronze [DEV]"
     WorkspaceId     = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-    EnvironmentName = "salesanalytics-Bronze [DEV] Env"
+    EnvironmentName = "salesanalytics-Bronze Env"
     EnvironmentId   = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
 }
 
@@ -472,7 +472,7 @@ $result.Failures        # Array of per-workspace/pipeline failure details
 @{
     WorkspaceName   = "salesanalytics-Bronze [DEV]"
     WorkspaceId     = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-    EnvironmentName = "salesanalytics-Bronze [DEV] Env"
+    EnvironmentName = "salesanalytics-Bronze Env"
     Action          = "Set"   # Set | Skipped | whatif
 }
 ```
@@ -583,7 +583,7 @@ Normally called by `Invoke-FabricSetup`.
 Creates a Fabric Spark Environment in a workspace (`POST /workspaces/{id}/environments`), skipping creation if an environment with the same display name already exists. An `EnvironmentDisplayNameAlreadyInUse` (HTTP 409) conflict is treated idempotently by resolving and returning the existing environment. Provisions an empty environment only — uploading libraries and publishing are handled separately. Normally called by `Invoke-FabricSetup`; can also be used directly.
 
 ```powershell
-$env = New-FabricEnvironment -WorkspaceId $ws.id -DisplayName "salesanalytics-Bronze [DEV] Env" -Token $token
+$env = New-FabricEnvironment -WorkspaceId $ws.id -DisplayName "salesanalytics-Bronze Env" -Token $token
 ```
 
 #### `Set-FabricWorkspaceDefaultEnvironment`
@@ -591,7 +591,7 @@ $env = New-FabricEnvironment -WorkspaceId $ws.id -DisplayName "salesanalytics-Br
 Sets a Fabric environment as the workspace default via the Spark settings API (`PATCH /workspaces/{id}/spark/settings`), so notebooks and Spark job definitions using *Workspace default* inherit its compute and libraries. The environment is referenced by display name. Idempotent — reads the current settings first and skips the update if the default is already set to the requested environment. Requires the workspace **Admin** role. Normally called by `Invoke-FabricSetup` when `-SetEnvironmentAsDefault` is used; can also be used directly.
 
 ```powershell
-$defaultResult = Set-FabricWorkspaceDefaultEnvironment -WorkspaceId $ws.id -WorkspaceName "salesanalytics-Bronze [DEV]" -EnvironmentName "salesanalytics-Bronze [DEV] Env" -Token $token
+$defaultResult = Set-FabricWorkspaceDefaultEnvironment -WorkspaceId $ws.id -WorkspaceName "salesanalytics-Bronze [DEV]" -EnvironmentName "salesanalytics-Bronze Env" -Token $token
 ```
 
 #### `Set-FabricWorkspaceRoleAssignment`

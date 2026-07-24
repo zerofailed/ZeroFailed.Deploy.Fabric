@@ -519,7 +519,7 @@ Describe 'New-FabricTopologyConfig — Environment configuration' {
 
     It 'exposes an environment name template on the naming convention' {
         $config = New-FabricTopologyConfig @script:commonParams
-        $config.namingConvention.environmentNameTemplate | Should -Be '{workspace} Env'
+        $config.namingConvention.environmentNameTemplate | Should -Be '{project}-{type} Env'
     }
 
     It 'defaults stages to all environments for an environment-enabled type when -EnvironmentStages is omitted' {

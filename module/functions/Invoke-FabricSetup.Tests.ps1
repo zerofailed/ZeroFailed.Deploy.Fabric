@@ -59,6 +59,7 @@ Describe 'Invoke-FabricSetup' {
             Mock _Get-FabricDeploymentIdentity { $null } -ModuleName ZeroFailed.Deploy.Fabric
             Mock _Test-FabricTokenExpiry { $false } -ModuleName ZeroFailed.Deploy.Fabric
             Mock _Resolve-WorkspaceName { "$($args[0])" } -ModuleName ZeroFailed.Deploy.Fabric
+            Mock _Resolve-EnvironmentName { 'bronze Env' } -ModuleName ZeroFailed.Deploy.Fabric
             Mock Test-FabricWorkspaceExists { $null } -ModuleName ZeroFailed.Deploy.Fabric
             Mock New-FabricWorkspace { [pscustomobject]@{ id = 'ws-1' } } -ModuleName ZeroFailed.Deploy.Fabric
             Mock Set-FabricGitIntegration {} -ModuleName ZeroFailed.Deploy.Fabric

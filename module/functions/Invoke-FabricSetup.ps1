@@ -307,11 +307,7 @@ function Invoke-FabricSetup {
             if (-not $SkipEnvironment -and $wsEnvironment -and $wsEnvironment.enabled -and $envInStage) {
                 try {
                     # Resolve the environment display name from the naming convention template.
-                    $envTemplate = if ($Config.namingConvention.PSObject.Properties.Name -contains 'environmentNameTemplate') {
-                        $Config.namingConvention.environmentNameTemplate
-                    }
-                    else { '{workspace} Env' }
-                    $envName = $envTemplate -replace '\{workspace\}', $resolvedName
+                    $envName = _Resolve-EnvironmentName -Config $Config -WorkspaceId $ws.id -EnvironmentName $env.name
 
                     $environmentObj = New-FabricEnvironment `
                         -WorkspaceId $workspaceId `

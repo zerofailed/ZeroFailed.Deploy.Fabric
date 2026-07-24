@@ -23,7 +23,7 @@ function Set-FabricWorkspaceDefaultEnvironment {
         Bearer token string for the Fabric REST API.
     .EXAMPLE
         Set-FabricWorkspaceDefaultEnvironment -WorkspaceId $ws.id -WorkspaceName 'SalesAnalytics-ETL [DEV]' `
-            -EnvironmentName 'SalesAnalytics-ETL [DEV] Env' -Token $token
+            -EnvironmentName 'SalesAnalytics-ETL Env' -Token $token
 
         Sets the environment as the workspace default, or reports Skipped if already set.
     #>

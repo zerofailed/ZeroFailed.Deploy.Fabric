@@ -22,7 +22,7 @@ function New-FabricEnvironment {
     .PARAMETER Token
         Bearer token string for the Fabric REST API.
     .EXAMPLE
-        New-FabricEnvironment -WorkspaceId $ws.id -DisplayName 'SalesAnalytics-ETL [DEV] Env' -Token $token
+        New-FabricEnvironment -WorkspaceId $ws.id -DisplayName 'SalesAnalytics-ETL Env' -Token $token
 
         Creates the environment in the workspace, or returns it if it already exists.
     #>

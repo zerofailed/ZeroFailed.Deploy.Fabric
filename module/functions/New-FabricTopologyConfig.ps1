@@ -439,7 +439,7 @@ function New-FabricTopologyConfig {
         gitEnvironment    = $resolvedGitEnvironment
         namingConvention  = [pscustomobject]@{
             template                = '{project}-{type} [{env}]'
-            environmentNameTemplate = '{workspace} Env'
+            environmentNameTemplate = '{project}-{type} Env'
             maxLength               = 64
             typeShortCodes          = [pscustomobject]$resolvedTypeShortCodes
             envShortCodes           = [pscustomobject]$resolvedEnvShortCodes
