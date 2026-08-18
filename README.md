@@ -645,10 +645,11 @@ ZeroFailed.Deploy.Fabric/
 │   └── workflows/
 │       └── build.yml                              # CI/CD pipeline
 └── module/
-    ├── ZeroFailed.Deploy.Fabric.psd1              # Module manifest (PS 7+)
+    ├── ZeroFailed.Deploy.Fabric.psd1              # Module manifest (PS 7+); declares ZF extension
+    │                                               # dependencies (ZeroFailed.Deploy.Common,
+    │                                               # ZeroFailed.DevOps.Common) under PrivateData.ZeroFailed
     ├── ZeroFailed.Deploy.Fabric.psm1              # Auto-discovery module loader
     ├── ZeroFailed.Deploy.Fabric.module.tests.ps1  # Module-level Pester tests
-    ├── dependencies.psd1                          # ZeroFailed.Deploy.Common dependency
     ├── functions/
     │   ├── _Get-FabricAuthToken.ps1               # Private: auth token + expiry check
     │   ├── _Invoke-FabricRestMethod.ps1           # Private: REST wrapper with LRO

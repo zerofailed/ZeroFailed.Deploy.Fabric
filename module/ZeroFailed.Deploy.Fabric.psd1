@@ -21,5 +21,24 @@
             Tags       = @('Fabric', 'Microsoft', 'DTAP', 'Provisioning', 'ZeroFailed')
             ProjectUri = 'https://github.com/zerofailed/ZeroFailed.Deploy.Fabric'
         }
+
+        # ZeroFailed metadata
+        ZeroFailed = @{
+            ExtensionDependencies = @(
+                @{
+                    # Assume latest stable version
+                    Name          = 'ZeroFailed.Deploy.Common'
+                    GitRepository = 'https://github.com/zerofailed/ZeroFailed.Deploy.Common'
+                    Process       = 'tasks/deploy.process.ps1'
+                }
+                @{
+                    # Provides the 'setupModules' task and 'RequiredPowerShellModules' property
+                    # used by the 'ensureFabricModules' task to install Az.Accounts, Az.Resources
+                    # and MicrosoftFabricMgmt. Assume latest stable version.
+                    Name          = 'ZeroFailed.DevOps.Common'
+                    GitRepository = 'https://github.com/zerofailed/ZeroFailed.DevOps.Common'
+                }
+            )
+        }
     }
 }
