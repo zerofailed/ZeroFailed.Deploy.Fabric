@@ -1,51 +1,50 @@
 ---
 document type: cmdlet
 external help file: ZeroFailed.Deploy.Fabric-Help.xml
-HelpUri: https://learn.microsoft.com/rest/api/fabric/spark/workspace-settings/update-spark-settings
-Locale: en-US
+HelpUri: ''
+Locale: en-GB
 Module Name: ZeroFailed.Deploy.Fabric
 ms.date: 08/18/2026
 PlatyPS schema version: 2024-05-01
-title: Set-FabricWorkspaceDefaultEnvironment
+title: Publish-FabricEnvironment
 ---
 
-# Set-FabricWorkspaceDefaultEnvironment
+# Publish-FabricEnvironment
 
 ## SYNOPSIS
 
-Sets a Fabric environment as the workspace default (idempotent).
+Publishes a Fabric environment's staging changes, waiting for the long-running operation.
 
 ## SYNTAX
 
 ### __AllParameterSets
 
 ```
-Set-FabricWorkspaceDefaultEnvironment [-WorkspaceId] <string> [-WorkspaceName] <string>
- [-EnvironmentName] <string> [[-RuntimeVersion] <string>] [-Token] <string> [-WhatIf] [-Confirm]
- [<CommonParameters>]
+Publish-FabricEnvironment [-WorkspaceId] <string> [-EnvironmentId] <string> [-Token] <string>
+ [[-TimeoutSeconds] <int>] [-WhatIf] [-Confirm] [<CommonParameters>]
 ```
 
 ## ALIASES
 
 ## DESCRIPTION
 
-Configures the workspace Spark settings so that notebooks and Spark job definitions using
-"Workspace default" inherit the given environment's compute and library configuration.
+Promotes the environment's staging state (uploaded libraries, settings) to published via
+POST /workspaces/{id}/environments/{id}/staging/publish.
+Publishing is a long-running
+operation (HTTP 202) that typically takes several minutes; the default timeout is raised
+accordingly.
 
-The environment is referenced by display name (an empty string clears the default).
-Uses PATCH /workspaces/{id}/spark/settings; the caller must have the workspace Admin role.
-
-Idempotent: reads the current Spark settings first and skips the PATCH if the default
-environment is already set to the requested name.
+Idempotent: if the API reports there are no pending staging changes to publish, this is
+treated as success (there is nothing to do), so re-runs after an unchanged deployment do
+not fail.
 
 ## EXAMPLES
 
 ### EXAMPLE 1
 
-Set-FabricWorkspaceDefaultEnvironment -WorkspaceId $ws.id -WorkspaceName 'SalesAnalytics-ETL [DEV]' `
-    -EnvironmentName 'SalesAnalytics-ETL [DEV] Env' -Token $token
+Publish-FabricEnvironment -WorkspaceId $ws.id -EnvironmentId $env.id -Token $token
 
-Sets the environment as the workspace default, or reports Skipped if already set.
+Publishes the environment and blocks until the operation completes.
 
 ## PARAMETERS
 
@@ -71,9 +70,9 @@ AcceptedValues: []
 HelpMessage: ''
 ```
 
-### -EnvironmentName
+### -EnvironmentId
 
-Display name of the environment to set as the workspace default.
+The Fabric environment GUID to publish.
 
 ```yaml
 Type: System.String
@@ -82,7 +81,7 @@ SupportsWildcards: false
 Aliases: []
 ParameterSets:
 - Name: (All)
-  Position: 2
+  Position: 1
   IsRequired: true
   ValueFromPipeline: false
   ValueFromPipelineByPropertyName: false
@@ -92,15 +91,16 @@ AcceptedValues: []
 HelpMessage: ''
 ```
 
-### -RuntimeVersion
+### -TimeoutSeconds
 
-Spark runtime version for the default environment. Default: 1.3.
-Spark runtime version for the default environment.
-Default: 1.3.
+Maximum seconds to wait for the publish LRO to complete.
+Default: 600.
+Maximum seconds to wait for the publish LRO to complete.
+Default: 600.
 
 ```yaml
-Type: System.String
-DefaultValue: 1.3
+Type: System.Int32
+DefaultValue: 600
 SupportsWildcards: false
 Aliases: []
 ParameterSets:
@@ -126,7 +126,7 @@ SupportsWildcards: false
 Aliases: []
 ParameterSets:
 - Name: (All)
-  Position: 4
+  Position: 2
   IsRequired: true
   ValueFromPipeline: false
   ValueFromPipelineByPropertyName: false
@@ -160,7 +160,7 @@ HelpMessage: ''
 
 ### -WorkspaceId
 
-The Fabric workspace GUID.
+The Fabric workspace GUID that contains the environment.
 
 ```yaml
 Type: System.String
@@ -170,27 +170,6 @@ Aliases: []
 ParameterSets:
 - Name: (All)
   Position: 0
-  IsRequired: true
-  ValueFromPipeline: false
-  ValueFromPipelineByPropertyName: false
-  ValueFromRemainingArguments: false
-DontShow: false
-AcceptedValues: []
-HelpMessage: ''
-```
-
-### -WorkspaceName
-
-Display name used in log messages and the returned report entry.
-
-```yaml
-Type: System.String
-DefaultValue: ''
-SupportsWildcards: false
-Aliases: []
-ParameterSets:
-- Name: (All)
-  Position: 1
   IsRequired: true
   ValueFromPipeline: false
   ValueFromPipelineByPropertyName: false
@@ -213,11 +192,12 @@ This cmdlet supports the common parameters: -Debug, -ErrorAction, -ErrorVariable
 
 ### System.Collections.Hashtable
 
-A report entry with the workspace name and ID, the environment name, and the action taken
-(Set, Skipped, or whatif).
+A hashtable with keys: EnvironmentId, and Action ('Published', 'Skipped' if there were no pending
+staging changes, or 'whatif').
 
 ## NOTES
 
 ## RELATED LINKS
 
-- [](https://learn.microsoft.com/rest/api/fabric/spark/workspace-settings/update-spark-settings)
+- [](https://learn.microsoft.com/rest/api/fabric/)
+

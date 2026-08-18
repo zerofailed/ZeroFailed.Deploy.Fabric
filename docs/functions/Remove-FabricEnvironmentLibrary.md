@@ -1,51 +1,50 @@
 ---
 document type: cmdlet
 external help file: ZeroFailed.Deploy.Fabric-Help.xml
-HelpUri: https://learn.microsoft.com/rest/api/fabric/spark/workspace-settings/update-spark-settings
-Locale: en-US
+HelpUri: ''
+Locale: en-GB
 Module Name: ZeroFailed.Deploy.Fabric
 ms.date: 08/18/2026
 PlatyPS schema version: 2024-05-01
-title: Set-FabricWorkspaceDefaultEnvironment
+title: Remove-FabricEnvironmentLibrary
 ---
 
-# Set-FabricWorkspaceDefaultEnvironment
+# Remove-FabricEnvironmentLibrary
 
 ## SYNOPSIS
 
-Sets a Fabric environment as the workspace default (idempotent).
+Removes a single custom library file from a Fabric environment's staging area.
 
 ## SYNTAX
 
 ### __AllParameterSets
 
 ```
-Set-FabricWorkspaceDefaultEnvironment [-WorkspaceId] <string> [-WorkspaceName] <string>
- [-EnvironmentName] <string> [[-RuntimeVersion] <string>] [-Token] <string> [-WhatIf] [-Confirm]
- [<CommonParameters>]
+Remove-FabricEnvironmentLibrary [-WorkspaceId] <string> [-EnvironmentId] <string>
+ [-LibraryName] <string> [-Token] <string> [-WhatIf] [-Confirm] [<CommonParameters>]
 ```
 
 ## ALIASES
 
 ## DESCRIPTION
 
-Configures the workspace Spark settings so that notebooks and Spark job definitions using
-"Workspace default" inherit the given environment's compute and library configuration.
+Deletes the file from the environment's staging libraries via
+DELETE /workspaces/{id}/environments/{id}/staging/libraries?libraryToDelete={name}.
 
-The environment is referenced by display name (an empty string clears the default).
-Uses PATCH /workspaces/{id}/spark/settings; the caller must have the workspace Admin role.
+Staging starts as a copy of the published libraries, so removing a file from staging and
+then publishing (see Publish-FabricEnvironment) is how a published library is retired.
+Until the publish happens the library remains usable by notebooks/jobs.
 
-Idempotent: reads the current Spark settings first and skips the PATCH if the default
-environment is already set to the requested name.
+A 404 (the library is not staged) is treated as success so this is safe to call repeatedly.
 
 ## EXAMPLES
 
 ### EXAMPLE 1
 
-Set-FabricWorkspaceDefaultEnvironment -WorkspaceId $ws.id -WorkspaceName 'SalesAnalytics-ETL [DEV]' `
-    -EnvironmentName 'SalesAnalytics-ETL [DEV] Env' -Token $token
+Remove-FabricEnvironmentLibrary -WorkspaceId $ws.id -EnvironmentId $env.id `
+    -LibraryName 'mypackage-1.4.1-py3-none-any.whl' -Token $token
 
-Sets the environment as the workspace default, or reports Skipped if already set.
+Removes the stale wheel from the environment's staging libraries.
 
 ## PARAMETERS
 
@@ -71,9 +70,33 @@ AcceptedValues: []
 HelpMessage: ''
 ```
 
-### -EnvironmentName
+### -EnvironmentId
 
-Display name of the environment to set as the workspace default.
+The Fabric environment GUID to remove the library from.
+
+```yaml
+Type: System.String
+DefaultValue: ''
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: (All)
+  Position: 1
+  IsRequired: true
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
+```
+
+### -LibraryName
+
+The library file name to remove, e.g.
+'mypackage-1.4.2-py3-none-any.whl'.
+The library file name to remove, e.g.
+'mypackage-1.4.2-py3-none-any.whl'.
 
 ```yaml
 Type: System.String
@@ -84,29 +107,6 @@ ParameterSets:
 - Name: (All)
   Position: 2
   IsRequired: true
-  ValueFromPipeline: false
-  ValueFromPipelineByPropertyName: false
-  ValueFromRemainingArguments: false
-DontShow: false
-AcceptedValues: []
-HelpMessage: ''
-```
-
-### -RuntimeVersion
-
-Spark runtime version for the default environment. Default: 1.3.
-Spark runtime version for the default environment.
-Default: 1.3.
-
-```yaml
-Type: System.String
-DefaultValue: 1.3
-SupportsWildcards: false
-Aliases: []
-ParameterSets:
-- Name: (All)
-  Position: 3
-  IsRequired: false
   ValueFromPipeline: false
   ValueFromPipelineByPropertyName: false
   ValueFromRemainingArguments: false
@@ -126,7 +126,7 @@ SupportsWildcards: false
 Aliases: []
 ParameterSets:
 - Name: (All)
-  Position: 4
+  Position: 3
   IsRequired: true
   ValueFromPipeline: false
   ValueFromPipelineByPropertyName: false
@@ -160,7 +160,7 @@ HelpMessage: ''
 
 ### -WorkspaceId
 
-The Fabric workspace GUID.
+The Fabric workspace GUID that contains the environment.
 
 ```yaml
 Type: System.String
@@ -170,27 +170,6 @@ Aliases: []
 ParameterSets:
 - Name: (All)
   Position: 0
-  IsRequired: true
-  ValueFromPipeline: false
-  ValueFromPipelineByPropertyName: false
-  ValueFromRemainingArguments: false
-DontShow: false
-AcceptedValues: []
-HelpMessage: ''
-```
-
-### -WorkspaceName
-
-Display name used in log messages and the returned report entry.
-
-```yaml
-Type: System.String
-DefaultValue: ''
-SupportsWildcards: false
-Aliases: []
-ParameterSets:
-- Name: (All)
-  Position: 1
   IsRequired: true
   ValueFromPipeline: false
   ValueFromPipelineByPropertyName: false
@@ -213,11 +192,12 @@ This cmdlet supports the common parameters: -Debug, -ErrorAction, -ErrorVariable
 
 ### System.Collections.Hashtable
 
-A report entry with the workspace name and ID, the environment name, and the action taken
-(Set, Skipped, or whatif).
+A hashtable with keys: EnvironmentId, FileName, and Action ('Removed', 'NotFound' if the library
+wasn't staged, or 'whatif').
 
 ## NOTES
 
 ## RELATED LINKS
 
-- [](https://learn.microsoft.com/rest/api/fabric/spark/workspace-settings/update-spark-settings)
+- [](https://learn.microsoft.com/rest/api/fabric/)
+

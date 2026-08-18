@@ -1,51 +1,60 @@
 ---
 document type: cmdlet
 external help file: ZeroFailed.Deploy.Fabric-Help.xml
-HelpUri: https://learn.microsoft.com/rest/api/fabric/core/workspaces/create-workspace
-Locale: en-US
+HelpUri: ''
+Locale: en-GB
 Module Name: ZeroFailed.Deploy.Fabric
 ms.date: 08/18/2026
 PlatyPS schema version: 2024-05-01
-title: New-FabricWorkspace
+title: Get-FabricEnvironmentLibraries
 ---
 
-# New-FabricWorkspace
+# Get-FabricEnvironmentLibraries
 
 ## SYNOPSIS
 
-Creates a Fabric workspace idempotently (skips creation if it already exists).
+Returns the custom library file names configured on a Fabric environment.
 
 ## SYNTAX
 
 ### __AllParameterSets
 
 ```
-New-FabricWorkspace [-DisplayName] <string> [-CapacityName] <string> [-Token] <string> [-WhatIf]
- [-Confirm] [<CommonParameters>]
+Get-FabricEnvironmentLibraries [-WorkspaceId] <string> [-EnvironmentId] <string> [-Token] <string>
+ [-Staging] [<CommonParameters>]
 ```
 
 ## ALIASES
 
 ## DESCRIPTION
 
-Checks whether a workspace with the given display name already exists and returns it if so.
-Otherwise creates a new workspace on the specified capacity and returns the created object.
-Tolerates a WorkspaceNameAlreadyExists (HTTP 409) conflict by resolving and returning the
-existing workspace, so creation is idempotent.
+Reads the environment's libraries and returns the flat set of custom library file names
+(wheel, py, jar and tar files).
+Reads the published libraries via
+GET /workspaces/{id}/environments/{id}/libraries, or the staging libraries via
+GET .../staging/libraries when -Staging is specified.
+
+The returned names are used to decide, idempotently, whether a desired set of files is
+already deployed (so upload and the expensive publish can be skipped).
+Safe under
+Set-StrictMode — all optional properties are guarded.
+A 404 (no libraries yet) returns an
+empty array.
 
 ## EXAMPLES
 
 ### EXAMPLE 1
 
-New-FabricWorkspace -DisplayName 'SalesAnalytics-ETL [DEV]' -CapacityName 'cap-dev' -Token $token
+Get-FabricEnvironmentLibraries -WorkspaceId $ws.id -EnvironmentId $env.id -Token $token
 
-Creates the workspace on the cap-dev capacity, or returns it if it already exists.
+Returns the published custom library file names, e.g.
+@('mypackage-1.4.2-py3-none-any.whl').
 
 ## PARAMETERS
 
-### -CapacityName
+### -EnvironmentId
 
-The Fabric capacity to assign to the workspace.
+The Fabric environment GUID to query.
 
 ```yaml
 Type: System.String
@@ -64,16 +73,15 @@ AcceptedValues: []
 HelpMessage: ''
 ```
 
-### -Confirm
+### -Staging
 
-Prompts you for confirmation before running the cmdlet.
+Query the staging libraries instead of the published libraries.
 
 ```yaml
 Type: System.Management.Automation.SwitchParameter
-DefaultValue: ''
+DefaultValue: False
 SupportsWildcards: false
-Aliases:
-- cf
+Aliases: []
 ParameterSets:
 - Name: (All)
   Position: Named
@@ -86,30 +94,8 @@ AcceptedValues: []
 HelpMessage: ''
 ```
 
-### -DisplayName
-
-The display name for the workspace.
-
-```yaml
-Type: System.String
-DefaultValue: ''
-SupportsWildcards: false
-Aliases: []
-ParameterSets:
-- Name: (All)
-  Position: 0
-  IsRequired: true
-  ValueFromPipeline: false
-  ValueFromPipelineByPropertyName: false
-  ValueFromRemainingArguments: false
-DontShow: false
-AcceptedValues: []
-HelpMessage: ''
-```
-
 ### -Token
 
-Bearer token string for the Fabric REST API, used for the idempotency lookup.
 Bearer token string for the Fabric REST API.
 
 ```yaml
@@ -129,20 +115,19 @@ AcceptedValues: []
 HelpMessage: ''
 ```
 
-### -WhatIf
+### -WorkspaceId
 
-Runs the command in a mode that only reports what would happen without performing the actions.
+The Fabric workspace GUID that contains the environment.
 
 ```yaml
-Type: System.Management.Automation.SwitchParameter
+Type: System.String
 DefaultValue: ''
 SupportsWildcards: false
-Aliases:
-- wi
+Aliases: []
 ParameterSets:
 - Name: (All)
-  Position: Named
-  IsRequired: false
+  Position: 0
+  IsRequired: true
   ValueFromPipeline: false
   ValueFromPipelineByPropertyName: false
   ValueFromRemainingArguments: false
@@ -162,12 +147,14 @@ This cmdlet supports the common parameters: -Debug, -ErrorAction, -ErrorVariable
 
 ## OUTPUTS
 
-### System.Management.Automation.PSObject
+### System.String[]
 
-The Fabric workspace object, whether it already existed or was newly created.
+The flat set of custom library file names (wheel, py, jar and tar files) configured on the
+environment, or an empty array if none are configured.
 
 ## NOTES
 
 ## RELATED LINKS
 
-- [](https://learn.microsoft.com/rest/api/fabric/core/workspaces/create-workspace)
+- [](https://learn.microsoft.com/rest/api/fabric/)
+

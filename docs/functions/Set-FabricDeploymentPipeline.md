@@ -4,7 +4,7 @@ external help file: ZeroFailed.Deploy.Fabric-Help.xml
 HelpUri: https://learn.microsoft.com/rest/api/fabric/core/deployment-pipelines
 Locale: en-US
 Module Name: ZeroFailed.Deploy.Fabric
-ms.date: 06/11/2026
+ms.date: 08/18/2026
 PlatyPS schema version: 2024-05-01
 title: Set-FabricDeploymentPipeline
 ---
@@ -137,6 +137,8 @@ HelpMessage: ''
 
 ### -WorkspaceType
 
+The workspace type name to create the pipeline for (e.g.
+"Bronze").
 The workspace type name to create the pipeline for (e.g.
 "Bronze").
 

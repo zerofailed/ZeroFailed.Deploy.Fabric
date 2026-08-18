@@ -4,7 +4,7 @@ external help file: ZeroFailed.Deploy.Fabric-Help.xml
 HelpUri: https://learn.microsoft.com/rest/api/fabric/core/workspaces/provision-identity
 Locale: en-US
 Module Name: ZeroFailed.Deploy.Fabric
-ms.date: 06/11/2026
+ms.date: 08/18/2026
 PlatyPS schema version: 2024-05-01
 title: Enable-FabricWorkspaceIdentity
 ---

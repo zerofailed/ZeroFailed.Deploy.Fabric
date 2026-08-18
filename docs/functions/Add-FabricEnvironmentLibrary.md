@@ -1,51 +1,51 @@
 ---
 document type: cmdlet
 external help file: ZeroFailed.Deploy.Fabric-Help.xml
-HelpUri: https://learn.microsoft.com/rest/api/fabric/spark/workspace-settings/update-spark-settings
-Locale: en-US
+HelpUri: ''
+Locale: en-GB
 Module Name: ZeroFailed.Deploy.Fabric
 ms.date: 08/18/2026
 PlatyPS schema version: 2024-05-01
-title: Set-FabricWorkspaceDefaultEnvironment
+title: Add-FabricEnvironmentLibrary
 ---
 
-# Set-FabricWorkspaceDefaultEnvironment
+# Add-FabricEnvironmentLibrary
 
 ## SYNOPSIS
 
-Sets a Fabric environment as the workspace default (idempotent).
+Uploads a single library file (.whl, .tar.gz, .jar, .py) to a Fabric environment's staging area.
 
 ## SYNTAX
 
 ### __AllParameterSets
 
 ```
-Set-FabricWorkspaceDefaultEnvironment [-WorkspaceId] <string> [-WorkspaceName] <string>
- [-EnvironmentName] <string> [[-RuntimeVersion] <string>] [-Token] <string> [-WhatIf] [-Confirm]
- [<CommonParameters>]
+Add-FabricEnvironmentLibrary [-WorkspaceId] <string> [-EnvironmentId] <string> [-FilePath] <string>
+ [-Token] <string> [-WhatIf] [-Confirm] [<CommonParameters>]
 ```
 
 ## ALIASES
 
 ## DESCRIPTION
 
-Configures the workspace Spark settings so that notebooks and Spark job definitions using
-"Workspace default" inherit the given environment's compute and library configuration.
+Uploads the file to the environment's staging libraries via
+POST /workspaces/{id}/environments/{id}/staging/libraries (multipart/form-data).
 
-The environment is referenced by display name (an empty string clears the default).
-Uses PATCH /workspaces/{id}/spark/settings; the caller must have the workspace Admin role.
+Uploading places the file in staging only — it is not usable by notebooks/jobs until the
+environment is published (see Publish-FabricEnvironment).
+The maximum file size is 200 MB.
 
-Idempotent: reads the current Spark settings first and skips the PATCH if the default
-environment is already set to the requested name.
+Re-uploading a file with the same name overwrites the existing staged copy, so this is safe
+to call repeatedly.
 
 ## EXAMPLES
 
 ### EXAMPLE 1
 
-Set-FabricWorkspaceDefaultEnvironment -WorkspaceId $ws.id -WorkspaceName 'SalesAnalytics-ETL [DEV]' `
-    -EnvironmentName 'SalesAnalytics-ETL [DEV] Env' -Token $token
+Add-FabricEnvironmentLibrary -WorkspaceId $ws.id -EnvironmentId $env.id `
+    -FilePath './dist/mypackage-1.4.2-py3-none-any.whl' -Token $token
 
-Sets the environment as the workspace default, or reports Skipped if already set.
+Uploads the wheel into the environment's staging libraries.
 
 ## PARAMETERS
 
@@ -71,9 +71,30 @@ AcceptedValues: []
 HelpMessage: ''
 ```
 
-### -EnvironmentName
+### -EnvironmentId
 
-Display name of the environment to set as the workspace default.
+The Fabric environment GUID to upload the library into.
+
+```yaml
+Type: System.String
+DefaultValue: ''
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: (All)
+  Position: 1
+  IsRequired: true
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
+```
+
+### -FilePath
+
+Path to the library file to upload.
 
 ```yaml
 Type: System.String
@@ -84,29 +105,6 @@ ParameterSets:
 - Name: (All)
   Position: 2
   IsRequired: true
-  ValueFromPipeline: false
-  ValueFromPipelineByPropertyName: false
-  ValueFromRemainingArguments: false
-DontShow: false
-AcceptedValues: []
-HelpMessage: ''
-```
-
-### -RuntimeVersion
-
-Spark runtime version for the default environment. Default: 1.3.
-Spark runtime version for the default environment.
-Default: 1.3.
-
-```yaml
-Type: System.String
-DefaultValue: 1.3
-SupportsWildcards: false
-Aliases: []
-ParameterSets:
-- Name: (All)
-  Position: 3
-  IsRequired: false
   ValueFromPipeline: false
   ValueFromPipelineByPropertyName: false
   ValueFromRemainingArguments: false
@@ -126,7 +124,7 @@ SupportsWildcards: false
 Aliases: []
 ParameterSets:
 - Name: (All)
-  Position: 4
+  Position: 3
   IsRequired: true
   ValueFromPipeline: false
   ValueFromPipelineByPropertyName: false
@@ -160,7 +158,7 @@ HelpMessage: ''
 
 ### -WorkspaceId
 
-The Fabric workspace GUID.
+The Fabric workspace GUID that contains the environment.
 
 ```yaml
 Type: System.String
@@ -170,27 +168,6 @@ Aliases: []
 ParameterSets:
 - Name: (All)
   Position: 0
-  IsRequired: true
-  ValueFromPipeline: false
-  ValueFromPipelineByPropertyName: false
-  ValueFromRemainingArguments: false
-DontShow: false
-AcceptedValues: []
-HelpMessage: ''
-```
-
-### -WorkspaceName
-
-Display name used in log messages and the returned report entry.
-
-```yaml
-Type: System.String
-DefaultValue: ''
-SupportsWildcards: false
-Aliases: []
-ParameterSets:
-- Name: (All)
-  Position: 1
   IsRequired: true
   ValueFromPipeline: false
   ValueFromPipelineByPropertyName: false
@@ -213,11 +190,11 @@ This cmdlet supports the common parameters: -Debug, -ErrorAction, -ErrorVariable
 
 ### System.Collections.Hashtable
 
-A report entry with the workspace name and ID, the environment name, and the action taken
-(Set, Skipped, or whatif).
+A hashtable with keys: EnvironmentId, FileName, and Action ('Uploaded' or 'whatif').
 
 ## NOTES
 
 ## RELATED LINKS
 
-- [](https://learn.microsoft.com/rest/api/fabric/spark/workspace-settings/update-spark-settings)
+- [](https://learn.microsoft.com/rest/api/fabric/)
+

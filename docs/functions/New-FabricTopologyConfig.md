@@ -4,7 +4,7 @@ external help file: ZeroFailed.Deploy.Fabric-Help.xml
 HelpUri: https://learn.microsoft.com/rest/api/fabric/
 Locale: en-US
 Module Name: ZeroFailed.Deploy.Fabric
-ms.date: 07/03/2026
+ms.date: 08/18/2026
 PlatyPS schema version: 2024-05-01
 title: New-FabricTopologyConfig
 ---
@@ -25,9 +25,9 @@ New-FabricTopologyConfig [-Project] <string> [-WorkspaceTypes] <string[]> [-Envi
  [[-GitProject] <string>] [[-GitEnvironment] <string>] [[-GitWorkspaceConfig] <hashtable>]
  [[-EnableIdentity] <string[]>] [[-EnableMonitoring] <string[]>] [[-RoleAssignments] <hashtable[]>]
  [[-EnablePipelines] <string[]>] [[-PipelineRoleAssignments] <hashtable[]>]
- [[-EnableEnvironments] <string[]>] [[-EnvironmentRuntimeVersion] <string>]
- [[-TypeShortCodes] <hashtable>] [[-EnvShortCodes] <hashtable>] [[-OutputPath] <string>]
- [-SetEnvironmentAsDefault] [<CommonParameters>]
+ [[-EnableEnvironments] <string[]>] [[-EnvironmentStages] <hashtable>]
+ [[-EnvironmentRuntimeVersion] <string>] [[-TypeShortCodes] <hashtable>]
+ [[-EnvShortCodes] <hashtable>] [[-OutputPath] <string>] [-SetEnvironmentAsDefault]
 ```
 
 ## ALIASES
@@ -64,12 +64,14 @@ New-FabricTopologyConfig `
   -EnableIdentity      @("ETL") `
   -EnableMonitoring    @("ETL","Reporting") `
   -OutputPath          "./topology.json"
-# Produces workspace names like: SalesAnalytics-ETL [DEV], SalesAnalytics-Report [PROD]
 
 ## PARAMETERS
 
 ### -CapacityMap
 
+Hashtable mapping each environment name to its Fabric capacity name.
+E.g.
+@{ Dev="cap-dev"; Test="cap-test"; Acceptance="cap-acc"; Production="cap-prod" }
 Hashtable mapping each environment name to its Fabric capacity name.
 E.g.
 @{ Dev="cap-dev"; Test="cap-test"; Acceptance="cap-acc"; Production="cap-prod" }
@@ -93,6 +95,9 @@ HelpMessage: ''
 
 ### -EnableEnvironments
 
+Array of workspace type names that should have a Fabric Spark Environment provisioned
+(one environment per workspace).
+Defaults to no workspace types (opt-in).
 Array of workspace type names that should have a Fabric Spark Environment provisioned
 (one environment per workspace).
 Defaults to no workspace types (opt-in).
@@ -185,6 +190,8 @@ HelpMessage: ''
 
 Spark runtime version used for provisioned environments.
 Default: 1.3.
+Spark runtime version used for provisioned environments.
+Default: 1.3.
 
 ```yaml
 Type: System.String
@@ -193,7 +200,7 @@ SupportsWildcards: false
 Aliases: []
 ParameterSets:
 - Name: (All)
-  Position: 15
+  Position: 16
   IsRequired: false
   ValueFromPipeline: false
   ValueFromPipelineByPropertyName: false
@@ -205,6 +212,11 @@ HelpMessage: ''
 
 ### -Environments
 
+Array of environment names.
+Any name is accepted.
+Dev, Test, Acceptance, and Production have built-in display short codes (DEV, TEST, ACC, PROD);
+any other name is uppercased with whitespace removed to form its short code,
+unless overridden via -EnvShortCodes.
 Array of environment names.
 Any name is accepted.
 Dev, Test, Acceptance, and Production have built-in display short codes (DEV, TEST, ACC, PROD);
@@ -228,8 +240,40 @@ AcceptedValues: []
 HelpMessage: ''
 ```
 
+### -EnvironmentStages
+
+Optional hashtable keyed by workspace type name, restricting which environments (stages)
+get a Spark Environment for that type.
+Each value is an array of environment names.
+Only meaningful for types listed in -EnableEnvironments.
+A type that is environment-enabled
+but absent from this hashtable gets a Spark Environment in every environment (the default).
+E.g.
+@{ ETL = @('Dev','Production'); Reporting = @('Production') }
+
+```yaml
+Type: System.Collections.Hashtable
+DefaultValue: ''
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: (All)
+  Position: 15
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
+```
+
 ### -EnvShortCodes
 
+Optional hashtable mapping environment names to the display short code used in workspace names.
+Overrides built-in defaults and the generated fallback.
+E.g.
+@{ Staging = 'STG' }.
 Optional hashtable mapping environment names to the display short code used in workspace names.
 Overrides built-in defaults and the generated fallback.
 E.g.
@@ -242,7 +286,7 @@ SupportsWildcards: false
 Aliases: []
 ParameterSets:
 - Name: (All)
-  Position: 17
+  Position: 18
   IsRequired: false
   ValueFromPipeline: false
   ValueFromPipelineByPropertyName: false
@@ -254,6 +298,10 @@ HelpMessage: ''
 
 ### -GitEnvironment
 
+The single environment name where Git integration is enabled (e.g.
+"Dev").
+Defaults to "Dev".
+Set to an empty string to disable Git for all workspaces.
 The single environment name where Git integration is enabled (e.g.
 "Dev").
 Defaults to "Dev".
@@ -280,6 +328,8 @@ HelpMessage: ''
 
 Azure DevOps organisation name (or GitHub owner name).
 Required when -GitWorkspaceConfig is specified.
+Azure DevOps organisation name (or GitHub owner name).
+Required when -GitWorkspaceConfig is specified.
 
 ```yaml
 Type: System.String
@@ -300,6 +350,8 @@ HelpMessage: ''
 
 ### -GitProject
 
+Azure DevOps project name.
+Required when -GitProvider is AzureDevOps and -GitWorkspaceConfig is specified.
 Azure DevOps project name.
 Required when -GitProvider is AzureDevOps and -GitWorkspaceConfig is specified.
 
@@ -324,6 +376,8 @@ HelpMessage: ''
 
 Git provider: AzureDevOps or GitHub.
 Required when -GitWorkspaceConfig is specified.
+Git provider: AzureDevOps or GitHub.
+Required when -GitWorkspaceConfig is specified.
 
 ```yaml
 Type: System.String
@@ -344,6 +398,17 @@ HelpMessage: ''
 
 ### -GitWorkspaceConfig
 
+Hashtable keyed by workspace type name.
+Only types present here get Git integration.
+Each entry is a hashtable with:
+  RepositoryName  (required) — the Git repository name
+  RootFolder      (optional) — root folder within the repo; defaults to "fabric"
+  Branch          (optional) — branch to connect; defaults to "main"
+E.g.
+@{
+    ETL       = @{ RepositoryName = "salesanalytics-etl"; Branch = "develop" }
+    Reporting = @{ RepositoryName = "salesanalytics-reporting"; RootFolder = "reporting" }
+}
 Hashtable keyed by workspace type name.
 Only types present here get Git integration.
 Each entry is a hashtable with:
@@ -385,7 +450,7 @@ SupportsWildcards: false
 Aliases: []
 ParameterSets:
 - Name: (All)
-  Position: 18
+  Position: 19
   IsRequired: false
   ValueFromPipeline: false
   ValueFromPipelineByPropertyName: false
@@ -397,6 +462,15 @@ HelpMessage: ''
 
 ### -PipelineRoleAssignments
 
+Array of role assignment rules to apply to deployment pipelines.
+Each rule is a hashtable with:
+  PrincipalId    (required) — Entra object ID of the group, user, or service principal
+  PrincipalType  (required) — Group, User, or ServicePrincipal
+  Role           (optional) — only 'Admin' is supported by Fabric deployment pipelines; defaults to 'Admin'
+  WorkspaceTypes (optional) — array of workspace type names this rule applies to; omit for all types
+Pipelines span all environments, so these rules are not environment-scoped.
+Each rule is
+resolved per workspace type and stored on the workspace's pipeline block in the topology config.
 Array of role assignment rules to apply to deployment pipelines.
 Each rule is a hashtable with:
   PrincipalId    (required) — Entra object ID of the group, user, or service principal
@@ -429,6 +503,9 @@ HelpMessage: ''
 Project name used as the first segment of every workspace name (e.g.
 "SalesAnalytics").
 Casing is preserved as-is; only characters outside [A-Za-z0-9-] are replaced with hyphens.
+Project name used as the first segment of every workspace name (e.g.
+"SalesAnalytics").
+Casing is preserved as-is; only characters outside [A-Za-z0-9-] are replaced with hyphens.
 
 ```yaml
 Type: System.String
@@ -449,6 +526,14 @@ HelpMessage: ''
 
 ### -RoleAssignments
 
+Array of role assignment rules to apply to workspaces.
+Each rule is a hashtable with:
+  PrincipalId    (required) — Entra object ID of the group, user, or service principal
+  PrincipalType  (required) — Group, User, or ServicePrincipal
+  Role           (required) — Admin, Contributor, Member, or Viewer
+  WorkspaceTypes (optional) — array of workspace type names this rule applies to; omit for all types
+  Environments   (optional) — array of environment names this rule applies to; omit for all environments
+Each rule is resolved per workspace type and environment and stored in the topology config.
 Array of role assignment rules to apply to workspaces.
 Each rule is a hashtable with:
   PrincipalId    (required) — Entra object ID of the group, user, or service principal
@@ -503,6 +588,10 @@ Optional hashtable mapping workspace type names to the display short code used i
 Overrides built-in defaults and the generated fallback.
 E.g.
 @{ Lakehouse = 'LH' }.
+Optional hashtable mapping workspace type names to the display short code used in workspace names.
+Overrides built-in defaults and the generated fallback.
+E.g.
+@{ Lakehouse = 'LH' }.
 
 ```yaml
 Type: System.Collections.Hashtable
@@ -511,7 +600,7 @@ SupportsWildcards: false
 Aliases: []
 ParameterSets:
 - Name: (All)
-  Position: 16
+  Position: 17
   IsRequired: false
   ValueFromPipeline: false
   ValueFromPipelineByPropertyName: false
@@ -523,6 +612,11 @@ HelpMessage: ''
 
 ### -WorkspaceTypes
 
+Array of workspace type names to provision.
+Any name is accepted.
+Bronze, Silver, Gold, ETL, Storage, and Reporting have built-in display short codes;
+any other name uses the name itself (with whitespace removed) as its short code,
+unless overridden via -TypeShortCodes.
 Array of workspace type names to provision.
 Any name is accepted.
 Bronze, Silver, Gold, ETL, Storage, and Reporting have built-in display short codes;
@@ -566,4 +660,3 @@ A topology configuration object describing all workspaces, environments, naming 
 ## RELATED LINKS
 
 - [](https://learn.microsoft.com/rest/api/fabric/)
-
