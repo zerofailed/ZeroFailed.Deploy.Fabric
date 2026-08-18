@@ -1,9 +1,9 @@
-function Invoke-FabricArtefactDeploy {
+function Invoke-FabricPythonLibraryDeploy {
     <#
     .SYNOPSIS
         Deploys a Python package (and its dependencies) into the Fabric Spark Environments of a stage.
     .DESCRIPTION
-        The code-artefact counterpart to Invoke-FabricSetup, intended to run after provisioning as a
+        The Python-library counterpart to Invoke-FabricSetup, intended to run after provisioning as a
         separate pipeline. For a single deployment stage it:
           1. Downloads the named package plus its full dependency closure from an Azure Artifacts
              feed (once), via Save-FabricLibraryPackage.
@@ -61,7 +61,7 @@ function Invoke-FabricArtefactDeploy {
     .PARAMETER PublishTimeoutSeconds
         Maximum seconds to wait for each environment publish. Default: 600.
     .EXAMPLE
-        Invoke-FabricArtefactDeploy -ConfigPath ./topology.json -Stage DEV `
+        Invoke-FabricPythonLibraryDeploy -ConfigPath ./topology.json -Stage DEV `
             -PackageName mycompany.dataprep -PackageVersion 1.4.2 `
             -FeedOrganisation contoso -FeedProject Analytics -FeedName fabric-python `
             -FeedToken $env:SYSTEM_ACCESSTOKEN
@@ -126,7 +126,7 @@ function Invoke-FabricArtefactDeploy {
         if (-not (Test-Path $ConfigPath)) {
             throw "Config file not found: $ConfigPath"
         }
-        $Config = Get-Content -Path $ConfigPath -Raw | ConvertFrom-Json
+        $Config = Get-Content -Path $ConfigPath -Raw | ConvertFrom-Json -Depth 20
     }
 
     # Checked here as well as in Save-FabricLibraryPackage so a bad path fails before the auth
@@ -169,7 +169,7 @@ function Invoke-FabricArtefactDeploy {
 
     # --- 5. Download the package + dependencies once ---
     if (-not $StagingPath) {
-        $StagingPath = Join-Path ([System.IO.Path]::GetTempPath()) "fabric-artefacts-$([guid]::NewGuid())"
+        $StagingPath = Join-Path ([System.IO.Path]::GetTempPath()) "fabric-python-library-$([guid]::NewGuid())"
     }
 
     if ($SkipDownload) {
@@ -222,14 +222,14 @@ function Invoke-FabricArtefactDeploy {
             # a. Resolve the workspace (must already exist from provisioning).
             $workspaceObj = Test-FabricWorkspaceExists -DisplayName $resolvedName -Token $token
             if (-not $workspaceObj) {
-                throw "Workspace '$resolvedName' does not exist. Run provisioning before deploying artefacts."
+                throw "Workspace '$resolvedName' does not exist. Run provisioning before deploying."
             }
             $workspaceId = $workspaceObj.id
 
             # b. Resolve the Spark Environment (must already exist from provisioning).
             $environmentObj = _Resolve-FabricEnvironment -WorkspaceId $workspaceId -DisplayName $envName -Token $token
             if (-not $environmentObj) {
-                throw "Environment '$envName' does not exist in workspace '$resolvedName'. Run provisioning before deploying artefacts."
+                throw "Environment '$envName' does not exist in workspace '$resolvedName'. Run provisioning before deploying."
             }
             $environmentId = $environmentObj.id
 
@@ -308,7 +308,7 @@ function Invoke-FabricArtefactDeploy {
 
     # --- 7. Report ---
     $s = $results.Summary
-    Write-Verbose "=== Artefact deploy complete — Deployed: $($s.Deployed)  Skipped: $($s.Skipped)  Failed: $($s.Failed) ==="
+    Write-Verbose "=== Python library deploy complete — Deployed: $($s.Deployed)  Skipped: $($s.Skipped)  Failed: $($s.Failed) ==="
 
     if ($results.Failures.Count -gt 0) {
         Write-Warning "$($results.Failures.Count) workspace(s) failed. See `$result.Failures for details."

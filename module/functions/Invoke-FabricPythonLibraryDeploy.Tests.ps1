@@ -36,7 +36,7 @@ BeforeAll {
     }
 }
 
-Describe 'Invoke-FabricArtefactDeploy' {
+Describe 'Invoke-FabricPythonLibraryDeploy' {
 
     BeforeEach {
         Mock _Get-FabricAuthToken { @{ Token = 'tok'; ExpiresOn = [datetimeoffset]::UtcNow.AddHours(1) } } -ModuleName ZeroFailed.Deploy.Fabric
@@ -57,7 +57,7 @@ Describe 'Invoke-FabricArtefactDeploy' {
 
     It 'deploys only to workspaces with a Spark Environment enabled' {
         $config = New-TestConfig
-        $result = Invoke-FabricArtefactDeploy -Config $config @script:deployParams
+        $result = Invoke-FabricPythonLibraryDeploy -Config $config @script:deployParams
 
         $result.Summary.Deployed | Should -Be 1
         $result.Deployed[0].WorkspaceName | Should -Be 'THX-DataPrep [DEV]'
@@ -70,7 +70,7 @@ Describe 'Invoke-FabricArtefactDeploy' {
         # DataPrep has an environment, but only in a stage other than the one being deployed.
         $config.workspaces[0].environment | Add-Member -NotePropertyName stages -NotePropertyValue @('PROD') -Force
 
-        $result = Invoke-FabricArtefactDeploy -Config $config @script:deployParams
+        $result = Invoke-FabricPythonLibraryDeploy -Config $config @script:deployParams
 
         $result.Summary.Deployed | Should -Be 0
         Should -Invoke Save-FabricLibraryPackage -Times 0 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
@@ -81,7 +81,7 @@ Describe 'Invoke-FabricArtefactDeploy' {
         $config = New-TestConfig
         $config.workspaces[0].environment | Add-Member -NotePropertyName stages -NotePropertyValue @('DEV') -Force
 
-        $result = Invoke-FabricArtefactDeploy -Config $config @script:deployParams
+        $result = Invoke-FabricPythonLibraryDeploy -Config $config @script:deployParams
 
         $result.Summary.Deployed | Should -Be 1
         Should -Invoke Publish-FabricEnvironment -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
@@ -92,7 +92,7 @@ Describe 'Invoke-FabricArtefactDeploy' {
         # Enable the second workspace too.
         $config.workspaces[1].environment.enabled = $true
 
-        Invoke-FabricArtefactDeploy -Config $config @script:deployParams | Out-Null
+        Invoke-FabricPythonLibraryDeploy -Config $config @script:deployParams | Out-Null
 
         Should -Invoke Save-FabricLibraryPackage -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
         Should -Invoke Publish-FabricEnvironment -Times 2 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
@@ -100,13 +100,13 @@ Describe 'Invoke-FabricArtefactDeploy' {
 
     It 'uploads every downloaded file to the environment' {
         $config = New-TestConfig
-        Invoke-FabricArtefactDeploy -Config $config @script:deployParams | Out-Null
+        Invoke-FabricPythonLibraryDeploy -Config $config @script:deployParams | Out-Null
         Should -Invoke Add-FabricEnvironmentLibrary -Times 2 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
     }
 
     It 'passes the Fabric runtime target through to the download by default' {
         $config = New-TestConfig
-        Invoke-FabricArtefactDeploy -Config $config @script:deployParams | Out-Null
+        Invoke-FabricPythonLibraryDeploy -Config $config @script:deployParams | Out-Null
         Should -Invoke Save-FabricLibraryPackage -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter {
             $TargetPythonVersion -eq '3.11' -and $TargetPlatform -eq 'manylinux2014_x86_64'
         }
@@ -114,7 +114,7 @@ Describe 'Invoke-FabricArtefactDeploy' {
 
     It 'passes an overridden runtime target through to the download' {
         $config = New-TestConfig
-        Invoke-FabricArtefactDeploy -Config $config @script:deployParams -TargetPythonVersion '3.10' | Out-Null
+        Invoke-FabricPythonLibraryDeploy -Config $config @script:deployParams -TargetPythonVersion '3.10' | Out-Null
         Should -Invoke Save-FabricLibraryPackage -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter {
             $TargetPythonVersion -eq '3.10'
         }
@@ -126,7 +126,7 @@ Describe 'Invoke-FabricArtefactDeploy' {
         Set-Content -LiteralPath $constraints -Value 'cryptography==42.0.2'
 
         try {
-            Invoke-FabricArtefactDeploy -Config $config @script:deployParams -ConstraintsPath $constraints | Out-Null
+            Invoke-FabricPythonLibraryDeploy -Config $config @script:deployParams -ConstraintsPath $constraints | Out-Null
             Should -Invoke Save-FabricLibraryPackage -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter {
                 $ConstraintsPath -eq $constraints
             }
@@ -138,7 +138,7 @@ Describe 'Invoke-FabricArtefactDeploy' {
 
     It 'fails before authenticating when the constraints file is missing' {
         $config = New-TestConfig
-        { Invoke-FabricArtefactDeploy -Config $config @script:deployParams `
+        { Invoke-FabricPythonLibraryDeploy -Config $config @script:deployParams `
             -ConstraintsPath '/does/not/exist/constraints.txt' } | Should -Throw '*Constraints file not found*'
 
         Should -Invoke Save-FabricLibraryPackage -Times 0 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
@@ -150,7 +150,7 @@ Describe 'Invoke-FabricArtefactDeploy' {
         } -ModuleName ZeroFailed.Deploy.Fabric
 
         $config = New-TestConfig
-        $result = Invoke-FabricArtefactDeploy -Config $config @script:deployParams
+        $result = Invoke-FabricPythonLibraryDeploy -Config $config @script:deployParams
 
         $result.Deployed[0].Removed | Should -HaveCount 2
         Should -Invoke Remove-FabricEnvironmentLibrary -Times 2 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
@@ -165,7 +165,7 @@ Describe 'Invoke-FabricArtefactDeploy' {
         } -ModuleName ZeroFailed.Deploy.Fabric
 
         $config = New-TestConfig
-        Invoke-FabricArtefactDeploy -Config $config @script:deployParams | Out-Null
+        Invoke-FabricPythonLibraryDeploy -Config $config @script:deployParams | Out-Null
 
         Should -Invoke Remove-FabricEnvironmentLibrary -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter {
             $LibraryName -eq 'stale-9.9-py3-none-any.whl'
@@ -180,7 +180,7 @@ Describe 'Invoke-FabricArtefactDeploy' {
         } -ModuleName ZeroFailed.Deploy.Fabric
 
         $config = New-TestConfig
-        $result = Invoke-FabricArtefactDeploy -Config $config @script:deployParams
+        $result = Invoke-FabricPythonLibraryDeploy -Config $config @script:deployParams
 
         $result.Summary.Skipped | Should -Be 0
         $result.Summary.Deployed | Should -Be 1
@@ -193,7 +193,7 @@ Describe 'Invoke-FabricArtefactDeploy' {
         } -ModuleName ZeroFailed.Deploy.Fabric
 
         $config = New-TestConfig
-        $result = Invoke-FabricArtefactDeploy -Config $config @script:deployParams
+        $result = Invoke-FabricPythonLibraryDeploy -Config $config @script:deployParams
 
         $result.Summary.Skipped | Should -Be 1
         $result.Summary.Deployed | Should -Be 0
@@ -207,7 +207,7 @@ Describe 'Invoke-FabricArtefactDeploy' {
         } -ModuleName ZeroFailed.Deploy.Fabric
 
         $config = New-TestConfig
-        $result = Invoke-FabricArtefactDeploy -Config $config @script:deployParams -Force
+        $result = Invoke-FabricPythonLibraryDeploy -Config $config @script:deployParams -Force
 
         $result.Summary.Deployed | Should -Be 1
         Should -Invoke Publish-FabricEnvironment -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
@@ -217,7 +217,7 @@ Describe 'Invoke-FabricArtefactDeploy' {
         Mock Test-FabricWorkspaceExists { $null } -ModuleName ZeroFailed.Deploy.Fabric
 
         $config = New-TestConfig
-        $result = Invoke-FabricArtefactDeploy -Config $config @script:deployParams -ErrorAction SilentlyContinue
+        $result = Invoke-FabricPythonLibraryDeploy -Config $config @script:deployParams -ErrorAction SilentlyContinue
 
         $result.Summary.Failed | Should -Be 1
         $result.Failures[0].Error | Should -BeLike '*does not exist*'
@@ -226,7 +226,7 @@ Describe 'Invoke-FabricArtefactDeploy' {
 
     It 'throws when the stage is not in the config' {
         $config = New-TestConfig
-        { Invoke-FabricArtefactDeploy -Config $config @script:deployParams -Stage 'NOPE' } |
+        { Invoke-FabricPythonLibraryDeploy -Config $config @script:deployParams -Stage 'NOPE' } |
             Should -Throw "*Stage 'NOPE' not found*"
     }
 
@@ -236,7 +236,7 @@ Describe 'Invoke-FabricArtefactDeploy' {
         Set-Content -LiteralPath (Join-Path $staging 'mypackage-1.4.2-py3-none-any.whl') -Value 'x'
         try {
             $config = New-TestConfig
-            $result = Invoke-FabricArtefactDeploy -Config $config @script:deployParams -SkipDownload -StagingPath $staging
+            $result = Invoke-FabricPythonLibraryDeploy -Config $config @script:deployParams -SkipDownload -StagingPath $staging
             $result.Summary.Deployed | Should -Be 1
             Should -Invoke Save-FabricLibraryPackage -Times 0 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
             Should -Invoke Add-FabricEnvironmentLibrary -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric

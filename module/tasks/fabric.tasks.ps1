@@ -53,10 +53,10 @@ task provisionFabricWorkspaces -After DeployCore {
     }
 }
 
-# Ensures Python/pip is available before the artefact deployment task runs (used to download the
-# package and its dependencies from the Azure Artifacts feed).
-task ensureFabricArtefactTooling -Before deployFabricArtefacts {
-    Write-Build Cyan 'Checking Python/pip availability for artefact deployment...'
+# Ensures Python/pip is available before the Python library deployment task runs (used to download
+# the package and its dependencies from the Azure Artifacts feed).
+task ensureFabricPythonLibraryTooling -Before deployFabricPythonLibraries {
+    Write-Build Cyan 'Checking Python/pip availability for Python library deployment...'
 
     $python = Get-Command $FabricPythonExecutable -ErrorAction SilentlyContinue
     if (-not $python) {
@@ -71,17 +71,17 @@ task ensureFabricArtefactTooling -Before deployFabricArtefacts {
     Write-Build Green "Python/pip available: $($python.Source)"
 }
 
-# Deploys a code artefact (Python .whl + dependencies from Azure Artifacts) into the Spark
+# Deploys a Python library (a .whl + its dependencies from Azure Artifacts) into the Spark
 # Environments of a single stage. Standalone (not chained after provisioning) — intended to be
 # invoked by a separate deployment pipeline, once per stage.
-task deployFabricArtefacts {
-    if ($FabricSkipArtefactDeploy) {
-        Write-Build Yellow 'Skipping Fabric artefact deployment (FabricSkipArtefactDeploy is set).'
+task deployFabricPythonLibraries {
+    if ($FabricSkipPythonLibraryDeploy) {
+        Write-Build Yellow 'Skipping Fabric Python library deployment (FabricSkipPythonLibraryDeploy is set).'
         return
     }
 
     foreach ($required in @(
-        @{ Name = 'FabricArtefactStage'; Value = $FabricArtefactStage }
+        @{ Name = 'FabricPythonLibraryStage'; Value = $FabricPythonLibraryStage }
         @{ Name = 'FabricPackageName';   Value = $FabricPackageName }
         @{ Name = 'FabricPackageVersion'; Value = $FabricPackageVersion }
         @{ Name = 'FabricFeedOrganisation'; Value = $FabricFeedOrganisation }
@@ -90,34 +90,34 @@ task deployFabricArtefacts {
         @{ Name = 'FabricFeedToken';     Value = $FabricFeedToken }
     )) {
         if ([string]::IsNullOrWhiteSpace($required.Value)) {
-            throw "Required property '$($required.Name)' is not set for artefact deployment."
+            throw "Required property '$($required.Name)' is not set for Python library deployment."
         }
     }
 
-    if (-not (Test-Path $FabricArtefactConfigPath)) {
-        throw "Fabric topology config not found: $FabricArtefactConfigPath"
+    if (-not (Test-Path $FabricPythonLibraryConfigPath)) {
+        throw "Fabric topology config not found: $FabricPythonLibraryConfigPath"
     }
 
-    Write-Build Cyan "Deploying '$FabricPackageName==$FabricPackageVersion' into stage '$FabricArtefactStage' from: $FabricArtefactConfigPath"
+    Write-Build Cyan "Deploying '$FabricPackageName==$FabricPackageVersion' into stage '$FabricPythonLibraryStage' from: $FabricPythonLibraryConfigPath"
 
     $deployParams = @{
-        ConfigPath          = $FabricArtefactConfigPath
-        Stage               = $FabricArtefactStage
+        ConfigPath          = $FabricPythonLibraryConfigPath
+        Stage               = $FabricPythonLibraryStage
         PackageName         = $FabricPackageName
         PackageVersion      = $FabricPackageVersion
         FeedOrganisation    = $FabricFeedOrganisation
         FeedProject         = $FabricFeedProject
         FeedName            = $FabricFeedName
         FeedToken           = $FabricFeedToken
-        Force               = $FabricArtefactForce
+        Force               = $FabricPythonLibraryForce
         PythonExecutable    = $FabricPythonExecutable
         TargetPythonVersion = $FabricTargetPythonVersion
         TargetPlatform      = $FabricTargetPlatform
         WhatIf              = $FabricWhatIf
     }
 
-    if ($FabricArtefactStagingPath) {
-        $deployParams.StagingPath = $FabricArtefactStagingPath
+    if ($FabricPythonLibraryStagingPath) {
+        $deployParams.StagingPath = $FabricPythonLibraryStagingPath
     }
 
     if ($FabricConstraintsPath) {
@@ -128,16 +128,16 @@ task deployFabricArtefacts {
         $deployParams.ConstraintsPath = $FabricConstraintsPath
     }
 
-    $result = Invoke-FabricArtefactDeploy @deployParams
+    $result = Invoke-FabricPythonLibraryDeploy @deployParams
 
     $s = $result.Summary
-    Write-Build Green "Artefact deploy complete — Deployed: $($s.Deployed)  Skipped: $($s.Skipped)  Failed: $($s.Failed)"
+    Write-Build Green "Python library deploy complete — Deployed: $($s.Deployed)  Skipped: $($s.Skipped)  Failed: $($s.Failed)"
 
     if ($result.Failures.Count -gt 0) {
         Write-Build Red "$($result.Failures.Count) workspace(s) failed:"
         $result.Failures | ForEach-Object {
             Write-Build Red "  $($_.WorkspaceName) [$($_.Stage)]: $($_.Error)"
         }
-        throw "Fabric artefact deployment completed with $($result.Failures.Count) failure(s)."
+        throw "Fabric Python library deployment completed with $($result.Failures.Count) failure(s)."
     }
 }

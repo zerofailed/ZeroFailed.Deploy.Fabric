@@ -54,9 +54,9 @@ function Save-FabricLibraryPackage {
     .EXAMPLE
         Save-FabricLibraryPackage -PackageName 'mycompany.dataprep' -PackageVersion '1.4.2' `
             -FeedOrganisation 'contoso' -FeedProject 'Analytics' -FeedName 'fabric-python' `
-            -FeedToken $env:SYSTEM_ACCESSTOKEN -DestinationPath './.artefacts'
+            -FeedToken $env:SYSTEM_ACCESSTOKEN -DestinationPath './.packages'
 
-        Downloads the wheel and all dependency wheels into ./.artefacts and returns them.
+        Downloads the wheel and all dependency wheels into ./.packages and returns them.
     .EXAMPLE
         Save-FabricLibraryPackage ... -TargetPythonVersion '3.10'
 

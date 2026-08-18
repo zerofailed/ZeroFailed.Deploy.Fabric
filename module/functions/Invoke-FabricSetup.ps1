@@ -74,7 +74,7 @@ function Invoke-FabricSetup {
         if (-not (Test-Path $ConfigPath)) {
             throw "Config file not found: $ConfigPath"
         }
-        $Config = Get-Content -Path $ConfigPath -Raw | ConvertFrom-Json
+        $Config = Get-Content -Path $ConfigPath -Raw | ConvertFrom-Json -Depth 20
     }
 
     # --- 2. Acquire auth token ---

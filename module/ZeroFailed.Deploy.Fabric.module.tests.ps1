@@ -22,7 +22,7 @@ Describe 'ZeroFailed.Deploy.Fabric module' {
             'New-FabricWorkspace'
             'Set-FabricGitIntegration'
             'Test-FabricWorkspaceExists'
-            'Invoke-FabricArtefactDeploy'
+            'Invoke-FabricPythonLibraryDeploy'
             'Add-FabricEnvironmentLibrary'
             'Remove-FabricEnvironmentLibrary'
             'Publish-FabricEnvironment'
