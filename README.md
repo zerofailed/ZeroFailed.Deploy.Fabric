@@ -35,7 +35,7 @@ $FabricWhatIf             = $false
 ```
 
 The module registers two Invoke-Build tasks:
-- `ensureFabricModules` — installs Az.Accounts and MicrosoftFabricMgmt if missing (runs before `setupModules`)
+- `ensureFabricModules` — registers Az.Accounts, Az.Resources and MicrosoftFabricMgmt with ZeroFailed.DevOps.Common's `RequiredPowerShellModules`, so `setupModules` installs/imports them (runs before `setupModules`)
 - `provisionFabricWorkspaces` — runs `Invoke-FabricSetup` from the topology config (runs after `DeployCore`)
 
 ### Quick start
@@ -515,7 +515,9 @@ if ($existing) { "Exists: $($existing.id)" }
 
 ```
 Invoke-FabricSetup
-├── _Assert-Prerequisites       (checks Az.Accounts and MicrosoftFabricMgmt are installed)
+├── _Assert-Prerequisites       (checks Az.Accounts and MicrosoftFabricMgmt are installed — a runtime
+│                                guard independent of the `ensureFabricModules` build task, since
+│                                Invoke-FabricSetup can also be called directly outside a ZeroFailed build)
 ├── _Get-FabricAuthToken        (Get-AzAccessToken for Fabric API)
 ├── Inject token into MicrosoftFabricMgmt internal auth context (bypasses interactive login)
 ├── _Get-FabricDeploymentIdentity  → deploying identity object id + type (Get-AzContext + Get-AzAD*)
