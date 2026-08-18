@@ -8,7 +8,8 @@
     PowerShellVersion = '7.0'
     CompatiblePSEditions = @('Core')
     # RequiredModules intentionally left empty. Runtime dependencies (MicrosoftFabricMgmt,
-    # Az.Accounts) are validated by _Assert-Prerequisites and imported on demand within the
+    # Az.Accounts) are installed via ZeroFailed.DevOps.Common's RequiredPowerShellModules
+    # mechanism (see the 'ensureFabricModules' task) and imported on demand within the
     # functions that need them, so they are not required at module-import time (e.g. for docs).
     RequiredModules = @()
     FunctionsToExport = '*'
@@ -19,6 +20,25 @@
         PSData = @{
             Tags       = @('Fabric', 'Microsoft', 'DTAP', 'Provisioning', 'ZeroFailed')
             ProjectUri = 'https://github.com/zerofailed/ZeroFailed.Deploy.Fabric'
+        }
+
+        # ZeroFailed metadata
+        ZeroFailed = @{
+            ExtensionDependencies = @(
+                @{
+                    # Assume latest stable version
+                    Name          = 'ZeroFailed.Deploy.Common'
+                    GitRepository = 'https://github.com/zerofailed/ZeroFailed.Deploy.Common'
+                    Process       = 'tasks/deploy.process.ps1'
+                }
+                @{
+                    # Provides the 'setupModules' task and 'RequiredPowerShellModules' property
+                    # used by the 'ensureFabricModules' task to install Az.Accounts, Az.Resources
+                    # and MicrosoftFabricMgmt. Assume latest stable version.
+                    Name          = 'ZeroFailed.DevOps.Common'
+                    GitRepository = 'https://github.com/zerofailed/ZeroFailed.DevOps.Common'
+                }
+            )
         }
     }
 }

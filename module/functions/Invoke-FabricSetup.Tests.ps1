@@ -53,7 +53,6 @@ Describe 'Invoke-FabricSetup' {
 
         BeforeEach {
             Mock Import-Module {} -ModuleName ZeroFailed.Deploy.Fabric
-            Mock _Assert-Prerequisites {} -ModuleName ZeroFailed.Deploy.Fabric
             Mock _Get-FabricAuthToken { @{ Token = 'tok'; ExpiresOn = [DateTimeOffset]::UtcNow.AddHours(1) } } -ModuleName ZeroFailed.Deploy.Fabric
             # Default: deploying identity cannot be determined (overridden in the dedicated tests).
             Mock _Get-FabricDeploymentIdentity { $null } -ModuleName ZeroFailed.Deploy.Fabric

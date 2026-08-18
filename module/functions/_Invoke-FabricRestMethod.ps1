@@ -5,6 +5,18 @@ function _Invoke-FabricRestMethod {
     .DESCRIPTION
         Sends a REST request to the Fabric API. If the response is HTTP 202 (Accepted),
         polls the Location header until the operation completes or times out.
+    .NOTES
+        Can't use retry/rate-limit handling from ZeroFailed.DevOps.Common's
+        Invoke-RestMethodWithRateLimit because:
+          1. ZeroFailed.DevOps.Common is not published to PSGallery — it's only resolvable via
+             ZeroFailed's build-time extension mechanism (.zf/extensions). Invoke-FabricSetup is
+             as callable standalone (Import-Module + call directly, no ZeroFailed build
+             involved), so a runtime dependency on it would break that usage.
+          2. Invoke-RestMethodWithRateLimit takes an Invoke-RestMethod splat and returns only the
+             deserialised body - it does not surface the response status code or headers. This
+             function needs both to detect Fabric's LRO pattern (HTTP 202 + Location header), used
+             by New-FabricWorkspace, Set-FabricGitIntegration, Set-FabricDeploymentPipeline,
+             Set-FabricWorkspaceRoleAssignment and Set-FabricDeploymentPipelineRoleAssignment.
     .PARAMETER Method
         HTTP method: GET, POST, PATCH, DELETE.
     .PARAMETER RelativeUri

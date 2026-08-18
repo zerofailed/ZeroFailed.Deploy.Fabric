@@ -39,7 +39,7 @@ $FabricWhatIf             = $false
 ```
 
 The module registers these Invoke-Build tasks:
-- `ensureFabricModules` — installs Az.Accounts and MicrosoftFabricMgmt if missing (runs before `setupModules`)
+- `ensureFabricModules` — registers Az.Accounts, Az.Resources and MicrosoftFabricMgmt with ZeroFailed.DevOps.Common's `RequiredPowerShellModules`, so `setupModules` installs/imports them (runs before `setupModules`)
 - `provisionFabricWorkspaces` — runs `Invoke-FabricSetup` from the topology config (runs after `DeployCore`)
 - `ensureFabricArtefactTooling` — verifies Python/pip is available (runs before `deployFabricArtefacts`)
 - `deployFabricArtefacts` — runs `Invoke-FabricArtefactDeploy` for a single stage (standalone; invoke from a separate deployment pipeline)
@@ -381,7 +381,7 @@ When `-SetEnvironmentAsDefault` is supplied, each enabled workspace's environmen
 
 Orchestrates the full provisioning pipeline. For each environment × workspace combination: resolves the name, creates the workspace (idempotent), grants the deploying identity Admin on the workspace, connects Git (in the designated Git environment only, for configured workspace types), provisions identity, enables monitoring, provisions a Spark Environment (and optionally sets it as the workspace default), and applies RBAC role assignments. After the per-workspace loop, creates or updates Fabric deployment pipelines for workspace types with pipelines enabled, then applies each pipeline's role assignments. Returns a structured results object.
 
-> **Deploying identity auto-grant:** every workspace is granted the identity running the deployment the **Admin** role — idempotently, and independently of `-SkipRbac`. The identity (and its Entra **object id**, which Fabric role assignments require) is resolved with `Get-AzContext` plus `Get-AzADServicePrincipal`/`Get-AzADUser` (mirroring ZeroFailed.Deploy.Azure's `getDeploymentIdentity`), so it works both as the Azure DevOps service principal and as a locally signed-in user. This guarantees the deployer can always see and re-manage the workspace on later runs — without it, a re-run hits `WorkspaceNameAlreadyExists` (names are unique tenant-wide) but cannot resolve the workspace via `GET /workspaces`. No topology config required.
+> **Deploying identity auto-grant:** every workspace is granted the identity running the deployment the **Admin** role — idempotently, and independently of `-SkipRbac`. The identity (and its Entra **object id**, which Fabric role assignments require) is resolved with `Get-AzContext` plus `Get-AzADServicePrincipal`/`Get-AzADUser` (implemented directly in this module rather than depending on ZeroFailed.Deploy.Azure, to avoid pulling in a full deploy extension for a single identity lookup), so it works both as the Azure DevOps service principal and as a locally signed-in user. This guarantees the deployer can always see and re-manage the workspace on later runs — without it, a re-run hits `WorkspaceNameAlreadyExists` (names are unique tenant-wide) but cannot resolve the workspace via `GET /workspaces`. No topology config required.
 
 ```powershell
 # Full run from config object
@@ -763,7 +763,6 @@ $published = Get-FabricEnvironmentLibraries -WorkspaceId $ws.id -EnvironmentId $
 
 ```
 Invoke-FabricSetup
-├── _Assert-Prerequisites       (checks Az.Accounts and MicrosoftFabricMgmt are installed)
 ├── _Get-FabricAuthToken        (Get-AzAccessToken for Fabric API)
 ├── Inject token into MicrosoftFabricMgmt internal auth context (bypasses interactive login)
 ├── _Get-FabricDeploymentIdentity  → deploying identity object id + type (Get-AzContext + Get-AzAD*)
@@ -912,12 +911,12 @@ ZeroFailed.Deploy.Fabric/
 │   └── workflows/
 │       └── build.yml                              # CI/CD pipeline
 └── module/
-    ├── ZeroFailed.Deploy.Fabric.psd1              # Module manifest (PS 7+)
+    ├── ZeroFailed.Deploy.Fabric.psd1              # Module manifest (PS 7+); declares ZF extension
+    │                                               # dependencies (ZeroFailed.Deploy.Common,
+    │                                               # ZeroFailed.DevOps.Common) under PrivateData.ZeroFailed
     ├── ZeroFailed.Deploy.Fabric.psm1              # Auto-discovery module loader
     ├── ZeroFailed.Deploy.Fabric.module.tests.ps1  # Module-level Pester tests
-    ├── dependencies.psd1                          # ZeroFailed.Deploy.Common dependency
     ├── functions/
-    │   ├── _Assert-Prerequisites.ps1              # Private: prereq validation
     │   ├── _Get-FabricAuthToken.ps1               # Private: auth token + expiry check
     │   ├── _Get-FabricDeploymentIdentity.ps1      # Private: resolve deploying identity object id
     │   ├── _Invoke-FabricFileUpload.ps1           # Private: multipart file upload
