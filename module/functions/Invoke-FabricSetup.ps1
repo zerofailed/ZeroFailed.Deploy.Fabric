@@ -72,10 +72,7 @@ function Invoke-FabricSetup {
         $Config = Get-Content -Path $ConfigPath -Raw | ConvertFrom-Json
     }
 
-    # --- 2. Validate prerequisites ---
-    _Assert-Prerequisites
-
-    # --- 3. Acquire auth token ---
+    # --- 2. Acquire auth token ---
     Write-Verbose 'Acquiring Fabric auth token...'
     $tokenInfo = _Get-FabricAuthToken
     $token     = $tokenInfo.Token
@@ -105,7 +102,7 @@ function Invoke-FabricSetup {
         $script:FabricAuthContext.AuthMethod     = 'UserPrincipal'
     } $token $tokenInfo.ExpiresOn $tenantId
 
-    # --- 3b. Resolve the deploying identity (object id + type). ---
+    # --- 2b. Resolve the deploying identity (object id + type). ---
     # Each workspace is granted this principal as Admin on creation so the deployer can always
     # see and re-manage it on subsequent runs (otherwise a re-run hits WorkspaceNameAlreadyExists
     # but cannot resolve the workspace via GET /workspaces). Best-effort: warn and continue.
@@ -117,7 +114,7 @@ function Invoke-FabricSetup {
         Write-Warning "Could not determine the deploying identity; workspaces will not be auto-granted Admin for the deployer."
     }
 
-    # --- 4. Determine environments to process ---
+    # --- 3. Determine environments to process ---
     $targetEnvs = if ($Environments) {
         $Config.environments | Where-Object { $_.name -in $Environments }
     }
@@ -129,7 +126,7 @@ function Invoke-FabricSetup {
         throw "No matching environments found in config for filter: $($Environments -join ', ')"
     }
 
-    # --- 5. Provision ---
+    # --- 4. Provision ---
     $results = [pscustomobject]@{
         Summary         = [pscustomobject]@{ Created = 0; Skipped = 0; Failed = 0 }
         Identities      = [System.Collections.Generic.List[hashtable]]::new()
@@ -319,7 +316,7 @@ function Invoke-FabricSetup {
         }
     }
 
-    # --- 6. Deployment Pipelines (per workspace type, spans all environments) ---
+    # --- 5. Deployment Pipelines (per workspace type, spans all environments) ---
     if (-not $SkipPipeline) {
         $pipelineWorkspaces = $Config.workspaces | Where-Object { $_.pipeline.enabled }
 
@@ -372,7 +369,7 @@ function Invoke-FabricSetup {
         }
     }
 
-    # --- 7. Report ---
+    # --- 6. Report ---
     $s = $results.Summary
     Write-Verbose "=== Provisioning complete — Created: $($s.Created)  Skipped: $($s.Skipped)  Failed: $($s.Failed) ==="
 

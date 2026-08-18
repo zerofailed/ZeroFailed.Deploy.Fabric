@@ -515,9 +515,6 @@ if ($existing) { "Exists: $($existing.id)" }
 
 ```
 Invoke-FabricSetup
-├── _Assert-Prerequisites       (checks Az.Accounts and MicrosoftFabricMgmt are installed — a runtime
-│                                guard independent of the `ensureFabricModules` build task, since
-│                                Invoke-FabricSetup can also be called directly outside a ZeroFailed build)
 ├── _Get-FabricAuthToken        (Get-AzAccessToken for Fabric API)
 ├── Inject token into MicrosoftFabricMgmt internal auth context (bypasses interactive login)
 ├── _Get-FabricDeploymentIdentity  → deploying identity object id + type (Get-AzContext + Get-AzAD*)
@@ -653,7 +650,6 @@ ZeroFailed.Deploy.Fabric/
     ├── ZeroFailed.Deploy.Fabric.module.tests.ps1  # Module-level Pester tests
     ├── dependencies.psd1                          # ZeroFailed.Deploy.Common dependency
     ├── functions/
-    │   ├── _Assert-Prerequisites.ps1              # Private: prereq validation
     │   ├── _Get-FabricAuthToken.ps1               # Private: auth token + expiry check
     │   ├── _Invoke-FabricRestMethod.ps1           # Private: REST wrapper with LRO
     │   ├── _Resolve-WorkspaceName.ps1             # Private: naming convention engine
