@@ -14,10 +14,8 @@ function _Get-FabricDeploymentIdentity {
         (e.g. Az.Resources unavailable or insufficient directory permissions).
     .NOTES
         Implemented directly here rather than taking a dependency on ZeroFailed.Deploy.Azure's
-        equivalent 'getDeploymentIdentity' logic (see issue #5) — pulling in a full deploy extension
-        for a single identity lookup was excessive coupling for a Fabric-specific module. Consistent
-        with the issue #6 finding that ZeroFailed extensions aren't installable at runtime outside a
-        ZeroFailed build, which Invoke-FabricSetup must support standalone.
+        equivalent 'getDeploymentIdentity' — pulling in a full deploy extension
+        for a single identity lookup was excessive coupling for a Fabric-specific module. 
     .OUTPUTS
         A hashtable with keys: Id (Entra object id), Type ('ServicePrincipal' or 'User'); or $null.
     #>
