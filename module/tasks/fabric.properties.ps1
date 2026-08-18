@@ -1,11 +1,3 @@
-# InvokeBuild's 'property' checks, in order: 1) a variable already set with this exact name (e.g.
-# by a consumer's .zf/config.ps1 — the pre-existing override mechanism this module has always
-# supported), 2) an environment variable of this exact name (new: enables CI/CD overrides without
-# editing .zf/config.ps1), 3) the given default. The property name is therefore kept identical to
-# the destination variable name throughout, rather than following ZeroFailed.DevOps.Common's
-# SCREAMING_SNAKE_CASE convention — using a different name would silently stop honouring a
-# consumer's existing '$FabricXxx = ...' override, since 'property' has no knowledge of the
-# variable it's being assigned into.
 
 # Paths
 $FabricTopologyConfigPath = property FabricTopologyConfigPath './fabric/topology.json'
@@ -25,11 +17,6 @@ $FabricWhatIf            = [Convert]::ToBoolean((property FabricWhatIf $false))
 
 # Python library deployment (Invoke-FabricPythonLibraryDeploy) — runs after provisioning, typically
 # as a separate pipeline. Stage/package coordinates flow from the calling pipeline's build/stage context.
-# Empty-string defaults (not $null) below: InvokeBuild's 'property' throws 'Missing property' at
-# build-load time for a $null default, which would break every consumer — even ones that never
-# touch Python library deployment — since this file is dot-sourced unconditionally. These stay
-# optional until deployFabricPythonLibraries' own required-value check runs (fabric.tasks.ps1),
-# which already treats '' the same as $null via [string]::IsNullOrWhiteSpace.
 $FabricPythonLibraryConfigPath = property FabricPythonLibraryConfigPath $FabricTopologyConfigPath
 $FabricPythonLibraryStage = property FabricPythonLibraryStage ''
 $FabricPackageName        = property FabricPackageName ''
