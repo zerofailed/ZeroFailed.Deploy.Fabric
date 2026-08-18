@@ -474,6 +474,55 @@ Describe 'New-FabricTopologyConfig — Pipeline configuration' {
     }
 }
 
+Describe 'New-FabricTopologyConfig — Environment configuration' {
+
+    It 'disables environments for all types by default' {
+        $config = New-FabricTopologyConfig @script:commonParams
+        $config.workspaces | ForEach-Object {
+            $_.environment.enabled | Should -Be $false
+        }
+    }
+
+    It 'enables environments only for specified types' {
+        $config = New-FabricTopologyConfig @script:commonParams -EnableEnvironments @('Bronze', 'Gold')
+        $bronzeWs    = $config.workspaces | Where-Object { $_.type -eq 'Bronze' }
+        $silverWs    = $config.workspaces | Where-Object { $_.type -eq 'Silver' }
+        $goldWs      = $config.workspaces | Where-Object { $_.type -eq 'Gold' }
+
+        $bronzeWs.environment.enabled | Should -Be $true
+        $goldWs.environment.enabled   | Should -Be $true
+        $silverWs.environment.enabled | Should -Be $false
+    }
+
+    It 'does not set as workspace default unless -SetEnvironmentAsDefault is specified' {
+        $config = New-FabricTopologyConfig @script:commonParams -EnableEnvironments @('Bronze')
+        $bronzeWs = $config.workspaces | Where-Object { $_.type -eq 'Bronze' }
+        $bronzeWs.environment.setAsWorkspaceDefault | Should -Be $false
+    }
+
+    It 'sets as workspace default only for environment-enabled types when -SetEnvironmentAsDefault is specified' {
+        $config = New-FabricTopologyConfig @script:commonParams -EnableEnvironments @('Bronze') -SetEnvironmentAsDefault
+        $bronzeWs = $config.workspaces | Where-Object { $_.type -eq 'Bronze' }
+        $silverWs = $config.workspaces | Where-Object { $_.type -eq 'Silver' }
+
+        $bronzeWs.environment.setAsWorkspaceDefault | Should -Be $true
+        $silverWs.environment.setAsWorkspaceDefault | Should -Be $false
+    }
+
+    It 'defaults the runtime version to 1.3 and honours an override' {
+        $default = New-FabricTopologyConfig @script:commonParams -EnableEnvironments @('Bronze')
+        ($default.workspaces | Where-Object { $_.type -eq 'Bronze' }).environment.runtimeVersion | Should -Be '1.3'
+
+        $custom = New-FabricTopologyConfig @script:commonParams -EnableEnvironments @('Bronze') -EnvironmentRuntimeVersion '1.2'
+        ($custom.workspaces | Where-Object { $_.type -eq 'Bronze' }).environment.runtimeVersion | Should -Be '1.2'
+    }
+
+    It 'exposes an environment name template on the naming convention' {
+        $config = New-FabricTopologyConfig @script:commonParams
+        $config.namingConvention.environmentNameTemplate | Should -Be '{workspace} Env'
+    }
+}
+
 Describe 'New-FabricTopologyConfig — Pipeline role assignments' {
 
     It 'produces an empty pipeline roleAssignments array when none are specified' {

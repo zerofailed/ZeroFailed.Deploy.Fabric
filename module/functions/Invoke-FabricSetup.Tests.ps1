@@ -30,6 +30,7 @@ BeforeAll {
                     monitoring = [pscustomobject]@{ enabled = $true }
                     rbac       = [pscustomobject]@{ Dev = @([pscustomobject]@{ principalId = 'g1'; principalType = 'Group'; role = 'Member' }) }
                     pipeline   = [pscustomobject]@{ enabled = $true; roleAssignments = @([pscustomobject]@{ principalId = 'pg1'; principalType = 'Group'; role = 'Admin' }) }
+                    environment = [pscustomobject]@{ enabled = $true; setAsWorkspaceDefault = $true; runtimeVersion = '1.3' }
                 }
             )
         }
@@ -62,6 +63,8 @@ Describe 'Invoke-FabricSetup' {
             Mock Set-FabricGitIntegration {} -ModuleName ZeroFailed.Deploy.Fabric
             Mock Enable-FabricWorkspaceIdentity { @{ WorkspaceName = 'bronze' } } -ModuleName ZeroFailed.Deploy.Fabric
             Mock Enable-FabricWorkspaceMonitoring { @{ Enabled = $true } } -ModuleName ZeroFailed.Deploy.Fabric
+            Mock New-FabricEnvironment { [pscustomobject]@{ id = 'env-1'; displayName = 'bronze Env' } } -ModuleName ZeroFailed.Deploy.Fabric
+            Mock Set-FabricWorkspaceDefaultEnvironment { @{ EnvironmentName = 'bronze Env'; Action = 'Set' } } -ModuleName ZeroFailed.Deploy.Fabric
             Mock Set-FabricWorkspaceRoleAssignment { @{ Action = 'Created' } } -ModuleName ZeroFailed.Deploy.Fabric
             Mock Set-FabricDeploymentPipeline { @{ Action = 'Created'; PipelineId = 'pipe-1'; PipelineName = 'bronze-pipeline' } } -ModuleName ZeroFailed.Deploy.Fabric
             Mock Set-FabricDeploymentPipelineRoleAssignment { @{ Action = 'Created' } } -ModuleName ZeroFailed.Deploy.Fabric
@@ -126,16 +129,54 @@ Describe 'Invoke-FabricSetup' {
         }
 
         It 'honours the Skip switches' {
-            $r = Invoke-FabricSetup -Config (New-TestConfig) -SkipGit -SkipIdentity -SkipMonitoring -SkipRbac -SkipPipeline
+            $r = Invoke-FabricSetup -Config (New-TestConfig) -SkipGit -SkipIdentity -SkipMonitoring -SkipEnvironment -SkipRbac -SkipPipeline
             $r.Identities.Count      | Should -Be 0
             $r.Monitoring.Count      | Should -Be 0
+            $r.Environments.Count    | Should -Be 0
             $r.RoleAssignments.Count | Should -Be 0
             $r.Pipelines.Count       | Should -Be 0
             $r.PipelineRoleAssignments.Count | Should -Be 0
             Should -Invoke Set-FabricGitIntegration     -Times 0 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
             Should -Invoke Enable-FabricWorkspaceIdentity -Times 0 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
+            Should -Invoke New-FabricEnvironment         -Times 0 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
             Should -Invoke Set-FabricDeploymentPipeline  -Times 0 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
             Should -Invoke Set-FabricDeploymentPipelineRoleAssignment -Times 0 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
+        }
+
+        It 'provisions an environment and sets it as workspace default for each environment' {
+            $r = Invoke-FabricSetup -Config (New-TestConfig)
+
+            # 1 workspace x 2 environments; each iteration records a create + a set-default entry.
+            $r.Environments.Count | Should -Be 4
+            Should -Invoke New-FabricEnvironment                -Times 2 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
+            Should -Invoke Set-FabricWorkspaceDefaultEnvironment -Times 2 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
+        }
+
+        It 'does not set a workspace default when setAsWorkspaceDefault is false' {
+            $config = New-TestConfig
+            $config.workspaces[0].environment.setAsWorkspaceDefault = $false
+            $r = Invoke-FabricSetup -Config $config -Environments @('Dev')
+
+            $r.Environments.Count | Should -Be 1
+            Should -Invoke New-FabricEnvironment                -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
+            Should -Invoke Set-FabricWorkspaceDefaultEnvironment -Times 0 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
+        }
+
+        It 'skips environment provisioning when the workspace has it disabled' {
+            $config = New-TestConfig
+            $config.workspaces[0].environment.enabled = $false
+            $r = Invoke-FabricSetup -Config $config -Environments @('Dev')
+
+            $r.Environments.Count | Should -Be 0
+            Should -Invoke New-FabricEnvironment -Times 0 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
+        }
+
+        It 'records a non-fatal failure when environment provisioning throws' {
+            Mock New-FabricEnvironment { throw 'env boom' } -ModuleName ZeroFailed.Deploy.Fabric
+            $r = Invoke-FabricSetup -Config (New-TestConfig) -Environments @('Dev')
+
+            $r.Environments.Count | Should -Be 0
+            ($r.Failures.Step) | Should -Contain 'Environment'
         }
 
         It 'configures the pipeline but skips pipeline role assignments with -SkipPipelineRbac' {

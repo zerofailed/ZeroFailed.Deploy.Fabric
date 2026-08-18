@@ -55,6 +55,14 @@ function New-FabricTopologyConfig {
         Array of workspace type names that should have a Fabric deployment pipeline created.
         Each pipeline spans all environments in order, with one stage per environment.
         Defaults to no workspace types (opt-in).
+    .PARAMETER EnableEnvironments
+        Array of workspace type names that should have a Fabric Spark Environment provisioned
+        (one environment per workspace). Defaults to no workspace types (opt-in).
+    .PARAMETER SetEnvironmentAsDefault
+        When set, environment-enabled workspaces have their environment registered as the
+        workspace default (so notebooks/jobs using "Workspace default" inherit it).
+    .PARAMETER EnvironmentRuntimeVersion
+        Spark runtime version used for provisioned environments. Default: 1.3.
     .PARAMETER RoleAssignments
         Array of role assignment rules to apply to workspaces. Each rule is a hashtable with:
           PrincipalId    (required) — Entra object ID of the group, user, or service principal
@@ -136,6 +144,12 @@ function New-FabricTopologyConfig {
         [string[]]$EnablePipelines,
 
         [hashtable[]]$PipelineRoleAssignments,
+
+        [string[]]$EnableEnvironments,
+
+        [switch]$SetEnvironmentAsDefault,
+
+        [string]$EnvironmentRuntimeVersion = '1.3',
 
         [hashtable]$TypeShortCodes,
 
@@ -265,6 +279,9 @@ function New-FabricTopologyConfig {
     # Resolve EnablePipelines — default to no workspace types (opt-in)
     $pipelineTypes = if ($EnablePipelines) { $EnablePipelines } else { @() }
 
+    # Resolve EnableEnvironments — default to no workspace types (opt-in)
+    $environmentTypes = if ($EnableEnvironments) { $EnableEnvironments } else { @() }
+
     # Build environments list
     $envList = foreach ($envName in $Environments) {
         $shortCode    = $resolvedEnvShortCodes[$envName]
@@ -319,6 +336,7 @@ function New-FabricTopologyConfig {
         $identityEnabled  = $wsType -in $identityTypes
         $monitoringEnabled = $wsType -in $monitoringTypes
         $pipelineEnabled  = $wsType -in $pipelineTypes
+        $environmentEnabled = $wsType -in $environmentTypes
 
         # Resolve role assignments per environment for this workspace type
         $rbacByEnv = [ordered]@{}
@@ -365,6 +383,11 @@ function New-FabricTopologyConfig {
             identity   = [pscustomobject]@{ enabled = $identityEnabled }
             monitoring = [pscustomobject]@{ enabled = $monitoringEnabled }
             pipeline   = [pscustomobject]@{ enabled = $pipelineEnabled; roleAssignments = $pipelineRbac }
+            environment = [pscustomobject]@{
+                enabled               = $environmentEnabled
+                setAsWorkspaceDefault = $environmentEnabled -and $SetEnvironmentAsDefault.IsPresent
+                runtimeVersion        = $EnvironmentRuntimeVersion
+            }
             rbac       = $rbacByEnv
         }
     }
@@ -376,10 +399,11 @@ function New-FabricTopologyConfig {
         project           = $projectNorm
         gitEnvironment    = $resolvedGitEnvironment
         namingConvention  = [pscustomobject]@{
-            template       = '{project}-{type} [{env}]'
-            maxLength      = 64
-            typeShortCodes = [pscustomobject]$resolvedTypeShortCodes
-            envShortCodes  = [pscustomobject]$resolvedEnvShortCodes
+            template                = '{project}-{type} [{env}]'
+            environmentNameTemplate = '{workspace} Env'
+            maxLength               = 64
+            typeShortCodes          = [pscustomobject]$resolvedTypeShortCodes
+            envShortCodes           = [pscustomobject]$resolvedEnvShortCodes
         }
         environments      = @($envList)
         workspaces        = @($workspaceList)

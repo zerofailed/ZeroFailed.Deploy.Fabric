@@ -1,6 +1,6 @@
 # `ZeroFailed.Deploy.Fabric` — Microsoft Fabric Workspace Provisioner
 
-A ZeroFailed extension module for provisioning Microsoft Fabric workspaces across DTAP environments. Workspaces are named from a convention, connected to Git, optionally provisioned with Workspace Identities, optionally configured with workspace monitoring, optionally have Entra-based RBAC role assignments applied, and optionally have Fabric deployment pipelines set up across environments — with their own Entra-based role assignments. All provisioning steps are idempotent and safe to re-run.
+A ZeroFailed extension module for provisioning Microsoft Fabric workspaces across DTAP environments. Workspaces are named from a convention, connected to Git, optionally provisioned with Workspace Identities, optionally configured with workspace monitoring, optionally provisioned with a Fabric Spark Environment (set as the workspace default), optionally have Entra-based RBAC role assignments applied, and optionally have Fabric deployment pipelines set up across environments — with their own Entra-based role assignments. All provisioning steps are idempotent and safe to re-run.
 
 ### Requirements
 
@@ -28,6 +28,7 @@ $FabricEnvironmentFilter  = @('Dev')   # omit to process all environments
 $FabricSkipGit            = $false
 $FabricSkipIdentity       = $false
 $FabricSkipMonitoring     = $false
+$FabricSkipEnvironment    = $false
 $FabricSkipRbac           = $false
 $FabricSkipPipeline       = $false
 $FabricSkipPipelineRbac   = $false
@@ -61,6 +62,8 @@ $topology = New-FabricTopologyConfig `
     -EnableIdentity      @("Bronze", "Silver", "Gold") `
     -EnableMonitoring    @("Bronze", "Silver", "Gold", "Reporting") `
     -EnablePipelines     @("Bronze", "Silver", "Gold") `
+    -EnableEnvironments  @("Bronze", "Silver", "Gold") `
+    -SetEnvironmentAsDefault `
     -RoleAssignments     @(
         # All workspaces, all environments: read-only for the reporting group
         @{ PrincipalId = "aaaaaaaa-0000-0000-0000-000000000001"; PrincipalType = "Group"; Role = "Viewer" }
@@ -84,6 +87,9 @@ $result.Identities | Format-Table WorkspaceName, ServicePrincipalObjectId, Appli
 
 # 6. Inspect the monitoring report
 $result.Monitoring | Format-Table WorkspaceName, WorkspaceId, Enabled
+
+# 6b. Inspect the environment report
+$result.Environments | Format-Table WorkspaceName, EnvironmentName, EnvironmentId, Action
 
 # 7. Inspect the role assignment report
 $result.RoleAssignments | Format-Table WorkspaceName, PrincipalId, Role, Action
@@ -137,6 +143,8 @@ New-FabricTopologyConfig `
     -EnableIdentity      @("Bronze", "Silver", "Gold") `
     -EnableMonitoring    @("Bronze", "Silver", "Gold", "Reporting") `
     -EnablePipelines     @("Bronze", "Silver", "Gold") `
+    -EnableEnvironments  @("Bronze", "Silver", "Gold") `
+    -SetEnvironmentAsDefault `
     -RoleAssignments     @(
         @{ PrincipalId = "aaaaaaaa-..."; PrincipalType = "Group"; Role = "Viewer" }
         @{ PrincipalId = "bbbbbbbb-..."; PrincipalType = "Group"; Role = "Contributor";
@@ -165,6 +173,9 @@ New-FabricTopologyConfig `
 | `-EnableIdentity` | `string[]` | No | All types | Workspace types that should have a Workspace Identity provisioned |
 | `-EnableMonitoring` | `string[]` | No | None | Workspace types that should have monitoring enabled |
 | `-EnablePipelines` | `string[]` | No | None | Workspace types that should have a Fabric deployment pipeline created (one pipeline per type, spanning all environments) |
+| `-EnableEnvironments` | `string[]` | No | None | Workspace types that should have a Fabric Spark Environment provisioned (one environment per workspace) |
+| `-SetEnvironmentAsDefault` | `switch` | No | Off | When set, environment-enabled workspaces have their environment registered as the workspace default |
+| `-EnvironmentRuntimeVersion` | `string` | No | `1.3` | Spark runtime version used for provisioned environments |
 | `-RoleAssignments` | `hashtable[]` | No | None | Role assignment rules applied by workspace type and environment (see below) |
 | `-PipelineRoleAssignments` | `hashtable[]` | No | None | Deployment pipeline role assignment rules applied by workspace type (see below) |
 | `-OutputPath` | `string` | No | — | Write the generated config as JSON to this path |
@@ -297,11 +308,19 @@ Deployment pipelines have their own access control, separate from the workspaces
 
 > **Note:** Fabric deployment pipelines only support the `Admin` role. Supplying any other `Role` value is rejected by `New-FabricTopologyConfig`. As with workspace RBAC, the idempotency check (`Set-FabricDeploymentPipelineRoleAssignment`) skips principals that already have access on re-runs. Pipeline role assignments are applied only for workspace types whose pipelines are enabled via `-EnablePipelines`.
 
+**`-EnableEnvironments` — Spark Environments:**
+
+Fabric Spark Environments are the mechanism for deploying custom Python packages (`.whl`) and shared Spark compute/library configuration so notebooks and Spark job definitions can consume them. Environment provisioning is opt-in per workspace type via `-EnableEnvironments`; each enabled workspace gets its own environment (one per workspace), named from the `{workspace} Env` template (e.g. `salesanalytics-Bronze [DEV] Env`).
+
+When `-SetEnvironmentAsDefault` is supplied, each enabled workspace's environment is registered as the **workspace default** (via the Spark settings API), so notebooks and jobs using *Workspace default* inherit its compute and libraries. Setting the default requires the workspace **Admin** role — already satisfied because `Invoke-FabricSetup` auto-grants the deploying identity Admin on every workspace.
+
+> **Note:** This step provisions an **empty** environment and (optionally) sets it as the workspace default — it does not upload any libraries. Creating and referencing an empty environment does not require a publish. Uploading `.whl` packages (e.g. from Azure DevOps Artifacts) and publishing them is a separate action, handled outside this provisioning step.
+
 ---
 
 #### `Invoke-FabricSetup`
 
-Orchestrates the full provisioning pipeline. For each environment × workspace combination: resolves the name, creates the workspace (idempotent), grants the deploying identity Admin on the workspace, connects Git (in the designated Git environment only, for configured workspace types), provisions identity, enables monitoring, and applies RBAC role assignments. After the per-workspace loop, creates or updates Fabric deployment pipelines for workspace types with pipelines enabled, then applies each pipeline's role assignments. Returns a structured results object.
+Orchestrates the full provisioning pipeline. For each environment × workspace combination: resolves the name, creates the workspace (idempotent), grants the deploying identity Admin on the workspace, connects Git (in the designated Git environment only, for configured workspace types), provisions identity, enables monitoring, provisions a Spark Environment (and optionally sets it as the workspace default), and applies RBAC role assignments. After the per-workspace loop, creates or updates Fabric deployment pipelines for workspace types with pipelines enabled, then applies each pipeline's role assignments. Returns a structured results object.
 
 > **Deploying identity auto-grant:** every workspace is granted the identity running the deployment the **Admin** role — idempotently, and independently of `-SkipRbac`. The identity (and its Entra **object id**, which Fabric role assignments require) is resolved with `Get-AzContext` plus `Get-AzADServicePrincipal`/`Get-AzADUser` (implemented directly in this module rather than depending on ZeroFailed.Deploy.Azure, to avoid pulling in a full deploy extension for a single identity lookup), so it works both as the Azure DevOps service principal and as a locally signed-in user. This guarantees the deployer can always see and re-manage the workspace on later runs — without it, a re-run hits `WorkspaceNameAlreadyExists` (names are unique tenant-wide) but cannot resolve the workspace via `GET /workspaces`. No topology config required.
 
@@ -322,10 +341,11 @@ $result = Invoke-FabricSetup -Config $topology -WhatIf
 $result = Invoke-FabricSetup -Config $topology -SkipGit
 $result = Invoke-FabricSetup -Config $topology -SkipIdentity
 $result = Invoke-FabricSetup -Config $topology -SkipMonitoring
+$result = Invoke-FabricSetup -Config $topology -SkipEnvironment
 $result = Invoke-FabricSetup -Config $topology -SkipRbac
 $result = Invoke-FabricSetup -Config $topology -SkipPipeline
 $result = Invoke-FabricSetup -Config $topology -SkipPipelineRbac
-$result = Invoke-FabricSetup -Config $topology -SkipGit -SkipIdentity -SkipMonitoring -SkipRbac -SkipPipeline -SkipPipelineRbac
+$result = Invoke-FabricSetup -Config $topology -SkipGit -SkipIdentity -SkipMonitoring -SkipEnvironment -SkipRbac -SkipPipeline -SkipPipelineRbac
 ```
 
 **Parameters:**
@@ -338,6 +358,7 @@ $result = Invoke-FabricSetup -Config $topology -SkipGit -SkipIdentity -SkipMonit
 | `-SkipGit` | `switch` | Skip Git integration for all workspaces |
 | `-SkipIdentity` | `switch` | Skip identity provisioning for all workspaces |
 | `-SkipMonitoring` | `switch` | Skip monitoring enablement for all workspaces |
+| `-SkipEnvironment` | `switch` | Skip Spark Environment provisioning for all workspaces |
 | `-SkipRbac` | `switch` | Skip role assignment application for all workspaces |
 | `-SkipPipeline` | `switch` | Skip deployment pipeline setup for all workspace types |
 | `-SkipPipelineRbac` | `switch` | Skip deployment pipeline role assignment application for all workspace types |
@@ -349,6 +370,7 @@ $result = Invoke-FabricSetup -Config $topology -SkipGit -SkipIdentity -SkipMonit
 $result.Summary         # @{ Created=int; Skipped=int; Failed=int }
 $result.Identities      # Array of identity entries — handoff for downstream Azure RBAC
 $result.Monitoring      # Array of monitoring report entries
+$result.Environments    # Array of environment provisioning report entries
 $result.RoleAssignments # Array of role assignment report entries
 $result.Pipelines       # Array of deployment pipeline report entries
 $result.PipelineRoleAssignments # Array of pipeline role assignment report entries
@@ -373,6 +395,26 @@ $result.Failures        # Array of per-workspace/pipeline failure details
     WorkspaceName = "salesanalytics-Bronze [DEV]"
     WorkspaceId   = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
     Enabled       = $true
+}
+```
+
+**Environment report structure** (a create entry per provisioned environment, plus a set-default entry when `-SetEnvironmentAsDefault` is used):
+
+```powershell
+# Environment create entry
+@{
+    WorkspaceName   = "salesanalytics-Bronze [DEV]"
+    WorkspaceId     = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+    EnvironmentName = "salesanalytics-Bronze [DEV] Env"
+    EnvironmentId   = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+}
+
+# Set-as-workspace-default entry (only when -SetEnvironmentAsDefault)
+@{
+    WorkspaceName   = "salesanalytics-Bronze [DEV]"
+    WorkspaceId     = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+    EnvironmentName = "salesanalytics-Bronze [DEV] Env"
+    Action          = "Set"   # Set | Skipped | whatif
 }
 ```
 
@@ -429,6 +471,9 @@ $result.Identities | ForEach-Object { [pscustomobject]$_ } |
 # View monitoring report
 $result.Monitoring | ForEach-Object { [pscustomobject]$_ } | Format-Table
 
+# View environment report
+$result.Environments | ForEach-Object { [pscustomobject]$_ } | Format-Table
+
 # View role assignment report
 $result.RoleAssignments | ForEach-Object { [pscustomobject]$_ } |
     Format-Table WorkspaceName, PrincipalId, Role, Action
@@ -473,6 +518,22 @@ Verifies that workspace monitoring has been provisioned by checking for the pres
 > **Important — manual prerequisite:** There is no public Fabric REST API for provisioning the Monitoring Eventhouse. Before including a workspace type in `-EnableMonitoring`, you must first enable monitoring manually in the Fabric portal for each affected workspace: **Workspace Settings → Monitoring → +Eventhouse**. If the Monitoring Eventhouse is not found, `Enable-FabricWorkspaceMonitoring` throws a descriptive error with instructions.
 
 Normally called by `Invoke-FabricSetup`.
+
+#### `New-FabricEnvironment`
+
+Creates a Fabric Spark Environment in a workspace (`POST /workspaces/{id}/environments`), skipping creation if an environment with the same display name already exists. An `EnvironmentDisplayNameAlreadyInUse` (HTTP 409) conflict is treated idempotently by resolving and returning the existing environment. Provisions an empty environment only — uploading libraries and publishing are handled separately. Normally called by `Invoke-FabricSetup`; can also be used directly.
+
+```powershell
+$env = New-FabricEnvironment -WorkspaceId $ws.id -DisplayName "salesanalytics-Bronze [DEV] Env" -Token $token
+```
+
+#### `Set-FabricWorkspaceDefaultEnvironment`
+
+Sets a Fabric environment as the workspace default via the Spark settings API (`PATCH /workspaces/{id}/spark/settings`), so notebooks and Spark job definitions using *Workspace default* inherit its compute and libraries. The environment is referenced by display name. Idempotent — reads the current settings first and skips the update if the default is already set to the requested environment. Requires the workspace **Admin** role. Normally called by `Invoke-FabricSetup` when `-SetEnvironmentAsDefault` is used; can also be used directly.
+
+```powershell
+$defaultResult = Set-FabricWorkspaceDefaultEnvironment -WorkspaceId $ws.id -WorkspaceName "salesanalytics-Bronze [DEV]" -EnvironmentName "salesanalytics-Bronze [DEV] Env" -Token $token
+```
 
 #### `Set-FabricWorkspaceRoleAssignment`
 
@@ -537,6 +598,14 @@ Invoke-FabricSetup
     │   └── GET workspaces/{id}/items  → check for Monitoring Eventhouse
     │       ├── found   → append to $result.Monitoring
     │       └── missing → throw (manual portal setup required)
+    ├── New-FabricEnvironment  (unless -SkipEnvironment or environment.enabled=false)
+    │   ├── _Resolve-FabricEnvironment → GET /environments (paginated, by displayName)
+    │   ├── missing → POST /environments (409 → resolve existing)  → append to $result.Environments
+    │   └── if environment.setAsWorkspaceDefault:
+    │       └── Set-FabricWorkspaceDefaultEnvironment
+    │           ├── GET /spark/settings  (idempotency check)
+    │           ├── already default → skip
+    │           └── else → PATCH /spark/settings  → append to $result.Environments
     └── For each role assignment in ws.rbac[env]:  (unless -SkipRbac or no assignments)
         └── Set-FabricWorkspaceRoleAssignment
             ├── GET workspaces/{id}/roleAssignments  (idempotency check)
@@ -585,6 +654,7 @@ $result = Invoke-FabricSetup -Config $topology
 # existing workspaces → Skipped
 # existing Git connections → logged as already connected (Dev only)
 # existing identities → skipped, SP details still returned
+# existing environments → skipped, workspace default only re-set if it has drifted
 # existing role assignments with correct role → Skipped
 # existing pipelines with correct stage assignments → Skipped
 $result = Invoke-FabricSetup -Config $topology
@@ -593,7 +663,7 @@ $result = Invoke-FabricSetup -Config $topology
 **Skip individual steps:**
 
 ```powershell
-$result = Invoke-FabricSetup -Config $topology -SkipGit -SkipIdentity -SkipMonitoring -SkipRbac -SkipPipeline
+$result = Invoke-FabricSetup -Config $topology -SkipGit -SkipIdentity -SkipMonitoring -SkipEnvironment -SkipRbac -SkipPipeline
 ```
 
 **Provision workspaces first, then wire up pipelines:**
@@ -603,7 +673,7 @@ $result = Invoke-FabricSetup -Config $topology -SkipGit -SkipIdentity -SkipMonit
 $result = Invoke-FabricSetup -Config $topology -SkipPipeline
 
 # Once workspaces exist, set up deployment pipelines
-$result = Invoke-FabricSetup -Config $topology -SkipGit -SkipIdentity -SkipMonitoring -SkipRbac
+$result = Invoke-FabricSetup -Config $topology -SkipGit -SkipIdentity -SkipMonitoring -SkipEnvironment -SkipRbac
 ```
 
 **Inspect resolved workspace names before provisioning:**
@@ -625,10 +695,12 @@ Invoke-Pester ./module -Output Detailed
 
 The test suite covers:
 - `_Resolve-WorkspaceName` — correct name generation, lowercasing, truncation, error cases
-- `New-FabricTopologyConfig` — environment count, workspace count, capacity assignment, Git opt-in per workspace type (`-GitWorkspaceConfig`), single Git environment (`-GitEnvironment`), identity filtering, monitoring filtering, pipeline opt-in (`-EnablePipelines`), RBAC role assignment rules (`-RoleAssignments`), pipeline role assignment rules (`-PipelineRoleAssignments`), `-OutputPath` JSON output, GitHub provider, validation errors
+- `New-FabricTopologyConfig` — environment count, workspace count, capacity assignment, Git opt-in per workspace type (`-GitWorkspaceConfig`), single Git environment (`-GitEnvironment`), identity filtering, monitoring filtering, pipeline opt-in (`-EnablePipelines`), Spark Environment opt-in (`-EnableEnvironments`, `-SetEnvironmentAsDefault`, `-EnvironmentRuntimeVersion`), RBAC role assignment rules (`-RoleAssignments`), pipeline role assignment rules (`-PipelineRoleAssignments`), `-OutputPath` JSON output, GitHub provider, validation errors
+- `New-FabricEnvironment` — WhatIf, idempotent skip when present, create via POST, description in body, 409 conflict resolution, non-conflict error propagation
+- `Set-FabricWorkspaceDefaultEnvironment` — WhatIf, PATCH body shape, custom runtime version, skip when default already matches
 - `Set-FabricDeploymentPipeline` — WhatIf, create+assign all stages, skip when fully assigned, update vacant stages, skip missing workspaces gracefully, pagination across continuation tokens, API error propagation, report field correctness
 - `Set-FabricDeploymentPipelineRoleAssignment` — WhatIf, Admin default, non-Admin role rejection, skip when principal already present, create via POST, principal type acceptance, API error propagation, report field correctness
-- `Invoke-FabricSetup` — pipeline role assignment application, `-SkipPipelineRbac`, non-fatal pipeline RBAC failures, no RBAC attempt when pipeline setup fails
+- `Invoke-FabricSetup` — pipeline role assignment application, `-SkipPipelineRbac`, non-fatal pipeline RBAC failures, no RBAC attempt when pipeline setup fails, environment provisioning + set-as-default, `-SkipEnvironment`, non-fatal environment failures
 - Module-level tests — manifest validation, export checks, private function isolation
 
 ---

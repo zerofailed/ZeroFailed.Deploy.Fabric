@@ -4,7 +4,7 @@ external help file: ZeroFailed.Deploy.Fabric-Help.xml
 HelpUri: https://learn.microsoft.com/rest/api/fabric/
 Locale: en-US
 Module Name: ZeroFailed.Deploy.Fabric
-ms.date: 06/11/2026
+ms.date: 07/03/2026
 PlatyPS schema version: 2024-05-01
 title: New-FabricTopologyConfig
 ---
@@ -25,8 +25,9 @@ New-FabricTopologyConfig [-Project] <string> [-WorkspaceTypes] <string[]> [-Envi
  [[-GitProject] <string>] [[-GitEnvironment] <string>] [[-GitWorkspaceConfig] <hashtable>]
  [[-EnableIdentity] <string[]>] [[-EnableMonitoring] <string[]>] [[-RoleAssignments] <hashtable[]>]
  [[-EnablePipelines] <string[]>] [[-PipelineRoleAssignments] <hashtable[]>]
- [[-TypeShortCodes] <hashtable>] [[-EnvShortCodes] <hashtable>]
- [[-OutputPath] <string>] [<CommonParameters>]
+ [[-EnableEnvironments] <string[]>] [[-EnvironmentRuntimeVersion] <string>]
+ [[-TypeShortCodes] <hashtable>] [[-EnvShortCodes] <hashtable>] [[-OutputPath] <string>]
+ [-SetEnvironmentAsDefault] [<CommonParameters>]
 ```
 
 ## ALIASES
@@ -63,6 +64,7 @@ New-FabricTopologyConfig `
   -EnableIdentity      @("ETL") `
   -EnableMonitoring    @("ETL","Reporting") `
   -OutputPath          "./topology.json"
+# Produces workspace names like: SalesAnalytics-ETL [DEV], SalesAnalytics-Report [PROD]
 
 ## PARAMETERS
 
@@ -81,6 +83,29 @@ ParameterSets:
 - Name: (All)
   Position: 3
   IsRequired: true
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
+```
+
+### -EnableEnvironments
+
+Array of workspace type names that should have a Fabric Spark Environment provisioned
+(one environment per workspace).
+Defaults to no workspace types (opt-in).
+
+```yaml
+Type: System.String[]
+DefaultValue: ''
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: (All)
+  Position: 14
+  IsRequired: false
   ValueFromPipeline: false
   ValueFromPipelineByPropertyName: false
   ValueFromRemainingArguments: false
@@ -156,10 +181,30 @@ AcceptedValues: []
 HelpMessage: ''
 ```
 
+### -EnvironmentRuntimeVersion
+
+Spark runtime version used for provisioned environments.
+Default: 1.3.
+
+```yaml
+Type: System.String
+DefaultValue: 1.3
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: (All)
+  Position: 15
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
+```
+
 ### -Environments
 
-Array of DTAP environment names.
-Valid values: Dev, Test, Acceptance, Production.
 Array of environment names.
 Any name is accepted.
 Dev, Test, Acceptance, and Production have built-in display short codes (DEV, TEST, ACC, PROD);
@@ -197,7 +242,7 @@ SupportsWildcards: false
 Aliases: []
 ParameterSets:
 - Name: (All)
-  Position: 14
+  Position: 17
   IsRequired: false
   ValueFromPipeline: false
   ValueFromPipelineByPropertyName: false
@@ -340,7 +385,7 @@ SupportsWildcards: false
 Aliases: []
 ParameterSets:
 - Name: (All)
-  Position: 15
+  Position: 18
   IsRequired: false
   ValueFromPipeline: false
   ValueFromPipelineByPropertyName: false
@@ -359,7 +404,8 @@ Each rule is a hashtable with:
   Role           (optional) — only 'Admin' is supported by Fabric deployment pipelines; defaults to 'Admin'
   WorkspaceTypes (optional) — array of workspace type names this rule applies to; omit for all types
 Pipelines span all environments, so these rules are not environment-scoped.
-Each rule is resolved per workspace type and stored on the workspace's pipeline block in the topology config.
+Each rule is
+resolved per workspace type and stored on the workspace's pipeline block in the topology config.
 
 ```yaml
 Type: System.Collections.Hashtable[]
@@ -429,6 +475,28 @@ AcceptedValues: []
 HelpMessage: ''
 ```
 
+### -SetEnvironmentAsDefault
+
+When set, environment-enabled workspaces have their environment registered as the
+workspace default (so notebooks/jobs using "Workspace default" inherit it).
+
+```yaml
+Type: System.Management.Automation.SwitchParameter
+DefaultValue: False
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: (All)
+  Position: Named
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
+```
+
 ### -TypeShortCodes
 
 Optional hashtable mapping workspace type names to the display short code used in workspace names.
@@ -443,7 +511,7 @@ SupportsWildcards: false
 Aliases: []
 ParameterSets:
 - Name: (All)
-  Position: 13
+  Position: 16
   IsRequired: false
   ValueFromPipeline: false
   ValueFromPipelineByPropertyName: false
@@ -455,9 +523,6 @@ HelpMessage: ''
 
 ### -WorkspaceTypes
 
-Array of workspace type names to provision.
-Valid values:
-Bronze, Silver, Gold, ETL, Storage, Reporting.
 Array of workspace type names to provision.
 Any name is accepted.
 Bronze, Silver, Gold, ETL, Storage, and Reporting have built-in display short codes;
@@ -494,10 +559,11 @@ This cmdlet supports the common parameters: -Debug, -ErrorAction, -ErrorVariable
 
 ### System.Management.Automation.PSObject
 
-A topology configuration object describing all workspaces, environments, naming convention, Git, identity, monitoring, pipeline, and role assignment settings.
+A topology configuration object describing all workspaces, environments, naming convention, Git, identity, monitoring, pipeline, environment, and role assignment settings.
 
 ## NOTES
 
 ## RELATED LINKS
 
 - [](https://learn.microsoft.com/rest/api/fabric/)
+
