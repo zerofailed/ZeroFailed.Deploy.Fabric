@@ -17,8 +17,10 @@ function Enable-FabricWorkspaceMonitoring {
         Display name used in log messages and the returned report entry.
     .PARAMETER Token
         Bearer token string for the Fabric REST API.
-    .OUTPUTS
-        Hashtable: WorkspaceName, WorkspaceId, Enabled.
+    .EXAMPLE
+        Enable-FabricWorkspaceMonitoring -WorkspaceId $ws.id -WorkspaceName 'SalesAnalytics-ETL [DEV]' -Token $token
+
+        Verifies that the Monitoring Eventhouse exists for the workspace and returns a report entry.
     #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([hashtable])]

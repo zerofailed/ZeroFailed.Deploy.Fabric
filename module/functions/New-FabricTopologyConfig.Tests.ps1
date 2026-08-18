@@ -271,6 +271,69 @@ Describe 'Config shape validation' {
     }
 }
 
+Describe 'New-FabricTopologyConfig — custom workspace types and environments' {
+
+    It 'accepts workspace type and environment names outside the built-in lists' {
+        $config = New-FabricTopologyConfig `
+            -Project        'test' `
+            -WorkspaceTypes @('Lakehouse', 'Warehouse') `
+            -Environments   @('Sandbox', 'Staging') `
+            -CapacityMap    @{ Sandbox = 'cap-sandbox'; Staging = 'cap-staging' }
+
+        $config.workspaces.Count   | Should -Be 2
+        $config.environments.Count | Should -Be 2
+        ($config.workspaces | Where-Object { $_.type -eq 'Lakehouse' }) | Should -Not -BeNullOrEmpty
+    }
+
+    It 'generates an uppercased, whitespace-stripped short code for a custom environment' {
+        $config = New-FabricTopologyConfig `
+            -Project        'test' `
+            -WorkspaceTypes @('Lakehouse') `
+            -Environments   @('Pre Prod') `
+            -CapacityMap    @{ 'Pre Prod' = 'cap-preprod' }
+
+        $config.namingConvention.envShortCodes.'Pre Prod' | Should -Be 'PREPROD'
+    }
+
+    It 'generates a whitespace-stripped, case-preserved short code for a custom workspace type' {
+        $config = New-FabricTopologyConfig `
+            -Project        'test' `
+            -WorkspaceTypes @('Data Science') `
+            -Environments   @('Dev') `
+            -CapacityMap    @{ Dev = 'cap-dev' }
+
+        $config.namingConvention.typeShortCodes.'Data Science' | Should -Be 'DataScience'
+    }
+
+    It 'still applies built-in short codes for known names alongside custom ones' {
+        $config = New-FabricTopologyConfig `
+            -Project        'test' `
+            -WorkspaceTypes @('Reporting', 'Lakehouse') `
+            -Environments   @('Production', 'Sandbox') `
+            -CapacityMap    @{ Production = 'cap-prod'; Sandbox = 'cap-sandbox' }
+
+        $config.namingConvention.typeShortCodes.Reporting | Should -Be 'Report'
+        $config.namingConvention.typeShortCodes.Lakehouse | Should -Be 'Lakehouse'
+        $config.namingConvention.envShortCodes.Production | Should -Be 'PROD'
+        $config.namingConvention.envShortCodes.Sandbox    | Should -Be 'SANDBOX'
+    }
+
+    It 'honours -TypeShortCodes and -EnvShortCodes overrides above defaults and fallbacks' {
+        $config = New-FabricTopologyConfig `
+            -Project        'test' `
+            -WorkspaceTypes @('Reporting', 'Lakehouse') `
+            -Environments   @('Production', 'Sandbox') `
+            -CapacityMap    @{ Production = 'cap-prod'; Sandbox = 'cap-sandbox' } `
+            -TypeShortCodes @{ Reporting = 'RPT'; Lakehouse = 'LH' } `
+            -EnvShortCodes  @{ Production = 'LIVE'; Sandbox = 'SBX' }
+
+        $config.namingConvention.typeShortCodes.Reporting | Should -Be 'RPT'
+        $config.namingConvention.typeShortCodes.Lakehouse | Should -Be 'LH'
+        $config.namingConvention.envShortCodes.Production | Should -Be 'LIVE'
+        $config.namingConvention.envShortCodes.Sandbox    | Should -Be 'SBX'
+    }
+}
+
 Describe 'New-FabricTopologyConfig — RBAC configuration' {
 
     It 'produces an empty rbac entry per environment when no RoleAssignments are specified' {
@@ -408,5 +471,99 @@ Describe 'New-FabricTopologyConfig — Pipeline configuration' {
 
         $reportingWs.pipeline.enabled | Should -Be $true
         $bronzeWs.pipeline.enabled    | Should -Be $false
+    }
+}
+
+Describe 'New-FabricTopologyConfig — Pipeline role assignments' {
+
+    It 'produces an empty pipeline roleAssignments array when none are specified' {
+        $config = New-FabricTopologyConfig @script:commonParams
+        $config.workspaces | ForEach-Object {
+            $_.pipeline.roleAssignments | Should -HaveCount 0
+        }
+    }
+
+    It 'applies a pipeline role assignment to all pipeline-enabled workspace types by default' {
+        $config = New-FabricTopologyConfig @script:commonParams `
+            -EnablePipelines @('Bronze', 'Silver', 'Gold', 'Reporting') `
+            -PipelineRoleAssignments @(
+                @{ PrincipalId = 'grp-001'; PrincipalType = 'Group' }
+            )
+        $config.workspaces | ForEach-Object {
+            $_.pipeline.roleAssignments | Should -HaveCount 1
+            $_.pipeline.roleAssignments[0].principalId | Should -Be 'grp-001'
+            $_.pipeline.roleAssignments[0].role        | Should -Be 'Admin'
+        }
+    }
+
+    It 'omits pipeline role assignments for a type whose pipeline is not enabled' {
+        $config = New-FabricTopologyConfig @script:commonParams `
+            -EnablePipelines @('Bronze') `
+            -PipelineRoleAssignments @(
+                @{ PrincipalId = 'grp-001'; PrincipalType = 'Group' }
+            )
+        $bronzeWs    = $config.workspaces | Where-Object { $_.type -eq 'Bronze' }
+        $reportingWs = $config.workspaces | Where-Object { $_.type -eq 'Reporting' }
+        $bronzeWs.pipeline.roleAssignments    | Should -HaveCount 1
+        $reportingWs.pipeline.enabled         | Should -Be $false
+        $reportingWs.pipeline.roleAssignments | Should -HaveCount 0
+    }
+
+    It 'defaults the role to Admin when omitted' {
+        $config = New-FabricTopologyConfig @script:commonParams `
+            -EnablePipelines @('Bronze') `
+            -PipelineRoleAssignments @(
+                @{ PrincipalId = 'usr-001'; PrincipalType = 'User' }
+            )
+        $bronzeWs = $config.workspaces | Where-Object { $_.type -eq 'Bronze' }
+        $bronzeWs.pipeline.roleAssignments[0].role          | Should -Be 'Admin'
+        $bronzeWs.pipeline.roleAssignments[0].principalType | Should -Be 'User'
+    }
+
+    It 'scopes a pipeline role assignment to specific workspace types' {
+        $config = New-FabricTopologyConfig @script:commonParams `
+            -EnablePipelines @('Bronze', 'Reporting') `
+            -PipelineRoleAssignments @(
+                @{ PrincipalId = 'grp-001'; PrincipalType = 'Group'; WorkspaceTypes = @('Bronze') }
+            )
+        $bronzeWs    = $config.workspaces | Where-Object { $_.type -eq 'Bronze' }
+        $reportingWs = $config.workspaces | Where-Object { $_.type -eq 'Reporting' }
+        $bronzeWs.pipeline.roleAssignments    | Should -HaveCount 1
+        $reportingWs.pipeline.roleAssignments | Should -HaveCount 0
+    }
+
+    It 'applies multiple pipeline role assignments to a single type' {
+        $config = New-FabricTopologyConfig @script:commonParams `
+            -EnablePipelines @('Bronze') `
+            -PipelineRoleAssignments @(
+                @{ PrincipalId = 'grp-001'; PrincipalType = 'Group';  WorkspaceTypes = @('Bronze') }
+                @{ PrincipalId = 'sp-001';  PrincipalType = 'ServicePrincipal'; WorkspaceTypes = @('Bronze') }
+            )
+        $bronzeWs = $config.workspaces | Where-Object { $_.type -eq 'Bronze' }
+        $bronzeWs.pipeline.roleAssignments | Should -HaveCount 2
+    }
+
+    It 'throws when a PipelineRoleAssignments entry is missing PrincipalId' {
+        { New-FabricTopologyConfig @script:commonParams -PipelineRoleAssignments @(
+            @{ PrincipalType = 'Group' }
+        ) } | Should -Throw
+    }
+
+    It 'throws when a PipelineRoleAssignments entry has an invalid PrincipalType' {
+        { New-FabricTopologyConfig @script:commonParams -PipelineRoleAssignments @(
+            @{ PrincipalId = 'grp-001'; PrincipalType = 'Robot' }
+        ) } | Should -Throw
+    }
+
+    It 'throws when a PipelineRoleAssignments entry specifies a non-Admin role' {
+        { New-FabricTopologyConfig @script:commonParams -PipelineRoleAssignments @(
+            @{ PrincipalId = 'grp-001'; PrincipalType = 'Group'; Role = 'Viewer' }
+        ) } | Should -Throw
+    }
+
+    It 'throws when a PipelineRoleAssignments entry references an unknown workspace type' {
+        { New-FabricTopologyConfig @script:commonParams -PipelineRoleAssignments @(
+            @{ PrincipalId = 'grp-001'; PrincipalType = 'Group'; WorkspaceTypes = @('Platinum') }
+        ) } | Should -Throw
     }
 }

@@ -1,21 +1,18 @@
 . $PSScriptRoot/fabric.properties.ps1
 
-# Registers Az.Accounts and MicrosoftFabricMgmt as required modules before the
-# main setupModules task runs.
+# Registers Az.Accounts, Az.Resources and MicrosoftFabricMgmt with ZeroFailed.DevOps.Common's
+# 'RequiredPowerShellModules' mechanism, so the 'setupModules' task installs/imports them — same
+# pattern as ZeroFailed.Build.PowerShell's 'EnsurePlatyPSModule' task. Az.Resources provides
+# Get-AzADServicePrincipal / Get-AzADUser, used to resolve the deploying identity's object id so
+# it can be granted Admin on each workspace.
 task ensureFabricModules -Before setupModules {
     Write-Build Cyan 'Registering Fabric required modules...'
 
-    if (-not (Get-Module -ListAvailable -Name Az.Accounts)) {
-        Write-Build Yellow 'Az.Accounts not found — installing...'
-        Install-Module Az.Accounts -Scope CurrentUser -Force -ErrorAction Stop
+    foreach ($moduleName in @('Az.Accounts', 'Az.Resources', 'MicrosoftFabricMgmt')) {
+        if (-not $RequiredPowerShellModules.ContainsKey($moduleName)) {
+            $script:RequiredPowerShellModules += @{ $moduleName = @{} }
+        }
     }
-
-    if (-not (Get-Module -ListAvailable -Name MicrosoftFabricMgmt)) {
-        Write-Build Yellow 'MicrosoftFabricMgmt not found — installing...'
-        Install-Module MicrosoftFabricMgmt -Scope CurrentUser -Force -ErrorAction Stop
-    }
-
-    Write-Build Green 'Fabric required modules are available.'
 }
 
 # Provisions Fabric workspaces after the core deploy tasks complete.
@@ -33,6 +30,7 @@ task provisionFabricWorkspaces -After DeployCore {
         SkipMonitoring = $FabricSkipMonitoring
         SkipRbac      = $FabricSkipRbac
         SkipPipeline  = $FabricSkipPipeline
+        SkipPipelineRbac = $FabricSkipPipelineRbac
         WhatIf        = $FabricWhatIf
     }
 

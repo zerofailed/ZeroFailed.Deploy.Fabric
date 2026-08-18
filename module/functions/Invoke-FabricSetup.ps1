@@ -6,14 +6,16 @@ function Invoke-FabricSetup {
         For each environment x workspace combination in the config:
           1. Resolves the workspace name via naming convention
           2. Creates the workspace (idempotent)
-          3. Connects to Git (idempotent)
-          4. Provisions Workspace Identity (if enabled)
-          5. Enables workspace monitoring (if enabled)
-          6. Applies RBAC role assignments (if configured)
+          3. Grants the deploying identity Admin on the workspace (so re-runs can resolve it)
+          4. Connects to Git (idempotent)
+          5. Provisions Workspace Identity (if enabled)
+          6. Enables workspace monitoring (if enabled)
+          7. Applies RBAC role assignments (if configured)
         Then, for each workspace type with pipelines enabled:
-          7. Creates or updates the deployment pipeline across all environments
+          8. Creates or updates the deployment pipeline across all environments
+          9. Applies deployment pipeline role assignments (if configured)
         Returns a structured results object with a summary, identity report, monitoring report,
-        role assignment report, and pipeline report.
+        role assignment report, pipeline report, and pipeline role assignment report.
     .PARAMETER Config
         Topology config object produced by New-FabricTopologyConfig.
     .PARAMETER ConfigPath
@@ -30,12 +32,16 @@ function Invoke-FabricSetup {
         Skip role assignment application for all workspaces.
     .PARAMETER SkipPipeline
         Skip deployment pipeline setup for all workspace types.
-    .OUTPUTS
-        PSCustomObject with Summary, Identities, Monitoring, RoleAssignments, Pipelines, and Failures.
+    .PARAMETER SkipPipelineRbac
+        Skip deployment pipeline role assignment application for all workspace types.
     .EXAMPLE
         Invoke-FabricSetup -Config $topology -Environments @("Dev") -WhatIf
+
+        Runs the provisioning pipeline for the Dev environment in WhatIf mode.
     .EXAMPLE
         Invoke-FabricSetup -ConfigPath "./topology.json" -SkipGit
+
+        Runs the full provisioning pipeline from a saved topology config, skipping Git integration.
     #>
     [CmdletBinding(DefaultParameterSetName = 'Object', SupportsShouldProcess)]
     [OutputType([pscustomobject])]
@@ -52,7 +58,8 @@ function Invoke-FabricSetup {
         [switch]$SkipIdentity,
         [switch]$SkipMonitoring,
         [switch]$SkipRbac,
-        [switch]$SkipPipeline
+        [switch]$SkipPipeline,
+        [switch]$SkipPipelineRbac
     )
 
     $ErrorActionPreference = 'Stop'
@@ -65,10 +72,7 @@ function Invoke-FabricSetup {
         $Config = Get-Content -Path $ConfigPath -Raw | ConvertFrom-Json
     }
 
-    # --- 2. Validate prerequisites ---
-    _Assert-Prerequisites
-
-    # --- 3. Acquire auth token ---
+    # --- 2. Acquire auth token ---
     Write-Verbose 'Acquiring Fabric auth token...'
     $tokenInfo = _Get-FabricAuthToken
     $token     = $tokenInfo.Token
@@ -76,9 +80,17 @@ function Invoke-FabricSetup {
     # Initialise MicrosoftFabricMgmt module session by injecting our already-acquired token.
     # Set-FabricApiHeaders always triggers a fresh interactive login, so we bypass it and
     # set the module's internal auth context directly using the token from _Get-FabricAuthToken.
-    # MicrosoftFabricMgmt is guaranteed loaded via RequiredModules in the psd1.
+    # Import and resolve a single module instance explicitly to avoid invalid '&' invocation.
+    # Import with -Global: MicrosoftFabricMgmt also exports a 'New-FabricWorkspace', and importing
+    # into this module's session state would shadow our own function. Keeping its commands in the
+    # global session state lets our module-local New-FabricWorkspace win by module-scope precedence.
+    Import-Module MicrosoftFabricMgmt -Global -ErrorAction Stop
     $tenantId         = (Get-AzContext -ErrorAction Stop).Tenant.Id
-    $fabricMgmtModule = Get-Module MicrosoftFabricMgmt
+    $fabricMgmtModules = Get-Module MicrosoftFabricMgmt -All
+    if (-not $fabricMgmtModules) {
+        throw "MicrosoftFabricMgmt is not loaded. Ensure the module is installed and importable."
+    }
+    $fabricMgmtModule = $fabricMgmtModules | Sort-Object Version -Descending | Select-Object -First 1
     & $fabricMgmtModule {
         param($tok, $exp, $tid)
         $script:FabricAuthContext.FabricHeaders = @{
@@ -90,7 +102,19 @@ function Invoke-FabricSetup {
         $script:FabricAuthContext.AuthMethod     = 'UserPrincipal'
     } $token $tokenInfo.ExpiresOn $tenantId
 
-    # --- 4. Determine environments to process ---
+    # --- 2b. Resolve the deploying identity (object id + type). ---
+    # Each workspace is granted this principal as Admin on creation so the deployer can always
+    # see and re-manage it on subsequent runs (otherwise a re-run hits WorkspaceNameAlreadyExists
+    # but cannot resolve the workspace via GET /workspaces). Best-effort: warn and continue.
+    $deployerPrincipal = _Get-FabricDeploymentIdentity
+    if ($deployerPrincipal) {
+        Write-Verbose "Deploying identity resolved: $($deployerPrincipal.Id) ($($deployerPrincipal.Type)). Will be granted Admin on each workspace."
+    }
+    else {
+        Write-Warning "Could not determine the deploying identity; workspaces will not be auto-granted Admin for the deployer."
+    }
+
+    # --- 3. Determine environments to process ---
     $targetEnvs = if ($Environments) {
         $Config.environments | Where-Object { $_.name -in $Environments }
     }
@@ -102,13 +126,14 @@ function Invoke-FabricSetup {
         throw "No matching environments found in config for filter: $($Environments -join ', ')"
     }
 
-    # --- 5. Provision ---
+    # --- 4. Provision ---
     $results = [pscustomobject]@{
         Summary         = [pscustomobject]@{ Created = 0; Skipped = 0; Failed = 0 }
         Identities      = [System.Collections.Generic.List[hashtable]]::new()
         Monitoring      = [System.Collections.Generic.List[hashtable]]::new()
         RoleAssignments = [System.Collections.Generic.List[hashtable]]::new()
         Pipelines       = [System.Collections.Generic.List[hashtable]]::new()
+        PipelineRoleAssignments = [System.Collections.Generic.List[hashtable]]::new()
         Failures        = [System.Collections.Generic.List[hashtable]]::new()
     }
 
@@ -140,15 +165,20 @@ function Invoke-FabricSetup {
 
             # b. Create workspace (idempotent) — fatal for this workspace if it fails
             try {
-                $existed = Test-FabricWorkspaceExists -DisplayName $resolvedName
+                $existed = Test-FabricWorkspaceExists -DisplayName $resolvedName -Token $token
                 if ($existed) {
                     $workspaceObj = $existed
                     $results.Summary.Skipped++
                 }
                 else {
+                    # Bare call resolves to our module-local New-FabricWorkspace (module-scope
+                    # precedence over the global MicrosoftFabricMgmt one imported above). A
+                    # module-qualified call here fails under Azure DevOps with a spurious
+                    # "module could not be loaded" auto-load error.
                     $workspaceObj = New-FabricWorkspace `
                         -DisplayName  $resolvedName `
-                        -CapacityName $env.capacityName
+                        -CapacityName $env.capacityName `
+                        -Token        $token
                     if (-not $WhatIfPreference) {
                         $results.Summary.Created++
                     }
@@ -167,6 +197,31 @@ function Invoke-FabricSetup {
             }
 
             $workspaceId = $workspaceObj.id
+
+            # b2. Grant the deploying identity Admin on the workspace (idempotent, non-fatal).
+            # Guarantees the deployer can resolve the workspace on future runs. Independent of
+            # -SkipRbac, which governs only the topology's configured role assignments.
+            if ($deployerPrincipal) {
+                try {
+                    $deployerRbac = Set-FabricWorkspaceRoleAssignment `
+                        -WorkspaceId   $workspaceId `
+                        -WorkspaceName $resolvedName `
+                        -PrincipalId   $deployerPrincipal.Id `
+                        -PrincipalType $deployerPrincipal.Type `
+                        -Role          'Admin' `
+                        -Token         $token
+                    $results.RoleAssignments.Add($deployerRbac)
+                }
+                catch {
+                    Write-Warning "Failed to grant the deploying identity Admin on '$resolvedName' — $_"
+                    $results.Failures.Add(@{
+                        WorkspaceName = $resolvedName
+                        Environment   = $env.name
+                        Step          = 'DeployerRoleAssignment'
+                        Error         = $_.ToString()
+                    })
+                }
+            }
 
             # c. Git integration — only for the designated git environment, non-fatal
             if (-not $SkipGit -and $ws.git.enabled -and $Config.gitEnvironment -and $env.name -eq $Config.gitEnvironment) {
@@ -261,9 +316,10 @@ function Invoke-FabricSetup {
         }
     }
 
-    # --- 6. Deployment Pipelines (per workspace type, spans all environments) ---
+    # --- 5. Deployment Pipelines (per workspace type, spans all environments) ---
     if (-not $SkipPipeline) {
         $pipelineWorkspaces = $Config.workspaces | Where-Object { $_.pipeline.enabled }
+
         foreach ($ws in $pipelineWorkspaces) {
             try {
                 $pipelineResult = Set-FabricDeploymentPipeline `
@@ -280,11 +336,40 @@ function Invoke-FabricSetup {
                     Step          = 'Pipeline'
                     Error         = $_.ToString()
                 })
+                continue
+            }
+
+            # Pipeline Role Assignments — non-fatal, log and continue
+            if (-not $SkipPipelineRbac) {
+                $pipelineRbac = $ws.pipeline.roleAssignments
+                if ($pipelineRbac -and $pipelineRbac.Count -gt 0) {
+                    foreach ($entry in $pipelineRbac) {
+                        try {
+                            $rbacResult = Set-FabricDeploymentPipelineRoleAssignment `
+                                -PipelineId    $pipelineResult.PipelineId `
+                                -PipelineName  $pipelineResult.PipelineName `
+                                -PrincipalId   $entry.principalId `
+                                -PrincipalType $entry.principalType `
+                                -Role          $entry.role `
+                                -Token         $token
+                            $results.PipelineRoleAssignments.Add($rbacResult)
+                        }
+                        catch {
+                            Write-Warning "Pipeline role assignment failed for '$($pipelineResult.PipelineName)' (principal: $($entry.principalId)) — $_"
+                            $results.Failures.Add(@{
+                                WorkspaceName = "$($ws.type) pipeline"
+                                Environment   = 'all'
+                                Step          = 'PipelineRoleAssignment'
+                                Error         = $_.ToString()
+                            })
+                        }
+                    }
+                }
             }
         }
     }
 
-    # --- 7. Report ---
+    # --- 6. Report ---
     $s = $results.Summary
     Write-Verbose "=== Provisioning complete — Created: $($s.Created)  Skipped: $($s.Skipped)  Failed: $($s.Failed) ==="
 

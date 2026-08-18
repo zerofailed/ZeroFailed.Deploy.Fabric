@@ -15,6 +15,10 @@ function Set-FabricGitIntegration {
         The branch name to connect for this environment (resolved from branchMap).
     .PARAMETER Token
         Bearer token string.
+    .EXAMPLE
+        Set-FabricGitIntegration -WorkspaceId $ws.id -WorkspaceName 'SalesAnalytics-ETL [DEV]' -GitConfig $cfg.git -Branch 'main' -Token $token
+
+        Connects the workspace to the configured Git repository and initialises the connection.
     #>
     [CmdletBinding(SupportsShouldProcess)]
     param(

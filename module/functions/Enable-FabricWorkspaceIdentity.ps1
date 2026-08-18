@@ -17,9 +17,10 @@ function Enable-FabricWorkspaceIdentity {
         Display name used in log messages and the returned report entry.
     .PARAMETER Token
         Bearer token string for the Fabric REST API.
-    .OUTPUTS
-        Hashtable: WorkspaceName, WorkspaceId, ServicePrincipalObjectId, ApplicationId.
-        Returns $null when the identity is already provisioned (idempotent re-run).
+    .EXAMPLE
+        Enable-FabricWorkspaceIdentity -WorkspaceId $ws.id -WorkspaceName 'SalesAnalytics-ETL [DEV]' -Token $token
+
+        Provisions a workspace identity and returns its service principal details.
     #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([hashtable])]
