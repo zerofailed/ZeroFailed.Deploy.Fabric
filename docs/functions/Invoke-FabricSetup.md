@@ -47,7 +47,7 @@ Grants the deploying identity Admin on the workspace (so re-runs can resolve it)
   4.
 Connects to Git (idempotent)
   5.
-Provisions Workspace Identity (if enabled)
+Provisions Workspace Identity and grants it Contributor on the workspace (if enabled)
   6.
 Enables workspace monitoring (if enabled)
   7.
