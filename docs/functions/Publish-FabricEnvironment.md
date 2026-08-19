@@ -95,8 +95,6 @@ HelpMessage: ''
 
 Maximum seconds to wait for the publish LRO to complete.
 Default: 600.
-Maximum seconds to wait for the publish LRO to complete.
-Default: 600.
 
 ```yaml
 Type: System.Int32

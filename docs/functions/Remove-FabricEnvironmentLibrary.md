@@ -95,8 +95,6 @@ HelpMessage: ''
 
 The library file name to remove, e.g.
 'mypackage-1.4.2-py3-none-any.whl'.
-The library file name to remove, e.g.
-'mypackage-1.4.2-py3-none-any.whl'.
 
 ```yaml
 Type: System.String

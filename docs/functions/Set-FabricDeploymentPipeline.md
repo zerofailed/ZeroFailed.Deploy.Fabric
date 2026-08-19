@@ -139,8 +139,6 @@ HelpMessage: ''
 
 The workspace type name to create the pipeline for (e.g.
 "Bronze").
-The workspace type name to create the pipeline for (e.g.
-"Bronze").
 
 ```yaml
 Type: System.String

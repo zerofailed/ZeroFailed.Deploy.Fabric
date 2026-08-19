@@ -90,11 +90,6 @@ Supplied by the
 calling repo (like the topology config), not carried in this module.
 Omitted by default,
 in which case pip resolves versions itself.
-Path to a pip constraints file pinning versions in the dependency closure.
-Supplied by the
-calling repo (like the topology config), not carried in this module.
-Omitted by default,
-in which case pip resolves versions itself.
 
 ```yaml
 Type: System.String
@@ -117,8 +112,6 @@ HelpMessage: ''
 
 Directory to download the packages into.
 Created if it does not exist.
-Directory to download the packages into.
-Created if it does not exist.
 
 ```yaml
 Type: System.String
@@ -139,8 +132,6 @@ HelpMessage: ''
 
 ### -ExtraIndexUrl
 
-Secondary package index used for dependencies not in the feed.
-Default: PyPI.
 Secondary package index used for dependencies not in the feed.
 Default: PyPI.
 
@@ -228,8 +219,6 @@ HelpMessage: ''
 
 Bearer token / PAT with Feed Reader access (e.g.
 the pipeline's System.AccessToken).
-Bearer token / PAT with Feed Reader access (e.g.
-the pipeline's System.AccessToken).
 
 ```yaml
 Type: System.String
@@ -250,8 +239,6 @@ HelpMessage: ''
 
 ### -PackageName
 
-The package (distribution) name to download, e.g.
-'mycompany.dataprep'.
 The package (distribution) name to download, e.g.
 'mycompany.dataprep'.
 
@@ -276,8 +263,6 @@ HelpMessage: ''
 
 The exact package version to download, e.g.
 '1.4.2'.
-The exact package version to download, e.g.
-'1.4.2'.
 
 ```yaml
 Type: System.String
@@ -298,8 +283,6 @@ HelpMessage: ''
 
 ### -PythonExecutable
 
-The python executable to use.
-Default: 'python'.
 The python executable to use.
 Default: 'python'.
 
@@ -325,9 +308,6 @@ HelpMessage: ''
 The platform tag wheels are resolved for.
 Default: 'manylinux2014_x86_64'.
 Platform-independent ('any') wheels are always eligible regardless of this value.
-The platform tag wheels are resolved for.
-Default: 'manylinux2014_x86_64'.
-Platform-independent ('any') wheels are always eligible regardless of this value.
 
 ```yaml
 Type: System.String
@@ -348,9 +328,6 @@ HelpMessage: ''
 
 ### -TargetPythonVersion
 
-The Python version of the target Fabric Spark runtime that wheels are resolved for.
-Default: '3.11' (Fabric runtime 1.3).
-Use '3.10' for runtime 1.2.
 The Python version of the target Fabric Spark runtime that wheels are resolved for.
 Default: '3.11' (Fabric runtime 1.3).
 Use '3.10' for runtime 1.2.

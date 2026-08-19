@@ -149,10 +149,6 @@ Path to a pip constraints file pinning versions in the dependency closure.
 Like -ConfigPath,
 it lives in the calling repo.
 Ignored when -SkipDownload is set.
-Path to a pip constraints file pinning versions in the dependency closure.
-Like -ConfigPath,
-it lives in the calling repo.
-Ignored when -SkipDownload is set.
 
 ```yaml
 Type: System.String
@@ -173,8 +169,6 @@ HelpMessage: ''
 
 ### -ExtraIndexUrl
 
-Secondary package index for dependencies not in the feed.
-Default: PyPI.
 Secondary package index for dependencies not in the feed.
 Default: PyPI.
 
@@ -262,8 +256,6 @@ HelpMessage: ''
 
 Bearer token / PAT with Feed Reader access (e.g.
 the pipeline's System.AccessToken).
-Bearer token / PAT with Feed Reader access (e.g.
-the pipeline's System.AccessToken).
 
 ```yaml
 Type: System.String
@@ -307,8 +299,6 @@ HelpMessage: ''
 
 The package (distribution) name to deploy, e.g.
 'mycompany.dataprep'.
-The package (distribution) name to deploy, e.g.
-'mycompany.dataprep'.
 
 ```yaml
 Type: System.String
@@ -329,8 +319,6 @@ HelpMessage: ''
 
 ### -PackageVersion
 
-The exact package version to deploy, e.g.
-'1.4.2'.
 The exact package version to deploy, e.g.
 '1.4.2'.
 
@@ -355,8 +343,6 @@ HelpMessage: ''
 
 Maximum seconds to wait for each environment publish.
 Default: 600.
-Maximum seconds to wait for each environment publish.
-Default: 600.
 
 ```yaml
 Type: System.Int32
@@ -377,8 +363,6 @@ HelpMessage: ''
 
 ### -PythonExecutable
 
-The python executable to use for downloading.
-Default: 'python'.
 The python executable to use for downloading.
 Default: 'python'.
 
@@ -445,8 +429,6 @@ HelpMessage: ''
 
 Directory used to download packages into.
 Defaults to a new temp directory.
-Directory used to download packages into.
-Defaults to a new temp directory.
 
 ```yaml
 Type: System.String
@@ -469,8 +451,6 @@ HelpMessage: ''
 
 The platform tag wheels are resolved for.
 Default: 'manylinux2014_x86_64'.
-The platform tag wheels are resolved for.
-Default: 'manylinux2014_x86_64'.
 
 ```yaml
 Type: System.String
@@ -491,11 +471,6 @@ HelpMessage: ''
 
 ### -TargetPythonVersion
 
-The Python version of the target Fabric Spark runtime that wheels are resolved for.
-Default: '3.11' (Fabric runtime 1.3).
-Use '3.10' for runtime 1.2.
-Because the download
-happens once for the whole stage, all target workspaces must share a runtime version.
 The Python version of the target Fabric Spark runtime that wheels are resolved for.
 Default: '3.11' (Fabric runtime 1.3).
 Use '3.10' for runtime 1.2.

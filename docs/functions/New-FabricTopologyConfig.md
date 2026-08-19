@@ -72,9 +72,6 @@ New-FabricTopologyConfig `
 Hashtable mapping each environment name to its Fabric capacity name.
 E.g.
 @{ Dev="cap-dev"; Test="cap-test"; Acceptance="cap-acc"; Production="cap-prod" }
-Hashtable mapping each environment name to its Fabric capacity name.
-E.g.
-@{ Dev="cap-dev"; Test="cap-test"; Acceptance="cap-acc"; Production="cap-prod" }
 
 ```yaml
 Type: System.Collections.Hashtable
@@ -95,9 +92,6 @@ HelpMessage: ''
 
 ### -EnableEnvironments
 
-Array of workspace type names that should have a Fabric Spark Environment provisioned
-(one environment per workspace).
-Defaults to no workspace types (opt-in).
 Array of workspace type names that should have a Fabric Spark Environment provisioned
 (one environment per workspace).
 Defaults to no workspace types (opt-in).
@@ -190,8 +184,6 @@ HelpMessage: ''
 
 Spark runtime version used for provisioned environments.
 Default: 1.3.
-Spark runtime version used for provisioned environments.
-Default: 1.3.
 
 ```yaml
 Type: System.String
@@ -212,11 +204,6 @@ HelpMessage: ''
 
 ### -Environments
 
-Array of environment names.
-Any name is accepted.
-Dev, Test, Acceptance, and Production have built-in display short codes (DEV, TEST, ACC, PROD);
-any other name is uppercased with whitespace removed to form its short code,
-unless overridden via -EnvShortCodes.
 Array of environment names.
 Any name is accepted.
 Dev, Test, Acceptance, and Production have built-in display short codes (DEV, TEST, ACC, PROD);
@@ -274,10 +261,6 @@ Optional hashtable mapping environment names to the display short code used in w
 Overrides built-in defaults and the generated fallback.
 E.g.
 @{ Staging = 'STG' }.
-Optional hashtable mapping environment names to the display short code used in workspace names.
-Overrides built-in defaults and the generated fallback.
-E.g.
-@{ Staging = 'STG' }.
 
 ```yaml
 Type: System.Collections.Hashtable
@@ -298,10 +281,6 @@ HelpMessage: ''
 
 ### -GitEnvironment
 
-The single environment name where Git integration is enabled (e.g.
-"Dev").
-Defaults to "Dev".
-Set to an empty string to disable Git for all workspaces.
 The single environment name where Git integration is enabled (e.g.
 "Dev").
 Defaults to "Dev".
@@ -328,8 +307,6 @@ HelpMessage: ''
 
 Azure DevOps organisation name (or GitHub owner name).
 Required when -GitWorkspaceConfig is specified.
-Azure DevOps organisation name (or GitHub owner name).
-Required when -GitWorkspaceConfig is specified.
 
 ```yaml
 Type: System.String
@@ -350,8 +327,6 @@ HelpMessage: ''
 
 ### -GitProject
 
-Azure DevOps project name.
-Required when -GitProvider is AzureDevOps and -GitWorkspaceConfig is specified.
 Azure DevOps project name.
 Required when -GitProvider is AzureDevOps and -GitWorkspaceConfig is specified.
 
@@ -376,8 +351,6 @@ HelpMessage: ''
 
 Git provider: AzureDevOps or GitHub.
 Required when -GitWorkspaceConfig is specified.
-Git provider: AzureDevOps or GitHub.
-Required when -GitWorkspaceConfig is specified.
 
 ```yaml
 Type: System.String
@@ -398,17 +371,6 @@ HelpMessage: ''
 
 ### -GitWorkspaceConfig
 
-Hashtable keyed by workspace type name.
-Only types present here get Git integration.
-Each entry is a hashtable with:
-  RepositoryName  (required) — the Git repository name
-  RootFolder      (optional) — root folder within the repo; defaults to "fabric"
-  Branch          (optional) — branch to connect; defaults to "main"
-E.g.
-@{
-    ETL       = @{ RepositoryName = "salesanalytics-etl"; Branch = "develop" }
-    Reporting = @{ RepositoryName = "salesanalytics-reporting"; RootFolder = "reporting" }
-}
 Hashtable keyed by workspace type name.
 Only types present here get Git integration.
 Each entry is a hashtable with:
@@ -471,15 +433,6 @@ Each rule is a hashtable with:
 Pipelines span all environments, so these rules are not environment-scoped.
 Each rule is
 resolved per workspace type and stored on the workspace's pipeline block in the topology config.
-Array of role assignment rules to apply to deployment pipelines.
-Each rule is a hashtable with:
-  PrincipalId    (required) — Entra object ID of the group, user, or service principal
-  PrincipalType  (required) — Group, User, or ServicePrincipal
-  Role           (optional) — only 'Admin' is supported by Fabric deployment pipelines; defaults to 'Admin'
-  WorkspaceTypes (optional) — array of workspace type names this rule applies to; omit for all types
-Pipelines span all environments, so these rules are not environment-scoped.
-Each rule is
-resolved per workspace type and stored on the workspace's pipeline block in the topology config.
 
 ```yaml
 Type: System.Collections.Hashtable[]
@@ -503,9 +456,6 @@ HelpMessage: ''
 Project name used as the first segment of every workspace name (e.g.
 "SalesAnalytics").
 Casing is preserved as-is; only characters outside [A-Za-z0-9-] are replaced with hyphens.
-Project name used as the first segment of every workspace name (e.g.
-"SalesAnalytics").
-Casing is preserved as-is; only characters outside [A-Za-z0-9-] are replaced with hyphens.
 
 ```yaml
 Type: System.String
@@ -526,14 +476,6 @@ HelpMessage: ''
 
 ### -RoleAssignments
 
-Array of role assignment rules to apply to workspaces.
-Each rule is a hashtable with:
-  PrincipalId    (required) — Entra object ID of the group, user, or service principal
-  PrincipalType  (required) — Group, User, or ServicePrincipal
-  Role           (required) — Admin, Contributor, Member, or Viewer
-  WorkspaceTypes (optional) — array of workspace type names this rule applies to; omit for all types
-  Environments   (optional) — array of environment names this rule applies to; omit for all environments
-Each rule is resolved per workspace type and environment and stored in the topology config.
 Array of role assignment rules to apply to workspaces.
 Each rule is a hashtable with:
   PrincipalId    (required) — Entra object ID of the group, user, or service principal
@@ -588,10 +530,6 @@ Optional hashtable mapping workspace type names to the display short code used i
 Overrides built-in defaults and the generated fallback.
 E.g.
 @{ Lakehouse = 'LH' }.
-Optional hashtable mapping workspace type names to the display short code used in workspace names.
-Overrides built-in defaults and the generated fallback.
-E.g.
-@{ Lakehouse = 'LH' }.
 
 ```yaml
 Type: System.Collections.Hashtable
@@ -612,11 +550,6 @@ HelpMessage: ''
 
 ### -WorkspaceTypes
 
-Array of workspace type names to provision.
-Any name is accepted.
-Bronze, Silver, Gold, ETL, Storage, and Reporting have built-in display short codes;
-any other name uses the name itself (with whitespace removed) as its short code,
-unless overridden via -TypeShortCodes.
 Array of workspace type names to provision.
 Any name is accepted.
 Bronze, Silver, Gold, ETL, Storage, and Reporting have built-in display short codes;
