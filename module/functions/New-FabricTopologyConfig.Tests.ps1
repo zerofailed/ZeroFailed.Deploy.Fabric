@@ -519,7 +519,56 @@ Describe 'New-FabricTopologyConfig — Environment configuration' {
 
     It 'exposes an environment name template on the naming convention' {
         $config = New-FabricTopologyConfig @script:commonParams
-        $config.namingConvention.environmentNameTemplate | Should -Be '{workspace} Env'
+        $config.namingConvention.environmentNameTemplate | Should -Be '{project}-{type} Env'
+    }
+
+    It 'defaults stages to all environments for an environment-enabled type when -EnvironmentStages is omitted' {
+        $config = New-FabricTopologyConfig @script:commonParams -EnableEnvironments @('Bronze')
+        $bronzeWs = $config.workspaces | Where-Object { $_.type -eq 'Bronze' }
+        $bronzeWs.environment.stages | Should -Be @('Dev', 'Test', 'Acceptance', 'Production')
+    }
+
+    It 'leaves stages empty for a type that is not environment-enabled' {
+        $config = New-FabricTopologyConfig @script:commonParams -EnableEnvironments @('Bronze')
+        $silverWs = $config.workspaces | Where-Object { $_.type -eq 'Silver' }
+        $silverWs.environment.stages | Should -HaveCount 0
+    }
+
+    It 'restricts stages to the environments specified per type in -EnvironmentStages' {
+        $config = New-FabricTopologyConfig @script:commonParams `
+            -EnableEnvironments @('Bronze', 'Gold') `
+            -EnvironmentStages  @{ Bronze = @('Dev', 'Production'); Gold = @('Production') }
+        $bronzeWs = $config.workspaces | Where-Object { $_.type -eq 'Bronze' }
+        $goldWs   = $config.workspaces | Where-Object { $_.type -eq 'Gold' }
+
+        $bronzeWs.environment.stages | Should -Be @('Dev', 'Production')
+        $goldWs.environment.stages   | Should -Be @('Production')
+    }
+
+    It 'defaults stages to all environments for an environment-enabled type absent from -EnvironmentStages' {
+        $config = New-FabricTopologyConfig @script:commonParams `
+            -EnableEnvironments @('Bronze', 'Gold') `
+            -EnvironmentStages  @{ Bronze = @('Production') }
+        $goldWs = $config.workspaces | Where-Object { $_.type -eq 'Gold' }
+        $goldWs.environment.stages | Should -Be @('Dev', 'Test', 'Acceptance', 'Production')
+    }
+
+    It 'throws when -EnvironmentStages references a type not in -WorkspaceTypes' {
+        { New-FabricTopologyConfig @script:commonParams `
+            -EnableEnvironments @('Bronze') `
+            -EnvironmentStages  @{ DataScience = @('Dev') } } | Should -Throw
+    }
+
+    It 'throws when -EnvironmentStages references a type that is not environment-enabled' {
+        { New-FabricTopologyConfig @script:commonParams `
+            -EnableEnvironments @('Bronze') `
+            -EnvironmentStages  @{ Silver = @('Dev') } } | Should -Throw
+    }
+
+    It 'throws when -EnvironmentStages references an environment not in -Environments' {
+        { New-FabricTopologyConfig @script:commonParams `
+            -EnableEnvironments @('Bronze') `
+            -EnvironmentStages  @{ Bronze = @('Staging') } } | Should -Throw
     }
 }
 

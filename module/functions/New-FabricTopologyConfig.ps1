@@ -58,6 +58,12 @@ function New-FabricTopologyConfig {
     .PARAMETER EnableEnvironments
         Array of workspace type names that should have a Fabric Spark Environment provisioned
         (one environment per workspace). Defaults to no workspace types (opt-in).
+    .PARAMETER EnvironmentStages
+        Optional hashtable keyed by workspace type name, restricting which environments (stages)
+        get a Spark Environment for that type. Each value is an array of environment names.
+        Only meaningful for types listed in -EnableEnvironments. A type that is environment-enabled
+        but absent from this hashtable gets a Spark Environment in every environment (the default).
+        E.g. @{ ETL = @('Dev','Production'); Reporting = @('Production') }
     .PARAMETER SetEnvironmentAsDefault
         When set, environment-enabled workspaces have their environment registered as the
         workspace default (so notebooks/jobs using "Workspace default" inherit it).
@@ -146,6 +152,8 @@ function New-FabricTopologyConfig {
         [hashtable[]]$PipelineRoleAssignments,
 
         [string[]]$EnableEnvironments,
+
+        [hashtable]$EnvironmentStages,
 
         [switch]$SetEnvironmentAsDefault,
 
@@ -282,6 +290,23 @@ function New-FabricTopologyConfig {
     # Resolve EnableEnvironments — default to no workspace types (opt-in)
     $environmentTypes = if ($EnableEnvironments) { $EnableEnvironments } else { @() }
 
+    # Validate EnvironmentStages — keys must be environment-enabled types, values must be known environments
+    if ($EnvironmentStages) {
+        foreach ($wsType in $EnvironmentStages.Keys) {
+            if ($wsType -notin $WorkspaceTypes) {
+                throw "-EnvironmentStages contains workspace type '$wsType' which is not in -WorkspaceTypes."
+            }
+            if ($wsType -notin $environmentTypes) {
+                throw "-EnvironmentStages contains workspace type '$wsType' which does not have a Spark Environment enabled (see -EnableEnvironments)."
+            }
+            foreach ($envName in @($EnvironmentStages[$wsType])) {
+                if ($envName -notin $Environments) {
+                    throw "-EnvironmentStages entry for '$wsType' references environment '$envName' which is not in -Environments."
+                }
+            }
+        }
+    }
+
     # Build environments list
     $envList = foreach ($envName in $Environments) {
         $shortCode    = $resolvedEnvShortCodes[$envName]
@@ -338,6 +363,19 @@ function New-FabricTopologyConfig {
         $pipelineEnabled  = $wsType -in $pipelineTypes
         $environmentEnabled = $wsType -in $environmentTypes
 
+        # Resolve the environments (stages) that get a Spark Environment for this type.
+        # Absent from -EnvironmentStages => all environments (previous behaviour).
+        # Note: name deliberately differs from the $EnvironmentStages parameter — PowerShell
+        # variable names are case-insensitive, so reusing it would clash with the typed param.
+        $wsEnvironmentStages = @(
+            if ($environmentEnabled) {
+                if ($EnvironmentStages -and $EnvironmentStages.ContainsKey($wsType)) {
+                    $EnvironmentStages[$wsType]
+                }
+                else { $Environments }
+            }
+        )
+
         # Resolve role assignments per environment for this workspace type
         $rbacByEnv = [ordered]@{}
         foreach ($envName in $Environments) {
@@ -385,6 +423,7 @@ function New-FabricTopologyConfig {
             pipeline   = [pscustomobject]@{ enabled = $pipelineEnabled; roleAssignments = $pipelineRbac }
             environment = [pscustomobject]@{
                 enabled               = $environmentEnabled
+                stages                = $wsEnvironmentStages
                 setAsWorkspaceDefault = $environmentEnabled -and $SetEnvironmentAsDefault.IsPresent
                 runtimeVersion        = $EnvironmentRuntimeVersion
             }
@@ -400,7 +439,7 @@ function New-FabricTopologyConfig {
         gitEnvironment    = $resolvedGitEnvironment
         namingConvention  = [pscustomobject]@{
             template                = '{project}-{type} [{env}]'
-            environmentNameTemplate = '{workspace} Env'
+            environmentNameTemplate = '{project}-{type} Env'
             maxLength               = 64
             typeShortCodes          = [pscustomobject]$resolvedTypeShortCodes
             envShortCodes           = [pscustomobject]$resolvedEnvShortCodes

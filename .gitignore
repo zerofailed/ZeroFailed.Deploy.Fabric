@@ -429,3 +429,5 @@ _packages/
 PesterCodeCoverage.xml
 PesterTestResults.xml
 topology.json
+.claude/settings.json
+constraints.txt

@@ -4,7 +4,7 @@ external help file: ZeroFailed.Deploy.Fabric-Help.xml
 HelpUri: https://learn.microsoft.com/rest/api/fabric/
 Locale: en-US
 Module Name: ZeroFailed.Deploy.Fabric
-ms.date: 07/03/2026
+ms.date: 08/18/2026
 PlatyPS schema version: 2024-05-01
 title: New-FabricTopologyConfig
 ---
@@ -25,9 +25,9 @@ New-FabricTopologyConfig [-Project] <string> [-WorkspaceTypes] <string[]> [-Envi
  [[-GitProject] <string>] [[-GitEnvironment] <string>] [[-GitWorkspaceConfig] <hashtable>]
  [[-EnableIdentity] <string[]>] [[-EnableMonitoring] <string[]>] [[-RoleAssignments] <hashtable[]>]
  [[-EnablePipelines] <string[]>] [[-PipelineRoleAssignments] <hashtable[]>]
- [[-EnableEnvironments] <string[]>] [[-EnvironmentRuntimeVersion] <string>]
- [[-TypeShortCodes] <hashtable>] [[-EnvShortCodes] <hashtable>] [[-OutputPath] <string>]
- [-SetEnvironmentAsDefault] [<CommonParameters>]
+ [[-EnableEnvironments] <string[]>] [[-EnvironmentStages] <hashtable>]
+ [[-EnvironmentRuntimeVersion] <string>] [[-TypeShortCodes] <hashtable>]
+ [[-EnvShortCodes] <hashtable>] [[-OutputPath] <string>] [-SetEnvironmentAsDefault]
 ```
 
 ## ALIASES
@@ -64,7 +64,6 @@ New-FabricTopologyConfig `
   -EnableIdentity      @("ETL") `
   -EnableMonitoring    @("ETL","Reporting") `
   -OutputPath          "./topology.json"
-# Produces workspace names like: SalesAnalytics-ETL [DEV], SalesAnalytics-Report [PROD]
 
 ## PARAMETERS
 
@@ -193,7 +192,7 @@ SupportsWildcards: false
 Aliases: []
 ParameterSets:
 - Name: (All)
-  Position: 15
+  Position: 16
   IsRequired: false
   ValueFromPipeline: false
   ValueFromPipelineByPropertyName: false
@@ -228,6 +227,34 @@ AcceptedValues: []
 HelpMessage: ''
 ```
 
+### -EnvironmentStages
+
+Optional hashtable keyed by workspace type name, restricting which environments (stages)
+get a Spark Environment for that type.
+Each value is an array of environment names.
+Only meaningful for types listed in -EnableEnvironments.
+A type that is environment-enabled
+but absent from this hashtable gets a Spark Environment in every environment (the default).
+E.g.
+@{ ETL = @('Dev','Production'); Reporting = @('Production') }
+
+```yaml
+Type: System.Collections.Hashtable
+DefaultValue: ''
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: (All)
+  Position: 15
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
+```
+
 ### -EnvShortCodes
 
 Optional hashtable mapping environment names to the display short code used in workspace names.
@@ -242,7 +269,7 @@ SupportsWildcards: false
 Aliases: []
 ParameterSets:
 - Name: (All)
-  Position: 17
+  Position: 18
   IsRequired: false
   ValueFromPipeline: false
   ValueFromPipelineByPropertyName: false
@@ -385,7 +412,7 @@ SupportsWildcards: false
 Aliases: []
 ParameterSets:
 - Name: (All)
-  Position: 18
+  Position: 19
   IsRequired: false
   ValueFromPipeline: false
   ValueFromPipelineByPropertyName: false
@@ -511,7 +538,7 @@ SupportsWildcards: false
 Aliases: []
 ParameterSets:
 - Name: (All)
-  Position: 16
+  Position: 17
   IsRequired: false
   ValueFromPipeline: false
   ValueFromPipelineByPropertyName: false
@@ -566,4 +593,3 @@ A topology configuration object describing all workspaces, environments, naming 
 ## RELATED LINKS
 
 - [](https://learn.microsoft.com/rest/api/fabric/)
-

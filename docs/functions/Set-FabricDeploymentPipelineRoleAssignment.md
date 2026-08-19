@@ -4,7 +4,7 @@ external help file: ZeroFailed.Deploy.Fabric-Help.xml
 HelpUri: https://learn.microsoft.com/rest/api/fabric/core/deployment-pipelines/add-deployment-pipeline-role-assignment
 Locale: en-US
 Module Name: ZeroFailed.Deploy.Fabric
-ms.date: 06/12/2026
+ms.date: 08/18/2026
 PlatyPS schema version: 2024-05-01
 title: Set-FabricDeploymentPipelineRoleAssignment
 ---
@@ -159,6 +159,9 @@ HelpMessage: ''
 ### -Role
 
 The deployment pipeline role to assign. Only 'Admin' is supported. Defaults to 'Admin'.
+The deployment pipeline role to assign.
+Only 'Admin' is supported.
+Defaults to 'Admin'.
 
 ```yaml
 Type: System.String

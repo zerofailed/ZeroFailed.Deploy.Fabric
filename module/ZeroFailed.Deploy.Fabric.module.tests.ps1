@@ -22,6 +22,12 @@ Describe 'ZeroFailed.Deploy.Fabric module' {
             'New-FabricWorkspace'
             'Set-FabricGitIntegration'
             'Test-FabricWorkspaceExists'
+            'Invoke-FabricPythonLibraryDeploy'
+            'Add-FabricEnvironmentLibrary'
+            'Remove-FabricEnvironmentLibrary'
+            'Publish-FabricEnvironment'
+            'Get-FabricEnvironmentLibraries'
+            'Save-FabricLibraryPackage'
         )
         foreach ($fn in $expectedFunctions) {
             $exported | Should -Contain $fn

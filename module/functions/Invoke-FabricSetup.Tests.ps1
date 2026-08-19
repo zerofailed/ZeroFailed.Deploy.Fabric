@@ -58,6 +58,7 @@ Describe 'Invoke-FabricSetup' {
             Mock _Get-FabricDeploymentIdentity { $null } -ModuleName ZeroFailed.Deploy.Fabric
             Mock _Test-FabricTokenExpiry { $false } -ModuleName ZeroFailed.Deploy.Fabric
             Mock _Resolve-WorkspaceName { "$($args[0])" } -ModuleName ZeroFailed.Deploy.Fabric
+            Mock _Resolve-EnvironmentName { 'bronze Env' } -ModuleName ZeroFailed.Deploy.Fabric
             Mock Test-FabricWorkspaceExists { $null } -ModuleName ZeroFailed.Deploy.Fabric
             Mock New-FabricWorkspace { [pscustomobject]@{ id = 'ws-1' } } -ModuleName ZeroFailed.Deploy.Fabric
             Mock Set-FabricGitIntegration {} -ModuleName ZeroFailed.Deploy.Fabric
@@ -169,6 +170,18 @@ Describe 'Invoke-FabricSetup' {
 
             $r.Environments.Count | Should -Be 0
             Should -Invoke New-FabricEnvironment -Times 0 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
+        }
+
+        It 'provisions an environment only in the stages configured for the workspace type' {
+            $config = New-TestConfig
+            # Scope the Spark Environment to Dev only, even though the config spans Dev + Test.
+            $config.workspaces[0].environment | Add-Member -NotePropertyName stages -NotePropertyValue @('Dev') -Force
+            $r = Invoke-FabricSetup -Config $config
+
+            # Only Dev provisions (create + set-default); Test is skipped. Without scoping this
+            # would be invoked twice (once per environment).
+            $r.Environments.Count | Should -Be 2
+            Should -Invoke New-FabricEnvironment -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
         }
 
         It 'records a non-fatal failure when environment provisioning throws' {
