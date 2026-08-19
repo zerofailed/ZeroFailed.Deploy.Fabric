@@ -118,7 +118,7 @@ Describe 'Invoke-FabricSetup' {
             $r.RoleAssignments.Count | Should -Be 2     # rbac (1) + identity Contributor grant (1)
         }
 
-        It 'does not grant the workspace identity a role when no identity is returned (already provisioned)' {
+        It 'does not grant the workspace identity a role when the workspace has no identity' {
             Mock Enable-FabricWorkspaceIdentity { $null } -ModuleName ZeroFailed.Deploy.Fabric
 
             $r = Invoke-FabricSetup -Config (New-TestConfig) -Environments @('Dev')
