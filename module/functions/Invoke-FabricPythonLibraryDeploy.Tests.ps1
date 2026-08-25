@@ -52,7 +52,11 @@ Describe 'Invoke-FabricPythonLibraryDeploy' {
         Mock Get-FabricEnvironmentLibraries { @() } -ModuleName ZeroFailed.Deploy.Fabric
         Mock Add-FabricEnvironmentLibrary { @{ Action = 'Uploaded' } } -ModuleName ZeroFailed.Deploy.Fabric
         Mock Remove-FabricEnvironmentLibrary { @{ FileName = $LibraryName; Action = 'Removed' } } -ModuleName ZeroFailed.Deploy.Fabric
+        Mock Import-FabricEnvironmentExternalLibraries { @{ EnvironmentId = $EnvironmentId; Action = 'Imported' } } -ModuleName ZeroFailed.Deploy.Fabric
         Mock Publish-FabricEnvironment { @{ EnvironmentId = $EnvironmentId; Action = 'Published' } } -ModuleName ZeroFailed.Deploy.Fabric
+        # Default: classify every downloaded package as private (feed-only), so the base cases upload
+        # them all as custom libraries. Individual tests override this to exercise the public split.
+        Mock _Test-PackageOnPyPI { $false } -ModuleName ZeroFailed.Deploy.Fabric
     }
 
     It 'deploys only to workspaces with a Spark Environment enabled' {
@@ -189,7 +193,7 @@ Describe 'Invoke-FabricPythonLibraryDeploy' {
 
     It 'skips upload and publish when all files are already published' {
         Mock Get-FabricEnvironmentLibraries {
-            @('mypackage-1.4.2-py3-none-any.whl', 'dep-2.0-py3-none-any.whl')
+            if ($External) { @() } else { @('mypackage-1.4.2-py3-none-any.whl', 'dep-2.0-py3-none-any.whl') }
         } -ModuleName ZeroFailed.Deploy.Fabric
 
         $config = New-TestConfig
@@ -244,5 +248,94 @@ Describe 'Invoke-FabricPythonLibraryDeploy' {
         finally {
             Remove-Item -LiteralPath $staging -Recurse -Force
         }
+    }
+
+    It 'uploads only private wheels as custom libraries and declares public ones in environment.yml' {
+        Mock _Test-PackageOnPyPI { $Name -eq 'deltalake' } -ModuleName ZeroFailed.Deploy.Fabric
+        Mock Save-FabricLibraryPackage {
+            @(
+                [pscustomobject]@{ Name = 'mypackage-1.4.2-py3-none-any.whl'; FullName = '/tmp/mypackage-1.4.2-py3-none-any.whl' }
+                [pscustomobject]@{ Name = 'deltalake-1.6.2-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl'; FullName = '/tmp/deltalake.whl' }
+            )
+        } -ModuleName ZeroFailed.Deploy.Fabric
+
+        $config = New-TestConfig
+        $result = Invoke-FabricPythonLibraryDeploy -Config $config @script:deployParams
+
+        # Only the private wheel is uploaded as a custom library.
+        Should -Invoke Add-FabricEnvironmentLibrary -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter {
+            $FilePath -eq '/tmp/mypackage-1.4.2-py3-none-any.whl'
+        }
+        Should -Invoke Add-FabricEnvironmentLibrary -Times 0 -Exactly -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter {
+            $FilePath -eq '/tmp/deltalake.whl'
+        }
+        # The public wheel is declared in environment.yml instead.
+        Should -Invoke Import-FabricEnvironmentExternalLibraries -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter {
+            $EnvironmentYml -match 'deltalake==1\.6\.2'
+        }
+        $result.Deployed[0].ExternalLibraries | Should -Contain 'deltalake==1.6.2'
+        $result.Deployed[0].Files | Should -Contain 'mypackage-1.4.2-py3-none-any.whl'
+    }
+
+    It 'uses -PrivatePackageName to classify without querying PyPI' {
+        Mock Save-FabricLibraryPackage {
+            @(
+                [pscustomobject]@{ Name = 'mypackage-1.4.2-py3-none-any.whl'; FullName = '/tmp/mypackage-1.4.2-py3-none-any.whl' }
+                [pscustomobject]@{ Name = 'deltalake-1.6.2-cp310-abi3-manylinux2014_x86_64.whl'; FullName = '/tmp/deltalake.whl' }
+            )
+        } -ModuleName ZeroFailed.Deploy.Fabric
+
+        $config = New-TestConfig
+        $result = Invoke-FabricPythonLibraryDeploy -Config $config @script:deployParams -PrivatePackageName 'mypackage'
+
+        Should -Invoke _Test-PackageOnPyPI -Times 0 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
+        Should -Invoke Add-FabricEnvironmentLibrary -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter {
+            $FilePath -eq '/tmp/mypackage-1.4.2-py3-none-any.whl'
+        }
+        $result.Deployed[0].ExternalLibraries | Should -Contain 'deltalake==1.6.2'
+    }
+
+    It 'skips when both the custom and external published sets already match' {
+        Mock _Test-PackageOnPyPI { $Name -eq 'deltalake' } -ModuleName ZeroFailed.Deploy.Fabric
+        Mock Save-FabricLibraryPackage {
+            @(
+                [pscustomobject]@{ Name = 'mypackage-1.4.2-py3-none-any.whl'; FullName = '/tmp/mypackage-1.4.2-py3-none-any.whl' }
+                [pscustomobject]@{ Name = 'deltalake-1.6.2-cp310-abi3-manylinux2014_x86_64.whl'; FullName = '/tmp/deltalake.whl' }
+            )
+        } -ModuleName ZeroFailed.Deploy.Fabric
+        Mock Get-FabricEnvironmentLibraries {
+            if ($External) { @('deltalake==1.6.2') }
+            elseif ($Staging) { @() }
+            else { @('mypackage-1.4.2-py3-none-any.whl') }
+        } -ModuleName ZeroFailed.Deploy.Fabric
+
+        $config = New-TestConfig
+        $result = Invoke-FabricPythonLibraryDeploy -Config $config @script:deployParams
+
+        $result.Summary.Skipped | Should -Be 1
+        Should -Invoke Import-FabricEnvironmentExternalLibraries -Times 0 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
+        Should -Invoke Publish-FabricEnvironment -Times 0 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
+    }
+
+    It 'redeploys when the external set has drifted even if the custom set matches' {
+        Mock _Test-PackageOnPyPI { $Name -eq 'deltalake' } -ModuleName ZeroFailed.Deploy.Fabric
+        Mock Save-FabricLibraryPackage {
+            @(
+                [pscustomobject]@{ Name = 'mypackage-1.4.2-py3-none-any.whl'; FullName = '/tmp/mypackage-1.4.2-py3-none-any.whl' }
+                [pscustomobject]@{ Name = 'deltalake-1.6.2-cp310-abi3-manylinux2014_x86_64.whl'; FullName = '/tmp/deltalake.whl' }
+            )
+        } -ModuleName ZeroFailed.Deploy.Fabric
+        Mock Get-FabricEnvironmentLibraries {
+            if ($External) { @('deltalake==1.6.1') }   # a different version is published
+            elseif ($Staging) { @() }
+            else { @('mypackage-1.4.2-py3-none-any.whl') }
+        } -ModuleName ZeroFailed.Deploy.Fabric
+
+        $config = New-TestConfig
+        $result = Invoke-FabricPythonLibraryDeploy -Config $config @script:deployParams
+
+        $result.Summary.Deployed | Should -Be 1
+        Should -Invoke Import-FabricEnvironmentExternalLibraries -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
+        Should -Invoke Publish-FabricEnvironment -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
     }
 }

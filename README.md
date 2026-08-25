@@ -642,29 +642,22 @@ Once workspaces and their Spark Environments have been provisioned, `Invoke-Fabr
 - **Stages are owned by the calling pipeline.** One invocation targets a single stage (`-Stage`). Your ADO/CI pipeline defines the stages and calls the script once per stage — there is no stage loop inside the module.
 - **Targets are automatic.** Every workspace in the topology with a Spark Environment enabled (`environment.enabled`) for the target stage (`environment.stages`, set via `-EnvironmentStages`) receives the package. Workspaces whose environment is not provisioned for that stage are skipped. There is no per-package on/off config.
 - **The package is a runtime parameter.** `-PackageName` / `-PackageVersion` flow from the build, so the version isn't baked into the topology config. The topology is used only to resolve workspace and environment names.
-- **Dependencies are resolved automatically.** `pip download` reads the package metadata from the feed and pulls the full transitive dependency closure — no dependency list is maintained anywhere. All resulting files (the package plus every dependency) are uploaded as custom libraries.
+- **Dependencies are resolved automatically.** `pip download` reads the package metadata from the feed and pulls the full transitive dependency closure — no dependency list is maintained anywhere.
+- **Public and private dependencies are handled differently.** The closure is split: **private** (feed-only) packages are uploaded as **custom libraries**; **public** packages (resolvable on PyPI) are declared in a generated **`environment.yml`** and imported as **external libraries** for Fabric to resolve from PyPI directly. This keeps large public binary wheels (e.g. `deltalake`, ~50 MB) out of the custom-library upload path, whose size limit a big wheel exceeds with a server-side 500. Classification is automatic via a PyPI lookup per package, or explicit via `-PrivatePackageName`. **This requires the Fabric Spark environment to have outbound access to PyPI.**
 
 **What it does, per invocation:**
 
 1. Downloads `PackageName==PackageVersion` **and all dependencies** once, from the Azure Artifacts feed, via `Save-FabricLibraryPackage` (`pip download`).
-2. For each target workspace in the stage: resolves the workspace and its Spark Environment (both must already exist from provisioning).
-3. Clears down any staged custom library that isn't part of the downloaded set (`Remove-FabricEnvironmentLibrary`), so previous versions can't conflict with the ones being deployed. Files whose names match the downloaded set are left in place — the upload overwrites them.
-4. Uploads each downloaded file to the environment's staging libraries (`Add-FabricEnvironmentLibrary`) and publishes (`Publish-FabricEnvironment`, a long-running operation).
-5. **Idempotent:** if the published libraries are exactly the desired set, upload and publish are skipped (unless `-Force`). A stale version published alongside the desired files counts as a difference, so it triggers a deploy that clears it down.
+2. Splits the closure into private (custom-library) and public (environment.yml) packages.
+3. For each target workspace in the stage: resolves the workspace and its Spark Environment (both must already exist from provisioning).
+4. Clears down any staged custom library that isn't part of the private set (`Remove-FabricEnvironmentLibrary`); imports the public `environment.yml` (`Import-FabricEnvironmentExternalLibraries`, which overrides the whole external set); uploads the private wheels (`Add-FabricEnvironmentLibrary`); and publishes (`Publish-FabricEnvironment`, a long-running operation).
+5. **Idempotent:** if both the published custom libraries and the published external (public) libraries are exactly the desired set, upload and publish are skipped (unless `-Force`). A stale version published alongside the desired files counts as a difference, so it triggers a deploy that clears it down.
 
 ```powershell
 # Log in, then deploy one stage (this is what the deployment pipeline runs per stage)
 Connect-AzAccount -UseDeviceAuthentication
 
-$result = Invoke-FabricPythonLibraryDeploy `
-    -ConfigPath       "./topology.json" `
-    -Stage            "DEV" `
-    -PackageName      "mycompany.dataprep" `
-    -PackageVersion   "1.4.2" `
-    -FeedOrganisation "contoso" `
-    -FeedProject      "Analytics" `
-    -FeedName         "fabric-python" `
-    -FeedToken        $env:SYSTEM_ACCESSTOKEN
+
 
 $result.Summary   # @{ Deployed=int; Skipped=int; Failed=int }
 $result.Deployed | ForEach-Object { [pscustomobject]$_ } |
@@ -727,11 +720,20 @@ $files = Save-FabricLibraryPackage -PackageName "mycompany.dataprep" -PackageVer
 
 #### `Add-FabricEnvironmentLibrary`
 
-Uploads a single library file (`.whl`, `.tar.gz`, `.jar`, `.py`) to an environment's staging libraries via `POST /workspaces/{id}/environments/{id}/staging/libraries` (multipart/form-data, 200 MB max). Files remain in staging until the environment is published.
+Uploads a single library file (`.whl`, `.tar.gz`, `.jar`, `.py`) to an environment's staging libraries via the GA "Upload custom library" API `POST /workspaces/{id}/environments/{id}/staging/libraries/{libraryName}` (raw `application/octet-stream` body). Files remain in staging until the environment is published. Note: Fabric returns a server-side 500 for larger wheels well under the documented 100 MB cap, so this path is used only for **private** packages — public dependencies go via `Import-FabricEnvironmentExternalLibraries` instead.
 
 ```powershell
 Add-FabricEnvironmentLibrary -WorkspaceId $ws.id -EnvironmentId $env.id `
     -FilePath "./.packages/mycompany.dataprep-1.4.2-py3-none-any.whl" -Token $token
+```
+
+#### `Import-FabricEnvironmentExternalLibraries`
+
+Imports an environment's external (public) libraries from a generated `environment.yml` via `POST /workspaces/{id}/environments/{id}/staging/libraries/importExternalLibraries`. The call overrides the whole external list, and Fabric resolves the declared packages from PyPI on publish. Used for public dependencies so large binary wheels never go through the size-limited custom-library upload.
+
+```powershell
+Import-FabricEnvironmentExternalLibraries -WorkspaceId $ws.id -EnvironmentId $env.id `
+    -EnvironmentYml $yml -Token $token
 ```
 
 #### `Remove-FabricEnvironmentLibrary`
@@ -753,7 +755,7 @@ Publish-FabricEnvironment -WorkspaceId $ws.id -EnvironmentId $env.id -Token $tok
 
 #### `Get-FabricEnvironmentLibraries`
 
-Returns the flat set of custom library file names on an environment — the published libraries by default, or the staging libraries with `-Staging`. Used to decide, idempotently, whether the desired files are already deployed.
+Returns the flat set of custom library file names on an environment — the published libraries by default, or the staging libraries with `-Staging`. With `-External` it instead returns the external (public) libraries as normalised `name==version` tokens. Used to decide, idempotently, whether the desired custom and external sets are already deployed.
 
 ```powershell
 $published = Get-FabricEnvironmentLibraries -WorkspaceId $ws.id -EnvironmentId $env.id -Token $token

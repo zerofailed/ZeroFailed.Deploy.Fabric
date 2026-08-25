@@ -17,7 +17,7 @@ Describe 'Add-FabricEnvironmentLibrary' {
         $result.Action | Should -Be 'Uploaded'
         $result.FileName | Should -Be 'mypackage-1.4.2-py3-none-any.whl'
         Should -Invoke _Invoke-FabricFileUpload -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter {
-            $RelativeUri -eq 'workspaces/ws-1/environments/env-1/staging/libraries' -and
+            $RelativeUri -eq 'workspaces/ws-1/environments/env-1/staging/libraries/mypackage-1.4.2-py3-none-any.whl' -and
             $FilePath -eq '/tmp/mypackage-1.4.2-py3-none-any.whl'
         }
     }

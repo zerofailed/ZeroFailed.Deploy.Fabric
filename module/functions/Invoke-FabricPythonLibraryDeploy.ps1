@@ -7,13 +7,18 @@ function Invoke-FabricPythonLibraryDeploy {
         separate pipeline. For a single deployment stage it:
           1. Downloads the named package plus its full dependency closure from an Azure Artifacts
              feed (once), via Save-FabricLibraryPackage.
-          2. For every workspace in the topology that has a Spark Environment enabled for the given
+          2. Splits the closure into private packages (feed-only) and public packages (resolvable on
+             PyPI). Private packages are uploaded as custom libraries; public packages are declared
+             in an environment.yml for Fabric to resolve from PyPI directly. This keeps large public
+             binary wheels out of the custom-library upload path, whose size limit a big wheel (e.g.
+             deltalake, ~50 MB) exceeds with a server-side 500. Classification is automatic via a
+             PyPI lookup per package, unless -PrivatePackageName is supplied.
+          3. For every workspace in the topology that has a Spark Environment enabled for the given
              stage, resolves the workspace and its environment for that stage.
-          3. Clears down any staged custom libraries that are not part of the downloaded set, so
-             previous versions cannot conflict with the ones being deployed.
-          4. Uploads the downloaded files to the environment's custom (staging) libraries and
-             publishes, unless exactly those files are already published (idempotent) and -Force
-             is not set.
+          4. Clears down staged custom libraries not in the private set, imports the environment.yml
+             external libraries (which overrides the whole external set), uploads the private custom
+             wheels, and publishes — unless the desired custom and external sets are already
+             published (idempotent) and -Force is not set.
 
         Stages are owned by the calling pipeline: this runs one stage per invocation. The topology
         config is used only to resolve workspace and environment names — the package coordinates and
@@ -48,6 +53,11 @@ function Invoke-FabricPythonLibraryDeploy {
         Skip the pip download and use the files already present in -StagingPath.
     .PARAMETER Force
         Upload and publish even when the desired files are already published.
+    .PARAMETER PrivatePackageName
+        The package names that are private (feed-only) and must be uploaded as custom libraries;
+        every other package in the closure is treated as public and declared in environment.yml.
+        Names are matched case-insensitively with PEP 503 normalisation. When omitted, each package
+        is classified automatically by looking it up on PyPI (present at that version = public).
     .PARAMETER ExtraIndexUrl
         Secondary package index for dependencies not in the feed. Default: PyPI.
     .PARAMETER PythonExecutable
@@ -105,6 +115,8 @@ function Invoke-FabricPythonLibraryDeploy {
         [switch]$SkipDownload,
 
         [switch]$Force,
+
+        [string[]]$PrivatePackageName,
 
         [string]$ExtraIndexUrl = 'https://pypi.org/simple',
 
@@ -196,8 +208,41 @@ function Invoke-FabricPythonLibraryDeploy {
             -TargetPlatform      $TargetPlatform
     }
 
-    $desiredFileNames = @($files.Name)
-    Write-Verbose "Deploying $($desiredFileNames.Count) file(s) to stage '$Stage'."
+    # --- 5b. Split the closure: private (feed-only) packages are uploaded as custom libraries;
+    #         public packages are declared in environment.yml for Fabric to pull from PyPI, keeping
+    #         large public binary wheels out of the size-limited custom-library upload path. ---
+    # Guard the null case: '$null | ForEach-Object' runs the block once and would yield @('') — a
+    # non-empty set — which would wrongly switch off PyPI auto-classification.
+    $privateSet = @()
+    if ($PrivatePackageName) {
+        $privateSet = @($PrivatePackageName | ForEach-Object { ($_ -replace '[-_.]+', '-').ToLower() })
+    }
+
+    $privateFiles   = [System.Collections.Generic.List[object]]::new()
+    $publicPackages = [System.Collections.Generic.List[object]]::new()
+
+    foreach ($file in $files) {
+        $id = _Get-WheelIdentity -FileName $file.Name
+
+        $isPrivate = if ($privateSet.Count -gt 0) {
+            $id.NormalizedName -in $privateSet
+        }
+        else {
+            -not (_Test-PackageOnPyPI -Name $id.NormalizedName -Version $id.Version)
+        }
+
+        if ($isPrivate) { $privateFiles.Add($file) } else { $publicPackages.Add($id) }
+    }
+
+    $environmentYml        = _ConvertTo-FabricEnvironmentYml -Package $publicPackages.ToArray()
+    $desiredCustomNames    = @($privateFiles | ForEach-Object { $_.Name })
+    $desiredExternalTokens = @($publicPackages | ForEach-Object { "$($_.NormalizedName)==$($_.Version)" } | Sort-Object -Unique)
+
+    Write-Verbose ("Stage '{0}': {1} private wheel(s) to upload as custom libraries, {2} public package(s) via environment.yml." -f `
+        $Stage, $privateFiles.Count, $publicPackages.Count)
+    if ($privateFiles.Count -gt 0) {
+        Write-Verbose ("Private (custom-library) wheels: {0}" -f ($desiredCustomNames -join ', '))
+    }
 
     # --- 6. Deploy to each target workspace's environment ---
     $results = [pscustomobject]@{
@@ -233,32 +278,38 @@ function Invoke-FabricPythonLibraryDeploy {
             }
             $environmentId = $environmentObj.id
 
-            # c. Idempotency — skip only when the published set matches the desired set exactly.
-            #    Extra published files are stale versions that must be cleared down, so their
-            #    presence has to force a deploy even when nothing is missing.
-            $published = Get-FabricEnvironmentLibraries -WorkspaceId $workspaceId -EnvironmentId $environmentId -Token $token
-            $missing   = $desiredFileNames | Where-Object { $_ -notin $published }
-            $stale     = $published | Where-Object { $_ -notin $desiredFileNames }
+            # c. Idempotency — skip only when both the custom (private) set and the external (public)
+            #    set already match the desired state exactly. Extra published custom files are stale
+            #    versions that must be cleared down, so their presence forces a deploy.
+            $publishedCustom   = Get-FabricEnvironmentLibraries -WorkspaceId $workspaceId -EnvironmentId $environmentId -Token $token
+            $publishedExternal = Get-FabricEnvironmentLibraries -WorkspaceId $workspaceId -EnvironmentId $environmentId -Token $token -External
 
-            if (-not $Force -and -not $missing -and -not $stale) {
-                Write-Verbose "'$resolvedName' already has exactly the $($desiredFileNames.Count) desired file(s) published. Skipping."
+            $missingCustom = $desiredCustomNames    | Where-Object { $_ -notin $publishedCustom }
+            $staleCustom   = $publishedCustom        | Where-Object { $_ -notin $desiredCustomNames }
+            $missingExt    = $desiredExternalTokens  | Where-Object { $_ -notin $publishedExternal }
+            $staleExt      = $publishedExternal      | Where-Object { $_ -notin $desiredExternalTokens }
+
+            if (-not $Force -and -not $missingCustom -and -not $staleCustom -and -not $missingExt -and -not $staleExt) {
+                Write-Verbose "'$resolvedName' already has exactly the desired custom and external libraries published. Skipping."
                 $results.Deployed.Add(@{
-                    WorkspaceName   = $resolvedName
-                    EnvironmentName = $envName
-                    EnvironmentId   = $environmentId
-                    Files           = $desiredFileNames
-                    Removed         = @()
-                    Action          = 'Skipped'
+                    WorkspaceName     = $resolvedName
+                    EnvironmentName   = $envName
+                    EnvironmentId     = $environmentId
+                    Files             = $desiredCustomNames
+                    ExternalLibraries = $desiredExternalTokens
+                    Removed           = @()
+                    Action            = 'Skipped'
                 })
                 $results.Summary.Skipped++
                 continue
             }
 
-            # d. Clear down staged libraries that are not part of the desired set. Staging starts
-            #    as a copy of the published libraries, so this is what retires previous versions
-            #    on publish. Desired names are left alone — the upload below overwrites them.
+            # d. Clear down staged custom libraries that are not part of the desired private set.
+            #    Staging starts as a copy of the published libraries, so this is what retires
+            #    previous versions (and any public wheels uploaded before the split) on publish. The
+            #    external libraries need no clear-down — importExternalLibraries overrides them wholesale.
             $staged  = Get-FabricEnvironmentLibraries -WorkspaceId $workspaceId -EnvironmentId $environmentId -Token $token -Staging
-            $toRemove = $staged | Where-Object { $_ -notin $desiredFileNames }
+            $toRemove = $staged | Where-Object { $_ -notin $desiredCustomNames }
 
             foreach ($libraryName in $toRemove) {
                 Remove-FabricEnvironmentLibrary `
@@ -268,8 +319,14 @@ function Invoke-FabricPythonLibraryDeploy {
                     -Token         $token | Out-Null
             }
 
-            # e. Upload each file to staging, then publish.
-            foreach ($file in $files) {
+            # e. Import the public libraries (environment.yml), upload the private wheels, then publish.
+            Import-FabricEnvironmentExternalLibraries `
+                -WorkspaceId    $workspaceId `
+                -EnvironmentId  $environmentId `
+                -EnvironmentYml $environmentYml `
+                -Token          $token | Out-Null
+
+            foreach ($file in $privateFiles) {
                 Add-FabricEnvironmentLibrary `
                     -WorkspaceId   $workspaceId `
                     -EnvironmentId $environmentId `
@@ -284,12 +341,13 @@ function Invoke-FabricPythonLibraryDeploy {
                 -TimeoutSeconds $PublishTimeoutSeconds
 
             $results.Deployed.Add(@{
-                WorkspaceName   = $resolvedName
-                EnvironmentName = $envName
-                EnvironmentId   = $environmentId
-                Files           = $desiredFileNames
-                Removed         = @($toRemove)
-                Action          = $publishResult.Action
+                WorkspaceName     = $resolvedName
+                EnvironmentName   = $envName
+                EnvironmentId     = $environmentId
+                Files             = $desiredCustomNames
+                ExternalLibraries = $desiredExternalTokens
+                Removed           = @($toRemove)
+                Action            = $publishResult.Action
             })
             if (-not $WhatIfPreference) {
                 $results.Summary.Deployed++

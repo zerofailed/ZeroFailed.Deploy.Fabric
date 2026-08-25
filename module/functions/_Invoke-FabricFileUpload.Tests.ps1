@@ -22,39 +22,87 @@ Describe '_Invoke-FabricFileUpload' {
         }
     }
 
-    It 'posts to the absolute Fabric URL with a multipart file part' {
+    It 'posts the raw file to the absolute Fabric URL as octet-stream' {
         InModuleScope ZeroFailed.Deploy.Fabric -Parameters @{ file = $script:tempFile } {
             param($file)
             Mock Invoke-RestMethod {
-                param($Method, $Uri, $Headers, $Form)
+                param($Method, $Uri, $Headers, $InFile, $ContentType)
                 return [pscustomobject]@{ ok = $true }
             }
 
             $result = _Invoke-FabricFileUpload `
-                -RelativeUri 'workspaces/ws-1/environments/env-1/staging/libraries' `
+                -RelativeUri 'workspaces/ws-1/environments/env-1/staging/libraries/pkg.whl' `
                 -FilePath $file -Token 'tok'
 
             $result.ok | Should -BeTrue
             Should -Invoke Invoke-RestMethod -Times 1 -Exactly -ParameterFilter {
                 $Method -eq 'Post' -and
-                $Uri -eq 'https://api.fabric.microsoft.com/v1/workspaces/ws-1/environments/env-1/staging/libraries' -and
+                $Uri -eq 'https://api.fabric.microsoft.com/v1/workspaces/ws-1/environments/env-1/staging/libraries/pkg.whl' -and
                 $Headers.Authorization -eq 'Bearer tok' -and
-                $Form.file -is [System.IO.FileInfo]
+                $InFile -eq $file -and
+                $ContentType -eq 'application/octet-stream'
             }
         }
     }
 
-    It 'does not set a Content-Type header (boundary is auto-generated)' {
+    It 'retries a 5xx failure and succeeds on a later attempt' {
         InModuleScope ZeroFailed.Deploy.Fabric -Parameters @{ file = $script:tempFile } {
             param($file)
-            Mock Invoke-RestMethod { [pscustomobject]@{ ok = $true } }
-
-            _Invoke-FabricFileUpload -RelativeUri 'workspaces/ws/environments/env/staging/libraries' `
-                -FilePath $file -Token 'tok' | Out-Null
-
-            Should -Invoke Invoke-RestMethod -Times 1 -Exactly -ParameterFilter {
-                -not $Headers.ContainsKey('Content-Type')
+            $script:calls = 0
+            Mock Invoke-RestMethod {
+                $script:calls++
+                if ($script:calls -lt 3) {
+                    $resp = [System.Net.Http.HttpResponseMessage]::new([System.Net.HttpStatusCode]::InternalServerError)
+                    $ex   = [Microsoft.PowerShell.Commands.HttpResponseException]::new('Server Error', $resp)
+                    $rec  = [System.Management.Automation.ErrorRecord]::new($ex, 'x', 'InvalidResult', $null)
+                    $rec.ErrorDetails = [System.Management.Automation.ErrorDetails]::new('EnvironmentInternalServerError')
+                    throw $rec
+                }
+                return [pscustomobject]@{ ok = $true }
             }
+
+            $result = _Invoke-FabricFileUpload `
+                -RelativeUri 'workspaces/ws/environments/env/staging/libraries/pkg.whl' `
+                -FilePath $file -Token 'tok' -MaxAttempts 4 -RetryBaseDelaySec 0
+
+            $result.ok | Should -BeTrue
+            Should -Invoke Invoke-RestMethod -Times 3 -Exactly
+        }
+    }
+
+    It 'gives up after MaxAttempts on a persistent 5xx' {
+        InModuleScope ZeroFailed.Deploy.Fabric -Parameters @{ file = $script:tempFile } {
+            param($file)
+            Mock Invoke-RestMethod {
+                $resp = [System.Net.Http.HttpResponseMessage]::new([System.Net.HttpStatusCode]::InternalServerError)
+                $ex   = [Microsoft.PowerShell.Commands.HttpResponseException]::new('Server Error', $resp)
+                $rec  = [System.Management.Automation.ErrorRecord]::new($ex, 'x', 'InvalidResult', $null)
+                $rec.ErrorDetails = [System.Management.Automation.ErrorDetails]::new('EnvironmentInternalServerError')
+                throw $rec
+            }
+
+            { _Invoke-FabricFileUpload -RelativeUri 'workspaces/ws/environments/env/staging/libraries/pkg.whl' `
+                -FilePath $file -Token 'tok' -MaxAttempts 3 -RetryBaseDelaySec 0 } |
+                Should -Throw '*Fabric API error 500*EnvironmentInternalServerError*'
+            Should -Invoke Invoke-RestMethod -Times 3 -Exactly
+        }
+    }
+
+    It 'does not retry a 4xx client error' {
+        InModuleScope ZeroFailed.Deploy.Fabric -Parameters @{ file = $script:tempFile } {
+            param($file)
+            Mock Invoke-RestMethod {
+                $resp = [System.Net.Http.HttpResponseMessage]::new([System.Net.HttpStatusCode]::BadRequest)
+                $ex   = [Microsoft.PowerShell.Commands.HttpResponseException]::new('Bad Request', $resp)
+                $rec  = [System.Management.Automation.ErrorRecord]::new($ex, 'x', 'InvalidResult', $null)
+                $rec.ErrorDetails = [System.Management.Automation.ErrorDetails]::new('EnvironmentValidationFailed')
+                throw $rec
+            }
+
+            { _Invoke-FabricFileUpload -RelativeUri 'workspaces/ws/environments/env/staging/libraries/pkg.whl' `
+                -FilePath $file -Token 'tok' -MaxAttempts 4 -RetryBaseDelaySec 0 } |
+                Should -Throw '*Fabric API error 400*'
+            Should -Invoke Invoke-RestMethod -Times 1 -Exactly
         }
     }
 

@@ -3,8 +3,9 @@ function Add-FabricEnvironmentLibrary {
     .SYNOPSIS
         Uploads a single library file (.whl, .tar.gz, .jar, .py) to a Fabric environment's staging area.
     .DESCRIPTION
-        Uploads the file to the environment's staging libraries via
-        POST /workspaces/{id}/environments/{id}/staging/libraries (multipart/form-data).
+        Uploads the file to the environment's staging libraries via the GA "Upload custom library"
+        API: POST /workspaces/{id}/environments/{id}/staging/libraries/{libraryName}, with the
+        file's raw bytes as the request body.
 
         Uploading places the file in staging only — it is not usable by notebooks/jobs until the
         environment is published (see Publish-FabricEnvironment). The maximum file size is 200 MB.
@@ -46,8 +47,12 @@ function Add-FabricEnvironmentLibrary {
     if ($PSCmdlet.ShouldProcess($fileName, "Upload library to environment '$EnvironmentId'")) {
         Write-Verbose "Uploading library '$fileName' to environment '$EnvironmentId'..."
 
+        # The GA upload API carries the library name in the URL path; encode it so any characters
+        # in the file name can't break the request URI.
+        $encodedFileName = [uri]::EscapeDataString($fileName)
+
         _Invoke-FabricFileUpload `
-            -RelativeUri "workspaces/$WorkspaceId/environments/$EnvironmentId/staging/libraries" `
+            -RelativeUri "workspaces/$WorkspaceId/environments/$EnvironmentId/staging/libraries/$encodedFileName" `
             -FilePath    $FilePath `
             -Token       $Token `
             -ErrorAction Stop | Out-Null
