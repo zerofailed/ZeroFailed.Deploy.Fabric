@@ -4,7 +4,7 @@ external help file: ZeroFailed.Deploy.Fabric-Help.xml
 HelpUri: ''
 Locale: en-GB
 Module Name: ZeroFailed.Deploy.Fabric
-ms.date: 08/18/2026
+ms.date: 08/25/2026
 PlatyPS schema version: 2024-05-01
 title: Get-FabricEnvironmentLibraries
 ---
@@ -21,7 +21,7 @@ Returns the custom library file names configured on a Fabric environment.
 
 ```
 Get-FabricEnvironmentLibraries [-WorkspaceId] <string> [-EnvironmentId] <string> [-Token] <string>
- [-Staging] [<CommonParameters>]
+ [-Staging] [-External] [<CommonParameters>]
 ```
 
 ## ALIASES
@@ -50,6 +50,13 @@ Get-FabricEnvironmentLibraries -WorkspaceId $ws.id -EnvironmentId $env.id -Token
 Returns the published custom library file names, e.g.
 @('mypackage-1.4.2-py3-none-any.whl').
 
+### EXAMPLE 2
+
+Get-FabricEnvironmentLibraries -WorkspaceId $ws.id -EnvironmentId $env.id -Token $token -External
+
+Returns the published external libraries, e.g.
+@('deltalake==1.6.2', 'pyarrow==20.0.0').
+
 ## PARAMETERS
 
 ### -EnvironmentId
@@ -65,6 +72,29 @@ ParameterSets:
 - Name: (All)
   Position: 1
   IsRequired: true
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
+```
+
+### -External
+
+Return the external (public) libraries as normalised 'name==version' tokens instead of the
+custom library file names.
+Used to compare the declared environment.yml set idempotently.
+
+```yaml
+Type: System.Management.Automation.SwitchParameter
+DefaultValue: False
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: (All)
+  Position: Named
+  IsRequired: false
   ValueFromPipeline: false
   ValueFromPipelineByPropertyName: false
   ValueFromRemainingArguments: false

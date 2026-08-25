@@ -6,47 +6,46 @@ Locale: en-GB
 Module Name: ZeroFailed.Deploy.Fabric
 ms.date: 08/25/2026
 PlatyPS schema version: 2024-05-01
-title: Add-FabricEnvironmentLibrary
+title: Import-FabricEnvironmentExternalLibraries
 ---
 
-# Add-FabricEnvironmentLibrary
+# Import-FabricEnvironmentExternalLibraries
 
 ## SYNOPSIS
 
-Uploads a single library file (.whl, .tar.gz, .jar, .py) to a Fabric environment's staging area.
+Imports the external (public) libraries of a Fabric environment from an environment.yml.
 
 ## SYNTAX
 
 ### __AllParameterSets
 
 ```
-Add-FabricEnvironmentLibrary [-WorkspaceId] <string> [-EnvironmentId] <string> [-FilePath] <string>
- [-Token] <string> [-WhatIf] [-Confirm] [<CommonParameters>]
+Import-FabricEnvironmentExternalLibraries [-WorkspaceId] <string> [-EnvironmentId] <string>
+ [-EnvironmentYml] <string> [-Token] <string> [-WhatIf] [-Confirm] [<CommonParameters>]
 ```
 
 ## ALIASES
 
 ## DESCRIPTION
 
-Uploads the file to the environment's staging libraries via the GA "Upload custom library"
-API: POST /workspaces/{id}/environments/{id}/staging/libraries/{libraryName}, with the
-file's raw bytes as the request body.
+Uploads an environment.yml describing public PyPI/conda packages to the environment's staging area
+via POST /workspaces/{id}/environments/{id}/staging/libraries/importExternalLibraries.
+The call OVERRIDES the whole external library list, so the supplied document is the complete
+desired set — stale external libraries are removed automatically on the next publish.
 
-Uploading places the file in staging only — it is not usable by notebooks/jobs until the
-environment is published (see Publish-FabricEnvironment).
-The maximum file size is 200 MB.
-
-Re-uploading a file with the same name overwrites the existing staged copy, so this is safe
-to call repeatedly.
+Like custom library uploads, this stages only; the environment must be published (see
+Publish-FabricEnvironment) for the changes to take effect.
+The document is sent as the raw request body via _Invoke-FabricFileUpload, which also gives it
+retry-on-5xx behaviour.
 
 ## EXAMPLES
 
 ### EXAMPLE 1
 
-Add-FabricEnvironmentLibrary -WorkspaceId $ws.id -EnvironmentId $env.id `
-    -FilePath './dist/mypackage-1.4.2-py3-none-any.whl' -Token $token
+Import-FabricEnvironmentExternalLibraries -WorkspaceId $ws.id -EnvironmentId $env.id `
+    -EnvironmentYml $yml -Token $token
 
-Uploads the wheel into the environment's staging libraries.
+Replaces the environment's staged external libraries with those declared in $yml.
 
 ## PARAMETERS
 
@@ -74,7 +73,7 @@ HelpMessage: ''
 
 ### -EnvironmentId
 
-The Fabric environment GUID to upload the library into.
+The Fabric environment GUID to import into.
 
 ```yaml
 Type: System.String
@@ -93,9 +92,9 @@ AcceptedValues: []
 HelpMessage: ''
 ```
 
-### -FilePath
+### -EnvironmentYml
 
-Path to the library file to upload.
+The environment.yml content (as a string) listing the public libraries.
 
 ```yaml
 Type: System.String
@@ -191,11 +190,10 @@ This cmdlet supports the common parameters: -Debug, -ErrorAction, -ErrorVariable
 
 ### System.Collections.Hashtable
 
-A hashtable with keys: EnvironmentId, FileName, and Action ('Uploaded' or 'whatif').
+A hashtable with keys: EnvironmentId and Action ('Imported' or 'whatif').
 
 ## NOTES
 
 ## RELATED LINKS
 
 - [](https://learn.microsoft.com/rest/api/fabric/)
-
