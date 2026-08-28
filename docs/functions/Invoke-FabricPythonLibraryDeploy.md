@@ -4,7 +4,7 @@ external help file: ZeroFailed.Deploy.Fabric-Help.xml
 HelpUri: ''
 Locale: en-GB
 Module Name: ZeroFailed.Deploy.Fabric
-ms.date: 08/18/2026
+ms.date: 08/25/2026
 PlatyPS schema version: 2024-05-01
 title: Invoke-FabricPythonLibraryDeploy
 ---
@@ -23,7 +23,8 @@ Deploys a Python package (and its dependencies) into the Fabric Spark Environmen
 Invoke-FabricPythonLibraryDeploy [-Config] <psobject> -Stage <string> -PackageName <string>
  -PackageVersion <string> -FeedOrganisation <string> -FeedProject <string> -FeedName <string>
  -FeedToken <string> [-StagingPath <string>] [-ConstraintsPath <string>] [-SkipDownload] [-Force]
- [-ExtraIndexUrl <string>] [-PythonExecutable <string>] [-TargetPythonVersion <string>]
+ [-PrivatePackageName <string[]>] [-ExtraIndexUrl <string>] [-PythonExecutable <string>]
+ [-TargetPythonVersion <string>]
  [-TargetPlatform <string>] [-PublishTimeoutSeconds <int>] [-WhatIf] [-Confirm] [<CommonParameters>]
 ```
 
@@ -33,7 +34,8 @@ Invoke-FabricPythonLibraryDeploy [-Config] <psobject> -Stage <string> -PackageNa
 Invoke-FabricPythonLibraryDeploy -ConfigPath <string> -Stage <string> -PackageName <string>
  -PackageVersion <string> -FeedOrganisation <string> -FeedProject <string> -FeedName <string>
  -FeedToken <string> [-StagingPath <string>] [-ConstraintsPath <string>] [-SkipDownload] [-Force]
- [-ExtraIndexUrl <string>] [-PythonExecutable <string>] [-TargetPythonVersion <string>]
+ [-PrivatePackageName <string[]>] [-ExtraIndexUrl <string>] [-PythonExecutable <string>]
+ [-TargetPythonVersion <string>]
  [-TargetPlatform <string>] [-PublishTimeoutSeconds <int>] [-WhatIf] [-Confirm] [<CommonParameters>]
 ```
 
@@ -48,15 +50,23 @@ For a single deployment stage it:
 Downloads the named package plus its full dependency closure from an Azure Artifacts
      feed (once), via Save-FabricLibraryPackage.
   2.
+Splits the closure into private packages (feed-only) and public packages (resolvable on
+     PyPI).
+Private packages are uploaded as custom libraries; public packages are declared
+     in an environment.yml for Fabric to resolve from PyPI directly.
+This keeps large public
+     binary wheels out of the custom-library upload path, whose size limit a big wheel (e.g.
+     deltalake, ~50 MB) exceeds with a server-side 500.
+Classification is automatic via a
+     PyPI lookup per package, unless -PrivatePackageName is supplied.
+  3.
 For every workspace in the topology that has a Spark Environment enabled for the given
      stage, resolves the workspace and its environment for that stage.
-  3.
-Clears down any staged custom libraries that are not part of the downloaded set, so
-     previous versions cannot conflict with the ones being deployed.
   4.
-Uploads the downloaded files to the environment's custom (staging) libraries and
-     publishes, unless exactly those files are already published (idempotent) and -Force
-     is not set.
+Clears down staged custom libraries not in the private set, imports the environment.yml
+     external libraries (which overrides the whole external set), uploads the private custom
+     wheels, and publishes — unless the desired custom and external sets are already
+     published (idempotent) and -Force is not set.
 
 Stages are owned by the calling pipeline: this runs one stage per invocation.
 The topology
@@ -331,6 +341,31 @@ ParameterSets:
 - Name: (All)
   Position: Named
   IsRequired: true
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
+```
+
+### -PrivatePackageName
+
+The package names that are private (feed-only) and must be uploaded as custom libraries;
+every other package in the closure is treated as public and declared in environment.yml.
+Names are matched case-insensitively with PEP 503 normalisation.
+When omitted, each package
+is classified automatically by looking it up on PyPI (present at that version = public).
+
+```yaml
+Type: System.String[]
+DefaultValue: ''
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: (All)
+  Position: Named
+  IsRequired: false
   ValueFromPipeline: false
   ValueFromPipelineByPropertyName: false
   ValueFromRemainingArguments: false
