@@ -62,7 +62,7 @@ Describe 'Invoke-FabricSetup' {
             Mock Test-FabricWorkspaceExists { $null } -ModuleName ZeroFailed.Deploy.Fabric
             Mock New-FabricWorkspace { [pscustomobject]@{ id = 'ws-1' } } -ModuleName ZeroFailed.Deploy.Fabric
             Mock Set-FabricGitIntegration {} -ModuleName ZeroFailed.Deploy.Fabric
-            Mock Enable-FabricWorkspaceIdentity { @{ WorkspaceName = 'bronze' } } -ModuleName ZeroFailed.Deploy.Fabric
+            Mock Enable-FabricWorkspaceIdentity { @{ WorkspaceName = 'bronze'; ServicePrincipalObjectId = 'sp-oid' } } -ModuleName ZeroFailed.Deploy.Fabric
             Mock Enable-FabricWorkspaceMonitoring { @{ Enabled = $true } } -ModuleName ZeroFailed.Deploy.Fabric
             Mock New-FabricEnvironment { [pscustomobject]@{ id = 'env-1'; displayName = 'bronze Env' } } -ModuleName ZeroFailed.Deploy.Fabric
             Mock Set-FabricWorkspaceDefaultEnvironment { @{ EnvironmentName = 'bronze Env'; Action = 'Set' } } -ModuleName ZeroFailed.Deploy.Fabric
@@ -77,7 +77,7 @@ Describe 'Invoke-FabricSetup' {
             $r.Summary.Created      | Should -Be 2     # bronze in Dev + Test
             $r.Identities.Count     | Should -Be 2
             $r.Monitoring.Count     | Should -Be 2
-            $r.RoleAssignments.Count | Should -Be 1     # rbac only configured for Dev
+            $r.RoleAssignments.Count | Should -Be 3     # rbac only configured for Dev (1) + identity Contributor grant in Dev + Test (2)
             $r.Pipelines.Count      | Should -Be 1
             $r.PipelineRoleAssignments.Count | Should -Be 1
             $r.Failures.Count       | Should -Be 0
@@ -93,8 +93,8 @@ Describe 'Invoke-FabricSetup' {
 
             $r = Invoke-FabricSetup -Config (New-TestConfig) -Environments @('Dev')
 
-            # Configured rbac for Dev (1) + deployer Admin (1)
-            $r.RoleAssignments.Count | Should -Be 2
+            # Configured rbac for Dev (1) + deployer Admin (1) + identity Contributor grant (1)
+            $r.RoleAssignments.Count | Should -Be 3
             Should -Invoke Set-FabricWorkspaceRoleAssignment -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric `
                 -ParameterFilter { $PrincipalId -eq 'deployer-oid' -and $Role -eq 'Admin' -and $PrincipalType -eq 'ServicePrincipal' }
         }
@@ -104,10 +104,39 @@ Describe 'Invoke-FabricSetup' {
 
             $r = Invoke-FabricSetup -Config (New-TestConfig) -Environments @('Dev') -SkipRbac
 
-            # Configured rbac skipped, but the deployer Admin grant still happens
-            $r.RoleAssignments.Count | Should -Be 1
+            # Configured rbac skipped, but the deployer Admin grant and identity Contributor grant still happen
+            $r.RoleAssignments.Count | Should -Be 2
             Should -Invoke Set-FabricWorkspaceRoleAssignment -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric `
                 -ParameterFilter { $PrincipalId -eq 'deployer-oid' -and $Role -eq 'Admin' }
+        }
+
+        It 'grants the workspace identity Contributor on its own workspace after provisioning' {
+            $r = Invoke-FabricSetup -Config (New-TestConfig) -Environments @('Dev')
+
+            Should -Invoke Set-FabricWorkspaceRoleAssignment -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric `
+                -ParameterFilter { $PrincipalId -eq 'sp-oid' -and $Role -eq 'Contributor' -and $PrincipalType -eq 'ServicePrincipal' }
+            $r.RoleAssignments.Count | Should -Be 2     # rbac (1) + identity Contributor grant (1)
+        }
+
+        It 'does not grant the workspace identity a role when the workspace has no identity' {
+            Mock Enable-FabricWorkspaceIdentity { $null } -ModuleName ZeroFailed.Deploy.Fabric
+
+            $r = Invoke-FabricSetup -Config (New-TestConfig) -Environments @('Dev')
+
+            Should -Invoke Set-FabricWorkspaceRoleAssignment -Times 0 -Exactly -ModuleName ZeroFailed.Deploy.Fabric `
+                -ParameterFilter { $Role -eq 'Contributor' }
+        }
+
+        It 'records a non-fatal failure when granting the workspace identity Contributor fails' {
+            Mock Set-FabricWorkspaceRoleAssignment {
+                if ($Role -eq 'Contributor') { throw 'identity rbac boom' }
+                @{ Action = 'Created' }
+            } -ModuleName ZeroFailed.Deploy.Fabric
+
+            $r = Invoke-FabricSetup -Config (New-TestConfig) -Environments @('Dev')
+
+            ($r.Failures.Step) | Should -Contain 'IdentityRoleAssignment'
+            $r.Identities.Count | Should -Be 1     # identity provisioning itself still succeeded
         }
 
         It 'counts an existing workspace as skipped rather than created' {

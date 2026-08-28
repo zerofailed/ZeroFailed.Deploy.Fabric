@@ -36,8 +36,10 @@ before returning the service principal details.
 Idempotent: if the identity is already provisioned, Add-FabricWorkspaceIdentity returns
 an empty response (the module silently swallows the 409/200-no-op from the API).
 In that
-case the function returns $null — no error is raised, but no identity report entry is
-produced (the SP details are not retrievable via this code path on re-runs).
+case the existing identity is read back from the workspace itself (GET /workspaces/{id}
+exposes a workspaceIdentity block), so re-runs report the same service principal details
+as the first run.
+Returns $null only when the workspace genuinely has no identity.
 
 ## EXAMPLES
 

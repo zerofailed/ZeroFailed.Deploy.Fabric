@@ -67,19 +67,43 @@ Describe 'Enable-FabricWorkspaceIdentity' {
         $result.ApplicationId            | Should -Be 'app-arr'
     }
 
-    It 'returns $null when provisionIdentity returns $null (identity already provisioned)' {
-        # Add-FabricWorkspaceIdentity swallows 409/200-no-op and returns $null.
-        # The function should treat this as "already provisioned" and return $null gracefully.
+    It 'reads the existing identity from the workspace when provisionIdentity returns $null' {
+        # Add-FabricWorkspaceIdentity swallows 409/200-no-op and returns $null. The function
+        # should treat this as "already provisioned" and recover the SP details from the workspace.
         Mock Add-FabricWorkspaceIdentity { return $null } -ModuleName ZeroFailed.Deploy.Fabric
+        Mock _Invoke-FabricRestMethod {
+            return [pscustomobject]@{
+                id                = 'ws-id'
+                workspaceIdentity = [pscustomobject]@{ servicePrincipalId = 'sp-existing'; applicationId = 'app-existing' }
+            }
+        } -ModuleName ZeroFailed.Deploy.Fabric
 
         $result = Enable-FabricWorkspaceIdentity -WorkspaceId 'ws-id' -WorkspaceName 'my-ws' -Token 'tok'
-        $result | Should -BeNullOrEmpty
+        $result.ServicePrincipalObjectId | Should -Be 'sp-existing'
+        $result.ApplicationId            | Should -Be 'app-existing'
 
         Should -Invoke Add-FabricWorkspaceIdentity -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
+        Should -Invoke _Invoke-FabricRestMethod -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric `
+            -ParameterFilter { $Method -eq 'GET' -and $RelativeUri -eq 'workspaces/ws-id' }
     }
 
-    It 'returns $null when provisionIdentity returns an empty array (identity already provisioned)' {
+    It 'reads the existing identity from the workspace when provisionIdentity returns an empty array' {
         Mock Add-FabricWorkspaceIdentity { return @() } -ModuleName ZeroFailed.Deploy.Fabric
+        Mock _Invoke-FabricRestMethod {
+            return [pscustomobject]@{
+                id                = 'ws-id'
+                workspaceIdentity = [pscustomobject]@{ servicePrincipalId = 'sp-existing'; applicationId = 'app-existing' }
+            }
+        } -ModuleName ZeroFailed.Deploy.Fabric
+
+        $result = Enable-FabricWorkspaceIdentity -WorkspaceId 'ws-id' -WorkspaceName 'my-ws' -Token 'tok'
+        $result.ServicePrincipalObjectId | Should -Be 'sp-existing'
+    }
+
+    It 'returns $null when the workspace has no identity to read back' {
+        Mock Add-FabricWorkspaceIdentity { return $null } -ModuleName ZeroFailed.Deploy.Fabric
+        # No workspaceIdentity property — the workspace genuinely has no identity.
+        Mock _Invoke-FabricRestMethod { return [pscustomobject]@{ id = 'ws-id' } } -ModuleName ZeroFailed.Deploy.Fabric
 
         $result = Enable-FabricWorkspaceIdentity -WorkspaceId 'ws-id' -WorkspaceName 'my-ws' -Token 'tok'
         $result | Should -BeNullOrEmpty

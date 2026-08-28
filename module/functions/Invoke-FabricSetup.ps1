@@ -8,7 +8,7 @@ function Invoke-FabricSetup {
           2. Creates the workspace (idempotent)
           3. Grants the deploying identity Admin on the workspace (so re-runs can resolve it)
           4. Connects to Git (idempotent)
-          5. Provisions Workspace Identity (if enabled)
+          5. Provisions Workspace Identity and grants it Contributor on the workspace (if enabled)
           6. Enables workspace monitoring (if enabled)
           7. Provisions a Spark Environment and (optionally) sets it as workspace default (if enabled
              for the type and the current environment is in the type's configured stages)
@@ -259,6 +259,28 @@ function Invoke-FabricSetup {
                         -Token         $token
                     if ($identityEntry) {
                         $results.Identities.Add($identityEntry)
+
+                        # Grant the workspace identity Contributor on its own workspace, so that
+                        # Fabric shortcuts using the identity can authenticate outbound requests.
+                        try {
+                            $identityRbac = Set-FabricWorkspaceRoleAssignment `
+                                -WorkspaceId   $workspaceId `
+                                -WorkspaceName $resolvedName `
+                                -PrincipalId   $identityEntry.ServicePrincipalObjectId `
+                                -PrincipalType 'ServicePrincipal' `
+                                -Role          'Contributor' `
+                                -Token         $token
+                            $results.RoleAssignments.Add($identityRbac)
+                        }
+                        catch {
+                            Write-Warning "Failed to grant the workspace identity Contributor on '$resolvedName' — $_"
+                            $results.Failures.Add(@{
+                                WorkspaceName = $resolvedName
+                                Environment   = $env.name
+                                Step          = 'IdentityRoleAssignment'
+                                Error         = $_.ToString()
+                            })
+                        }
                     }
                 }
                 catch {
