@@ -17,6 +17,7 @@ Describe 'ZeroFailed.Deploy.Fabric module' {
         $exported = Get-Command -Module ZeroFailed.Deploy.Fabric | Select-Object -ExpandProperty Name
         $expectedFunctions = @(
             'Enable-FabricWorkspaceIdentity'
+            'Add-FabricWorkspaceIdentityToGroup'
             'Invoke-FabricSetup'
             'New-FabricTopologyConfig'
             'New-FabricWorkspace'

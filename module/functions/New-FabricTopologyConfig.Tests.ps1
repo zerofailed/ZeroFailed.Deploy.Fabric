@@ -66,6 +66,29 @@ Describe 'New-FabricTopologyConfig' {
         }
     }
 
+    It 'records the identity group id when one is supplied' {
+        $config = New-FabricTopologyConfig @script:commonParams -IdentityGroupId 'grp-abc'
+        $config.identityGroup.enabled | Should -Be $true
+        $config.identityGroup.groupId | Should -Be 'grp-abc'
+    }
+
+    It 'enables identity group membership by default' {
+        $config = New-FabricTopologyConfig @script:commonParams
+        $config.identityGroup.enabled | Should -Be $true
+    }
+
+    It 'leaves the identity group id empty when none is supplied' {
+        $config = New-FabricTopologyConfig @script:commonParams
+        $config.identityGroup.groupId | Should -BeNullOrEmpty
+    }
+
+    It 'disables identity group membership with -SkipIdentityGroupMembership' {
+        $config = New-FabricTopologyConfig @script:commonParams -IdentityGroupId 'grp-abc' -SkipIdentityGroupMembership
+        $config.identityGroup.enabled | Should -Be $false
+        # The group id is still recorded, so the opt-out can be reversed without re-supplying it.
+        $config.identityGroup.groupId | Should -Be 'grp-abc'
+    }
+
     It 'enables monitoring only for specified types' {
         $config = New-FabricTopologyConfig @script:commonParams -EnableMonitoring @('Bronze', 'Silver')
         $bronzeWs    = $config.workspaces | Where-Object { $_.type -eq 'Bronze' }

@@ -4,7 +4,8 @@
 # 'RequiredPowerShellModules' mechanism, so the 'setupModules' task installs/imports them — same
 # pattern as ZeroFailed.Build.PowerShell's 'EnsurePlatyPSModule' task. Az.Resources provides
 # Get-AzADServicePrincipal / Get-AzADUser, used to resolve the deploying identity's object id so
-# it can be granted Admin on each workspace.
+# it can be granted Admin on each workspace, plus Get-AzADGroupMember / Add-AzADGroupMember, used
+# to add each workspace identity to the topology's Entra security group.
 task ensureFabricModules -Before setupModules {
     Write-Build Cyan 'Registering Fabric required modules...'
 
@@ -27,6 +28,7 @@ task provisionFabricWorkspaces -After DeployCore {
         ConfigPath    = $FabricTopologyConfigPath
         SkipGit       = $FabricSkipGit
         SkipIdentity  = $FabricSkipIdentity
+        SkipIdentityGroup = $FabricSkipIdentityGroup
         SkipMonitoring = $FabricSkipMonitoring
         SkipEnvironment = $FabricSkipEnvironment
         SkipRbac      = $FabricSkipRbac

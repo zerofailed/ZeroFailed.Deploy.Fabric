@@ -8,6 +8,7 @@ $FabricTopologyConfigPath = property FabricTopologyConfigPath './fabric/topology
 $FabricEnvironmentFilter ??= @()
 $FabricSkipGit           = [Convert]::ToBoolean((property FabricSkipGit $false))
 $FabricSkipIdentity      = [Convert]::ToBoolean((property FabricSkipIdentity $false))
+$FabricSkipIdentityGroup = [Convert]::ToBoolean((property FabricSkipIdentityGroup $false))
 $FabricSkipMonitoring    = [Convert]::ToBoolean((property FabricSkipMonitoring $false))
 $FabricSkipEnvironment   = [Convert]::ToBoolean((property FabricSkipEnvironment $false))
 $FabricSkipRbac          = [Convert]::ToBoolean((property FabricSkipRbac $false))

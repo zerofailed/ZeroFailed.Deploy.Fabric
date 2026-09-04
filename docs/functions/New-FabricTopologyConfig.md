@@ -23,11 +23,12 @@ Generates a Fabric topology configuration object from input parameters.
 New-FabricTopologyConfig [-Project] <string> [-WorkspaceTypes] <string[]> [-Environments] <string[]>
  [-CapacityMap] <hashtable> [[-GitProvider] <string>] [[-GitOrganisation] <string>]
  [[-GitProject] <string>] [[-GitEnvironment] <string>] [[-GitWorkspaceConfig] <hashtable>]
- [[-EnableIdentity] <string[]>] [[-EnableMonitoring] <string[]>] [[-RoleAssignments] <hashtable[]>]
- [[-EnablePipelines] <string[]>] [[-PipelineRoleAssignments] <hashtable[]>]
- [[-EnableEnvironments] <string[]>] [[-EnvironmentStages] <hashtable>]
- [[-EnvironmentRuntimeVersion] <string>] [[-TypeShortCodes] <hashtable>]
- [[-EnvShortCodes] <hashtable>] [[-OutputPath] <string>] [-SetEnvironmentAsDefault]
+ [[-EnableIdentity] <string[]>] [[-IdentityGroupId] <string>] [[-EnableMonitoring] <string[]>]
+ [[-RoleAssignments] <hashtable[]>] [[-EnablePipelines] <string[]>]
+ [[-PipelineRoleAssignments] <hashtable[]>] [[-EnableEnvironments] <string[]>]
+ [[-EnvironmentStages] <hashtable>] [[-EnvironmentRuntimeVersion] <string>]
+ [[-TypeShortCodes] <hashtable>] [[-EnvShortCodes] <hashtable>] [[-OutputPath] <string>]
+ [-SkipIdentityGroupMembership] [-SetEnvironmentAsDefault]
 ```
 
 ## ALIASES
@@ -103,7 +104,7 @@ SupportsWildcards: false
 Aliases: []
 ParameterSets:
 - Name: (All)
-  Position: 14
+  Position: 15
   IsRequired: false
   ValueFromPipeline: false
   ValueFromPipelineByPropertyName: false
@@ -147,7 +148,7 @@ SupportsWildcards: false
 Aliases: []
 ParameterSets:
 - Name: (All)
-  Position: 10
+  Position: 11
   IsRequired: false
   ValueFromPipeline: false
   ValueFromPipelineByPropertyName: false
@@ -170,7 +171,7 @@ SupportsWildcards: false
 Aliases: []
 ParameterSets:
 - Name: (All)
-  Position: 12
+  Position: 13
   IsRequired: false
   ValueFromPipeline: false
   ValueFromPipelineByPropertyName: false
@@ -192,7 +193,7 @@ SupportsWildcards: false
 Aliases: []
 ParameterSets:
 - Name: (All)
-  Position: 16
+  Position: 17
   IsRequired: false
   ValueFromPipeline: false
   ValueFromPipelineByPropertyName: false
@@ -245,7 +246,7 @@ SupportsWildcards: false
 Aliases: []
 ParameterSets:
 - Name: (All)
-  Position: 15
+  Position: 16
   IsRequired: false
   ValueFromPipeline: false
   ValueFromPipelineByPropertyName: false
@@ -269,7 +270,7 @@ SupportsWildcards: false
 Aliases: []
 ParameterSets:
 - Name: (All)
-  Position: 18
+  Position: 19
   IsRequired: false
   ValueFromPipeline: false
   ValueFromPipelineByPropertyName: false
@@ -400,6 +401,31 @@ AcceptedValues: []
 HelpMessage: ''
 ```
 
+### -IdentityGroupId
+
+Entra object ID of an existing security group that every provisioned Workspace Identity
+should be added to.
+Applies to all workspace types — the group is a single, known group
+for workspace identities.
+When omitted, no group membership is applied.
+
+```yaml
+Type: System.String
+DefaultValue: ''
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: (All)
+  Position: 10
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
+```
+
 ### -OutputPath
 
 Optional file path to write the generated config as JSON.
@@ -412,7 +438,7 @@ SupportsWildcards: false
 Aliases: []
 ParameterSets:
 - Name: (All)
-  Position: 19
+  Position: 20
   IsRequired: false
   ValueFromPipeline: false
   ValueFromPipelineByPropertyName: false
@@ -441,7 +467,7 @@ SupportsWildcards: false
 Aliases: []
 ParameterSets:
 - Name: (All)
-  Position: 13
+  Position: 14
   IsRequired: false
   ValueFromPipeline: false
   ValueFromPipelineByPropertyName: false
@@ -492,7 +518,7 @@ SupportsWildcards: false
 Aliases: []
 ParameterSets:
 - Name: (All)
-  Position: 11
+  Position: 12
   IsRequired: false
   ValueFromPipeline: false
   ValueFromPipelineByPropertyName: false
@@ -506,6 +532,29 @@ HelpMessage: ''
 
 When set, environment-enabled workspaces have their environment registered as the
 workspace default (so notebooks/jobs using "Workspace default" inherit it).
+
+```yaml
+Type: System.Management.Automation.SwitchParameter
+DefaultValue: False
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: (All)
+  Position: Named
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
+```
+
+### -SkipIdentityGroupMembership
+
+Disables adding Workspace Identities to -IdentityGroupId.
+Group membership is applied by
+default, so this is the opt-out; it is only meaningful alongside -IdentityGroupId.
 
 ```yaml
 Type: System.Management.Automation.SwitchParameter
@@ -538,7 +587,7 @@ SupportsWildcards: false
 Aliases: []
 ParameterSets:
 - Name: (All)
-  Position: 17
+  Position: 18
   IsRequired: false
   ValueFromPipeline: false
   ValueFromPipelineByPropertyName: false

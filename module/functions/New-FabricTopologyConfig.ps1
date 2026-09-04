@@ -48,6 +48,13 @@ function New-FabricTopologyConfig {
     .PARAMETER EnableIdentity
         Array of workspace type names that should have Workspace Identity provisioned.
         Defaults to all workspace types.
+    .PARAMETER IdentityGroupId
+        Entra object ID of an existing security group that every provisioned Workspace Identity
+        should be added to. Applies to all workspace types — the group is a single, known group
+        for workspace identities. When omitted, no group membership is applied.
+    .PARAMETER SkipIdentityGroupMembership
+        Disables adding Workspace Identities to -IdentityGroupId. Group membership is applied by
+        default, so this is the opt-out; it is only meaningful alongside -IdentityGroupId.
     .PARAMETER EnableMonitoring
         Array of workspace type names that should have monitoring enabled.
         Defaults to no workspace types (opt-in).
@@ -142,6 +149,10 @@ function New-FabricTopologyConfig {
         [hashtable]$GitWorkspaceConfig,
 
         [string[]]$EnableIdentity,
+
+        [string]$IdentityGroupId,
+
+        [switch]$SkipIdentityGroupMembership,
 
         [string[]]$EnableMonitoring,
 
@@ -434,9 +445,18 @@ function New-FabricTopologyConfig {
     # Assemble top-level config
     $resolvedGitEnvironment = if ($GitWorkspaceConfig -and $GitWorkspaceConfig.Count -gt 0) { $GitEnvironment } else { $null }
 
+    # Workspace identities are added to a single, known security group for the whole topology,
+    # so this is a top-level block rather than a per-workspace-type one. Membership is applied by
+    # default (opt out with -SkipIdentityGroupMembership) but is inert without a group to join.
+    $identityGroupBlock = [pscustomobject]@{
+        enabled = -not $SkipIdentityGroupMembership.IsPresent
+        groupId = $IdentityGroupId
+    }
+
     $config = [pscustomobject]@{
         project           = $projectNorm
         gitEnvironment    = $resolvedGitEnvironment
+        identityGroup     = $identityGroupBlock
         namingConvention  = [pscustomobject]@{
             template                = '{project}-{type} [{env}]'
             environmentNameTemplate = '{project}-{type} Env'
