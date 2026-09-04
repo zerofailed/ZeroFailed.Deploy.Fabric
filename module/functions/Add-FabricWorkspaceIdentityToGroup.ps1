@@ -4,8 +4,10 @@ function Add-FabricWorkspaceIdentityToGroup {
         Adds a Fabric Workspace Identity to an existing Entra security group, idempotently.
     .DESCRIPTION
         Ensures the workspace identity's service principal is a member of a known, existing Entra
-        security group — the group used to grant workspace identities their shared downstream
-        access (for example, source data that Fabric shortcuts read using the identity).
+        security group — the group that the "Service principals can use Fabric APIs" tenant setting
+        is scoped to. A workspace identity is a service principal, so without that setting it
+        cannot call the Fabric REST APIs; joining the group is what lets it do so (for example, a
+        pipeline's Invoke Pipeline activity running as the workspace identity).
 
         Idempotent: the group's current membership is checked first, so an identity that is already
         a member is reported as 'Skipped' rather than re-added. An "already exists" response from

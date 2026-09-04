@@ -257,14 +257,16 @@ Each entry supports:
 
 **`-IdentityGroupId` — workspace identity security group:**
 
-Workspace identities are typically granted their downstream access (for example, the source data that Fabric shortcuts read using the identity) via a single Entra security group rather than individually. Supply that group's **object id** and every provisioned Workspace Identity is added to it as part of provisioning:
+A workspace identity is a service principal, so it can only call the Fabric REST APIs if the **Service principals can use Fabric APIs** tenant setting applies to it (Admin portal → Tenant settings → Developer settings). That setting is normally scoped to a specific security group rather than the whole tenant, so an identity must be a member of that group before it can do things like run a pipeline's **Invoke Pipeline** activity.
+
+Supply that group's **object id** and every provisioned Workspace Identity is added to it as part of provisioning:
 
 ```powershell
 -EnableIdentity   @("Bronze", "Silver", "Gold") `
 -IdentityGroupId  "00000000-0000-0000-0000-000000000000"
 ```
 
-The group must **already exist** — it is never created. Membership is applied by default whenever a group id is present, and is idempotent: an identity that is already a member is reported as `Skipped`. Identities that were provisioned on an earlier run are added too, not just newly created ones.
+The group must **already exist** and the tenant setting must already be scoped to it — neither is configured by this module, as both are Fabric admin portal actions. Membership is applied by default whenever a group id is present, and is idempotent: an identity that is already a member is reported as `Skipped`. Identities that were provisioned on an earlier run are added too, not just newly created ones.
 
 Pass `-SkipIdentityGroupMembership` to record the group id in the config but leave membership alone, or use `Invoke-FabricSetup -SkipIdentityGroup` to skip it for a single run. Omitting `-IdentityGroupId` entirely disables the step.
 
@@ -606,7 +608,7 @@ Provisions a Workspace Identity (managed identity / service principal) for a wor
 
 #### `Add-FabricWorkspaceIdentityToGroup`
 
-Adds a provisioned Workspace Identity's service principal to an existing Entra security group, so it inherits the shared downstream access granted to that group. Idempotent — the group's membership is checked first (`Get-AzADGroupMember`), and an identity that is already a member is reported as `Skipped` rather than re-added; an "already exists" response is treated the same way, so concurrent runs do not fail each other. The group is never created.
+Adds a provisioned Workspace Identity's service principal to an existing Entra security group — typically the group the **Service principals can use Fabric APIs** tenant setting is scoped to, which is what allows the identity to call the Fabric REST APIs. Idempotent — the group's membership is checked first (`Get-AzADGroupMember`), and an identity that is already a member is reported as `Skipped` rather than re-added; an "already exists" response is treated the same way, so concurrent runs do not fail each other. The group is never created.
 
 Uses the `Az.Resources` Entra cmdlets (as `_Get-FabricDeploymentIdentity` does) rather than calling Microsoft Graph directly, so the signed-in Az context supplies the credentials and no second token has to be managed alongside the Fabric one. Normally called by `Invoke-FabricSetup` when the topology config has an `identityGroup.groupId`.
 

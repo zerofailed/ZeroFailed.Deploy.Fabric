@@ -297,8 +297,9 @@ function Invoke-FabricSetup {
                             })
                         }
 
-                        # Add the identity to the topology's known Entra security group, so it
-                        # inherits the shared downstream access granted to that group. Applies to
+                        # Add the identity to the topology's known Entra security group — the one
+                        # the "Service principals can use Fabric APIs" tenant setting is scoped to,
+                        # without which the identity cannot call the Fabric REST APIs. Applies to
                         # identities that already existed too, since Enable-FabricWorkspaceIdentity
                         # reads an existing identity back. Non-fatal.
                         if (-not $SkipIdentityGroup -and $identityGroupId) {
