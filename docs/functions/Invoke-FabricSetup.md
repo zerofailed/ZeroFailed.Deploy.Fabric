@@ -21,16 +21,16 @@ Orchestrates the full Fabric workspace provisioning pipeline from a topology con
 
 ```
 Invoke-FabricSetup [-Config] <psobject> [-Environments <string[]>] [-SkipGit] [-SkipIdentity]
- [-SkipMonitoring] [-SkipEnvironment] [-SkipRbac] [-SkipPipeline] [-SkipPipelineRbac] [-WhatIf]
- [-Confirm] [<CommonParameters>]
+ [-SkipIdentityGroup] [-SkipMonitoring] [-SkipEnvironment] [-SkipRbac] [-SkipPipeline]
+ [-SkipPipelineRbac] [-WhatIf] [-Confirm] [<CommonParameters>]
 ```
 
 ### File
 
 ```
 Invoke-FabricSetup -ConfigPath <string> [-Environments <string[]>] [-SkipGit] [-SkipIdentity]
- [-SkipMonitoring] [-SkipEnvironment] [-SkipRbac] [-SkipPipeline] [-SkipPipelineRbac] [-WhatIf]
- [-Confirm] [<CommonParameters>]
+ [-SkipIdentityGroup] [-SkipMonitoring] [-SkipEnvironment] [-SkipRbac] [-SkipPipeline]
+ [-SkipPipelineRbac] [-WhatIf] [-Confirm] [<CommonParameters>]
 ```
 
 ## ALIASES
@@ -47,7 +47,8 @@ Grants the deploying identity Admin on the workspace (so re-runs can resolve it)
   4.
 Connects to Git (idempotent)
   5.
-Provisions Workspace Identity and grants it Contributor on the workspace (if enabled)
+Provisions Workspace Identity, grants it Contributor on the workspace, and adds it to
+the configured Entra security group (if enabled)
   6.
 Enables workspace monitoring (if enabled)
   7.
@@ -209,6 +210,28 @@ HelpMessage: ''
 ### -SkipIdentity
 
 Skip identity provisioning for all workspaces.
+
+```yaml
+Type: System.Management.Automation.SwitchParameter
+DefaultValue: False
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: (All)
+  Position: Named
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
+```
+
+### -SkipIdentityGroup
+
+Skip adding provisioned Workspace Identities to the security group named by the config's
+identityGroup block.
 
 ```yaml
 Type: System.Management.Automation.SwitchParameter

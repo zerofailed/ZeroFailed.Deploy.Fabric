@@ -8,7 +8,8 @@ function Invoke-FabricSetup {
           2. Creates the workspace (idempotent)
           3. Grants the deploying identity Admin on the workspace (so re-runs can resolve it)
           4. Connects to Git (idempotent)
-          5. Provisions Workspace Identity and grants it Contributor on the workspace (if enabled)
+          5. Provisions Workspace Identity, grants it Contributor on the workspace, and adds it to
+             the configured Entra security group (if enabled)
           6. Enables workspace monitoring (if enabled)
           7. Provisions a Spark Environment and (optionally) sets it as workspace default (if enabled
              for the type and the current environment is in the type's configured stages)
@@ -28,6 +29,9 @@ function Invoke-FabricSetup {
         Skip Git integration for all workspaces.
     .PARAMETER SkipIdentity
         Skip identity provisioning for all workspaces.
+    .PARAMETER SkipIdentityGroup
+        Skip adding provisioned Workspace Identities to the security group named by the config's
+        identityGroup block.
     .PARAMETER SkipMonitoring
         Skip monitoring enablement for all workspaces.
     .PARAMETER SkipEnvironment
@@ -60,6 +64,7 @@ function Invoke-FabricSetup {
 
         [switch]$SkipGit,
         [switch]$SkipIdentity,
+        [switch]$SkipIdentityGroup,
         [switch]$SkipMonitoring,
         [switch]$SkipEnvironment,
         [switch]$SkipRbac,
@@ -119,6 +124,15 @@ function Invoke-FabricSetup {
         Write-Warning "Could not determine the deploying identity; workspaces will not be auto-granted Admin for the deployer."
     }
 
+    # --- 2c. Resolve the workspace identity group (a single, known group for the whole topology). ---
+    # Guard the property access: configs generated before this block existed simply have no
+    # identityGroup, and must keep working (bare access would throw under Set-StrictMode).
+    $identityGroupConfig = if ($Config.PSObject.Properties.Name -contains 'identityGroup') { $Config.identityGroup } else { $null }
+    $identityGroupId     = if ($identityGroupConfig -and $identityGroupConfig.enabled) { $identityGroupConfig.groupId } else { $null }
+    if ($identityGroupId) {
+        Write-Verbose "Workspace identities will be added to Entra group '$identityGroupId'."
+    }
+
     # --- 3. Determine environments to process ---
     $targetEnvs = if ($Environments) {
         $Config.environments | Where-Object { $_.name -in $Environments }
@@ -135,6 +149,7 @@ function Invoke-FabricSetup {
     $results = [pscustomobject]@{
         Summary         = [pscustomobject]@{ Created = 0; Skipped = 0; Failed = 0 }
         Identities      = [System.Collections.Generic.List[hashtable]]::new()
+        IdentityGroupMemberships = [System.Collections.Generic.List[hashtable]]::new()
         Monitoring      = [System.Collections.Generic.List[hashtable]]::new()
         Environments    = [System.Collections.Generic.List[hashtable]]::new()
         RoleAssignments = [System.Collections.Generic.List[hashtable]]::new()
@@ -280,6 +295,30 @@ function Invoke-FabricSetup {
                                 Step          = 'IdentityRoleAssignment'
                                 Error         = $_.ToString()
                             })
+                        }
+
+                        # Add the identity to the topology's known Entra security group, so it
+                        # inherits the shared downstream access granted to that group. Applies to
+                        # identities that already existed too, since Enable-FabricWorkspaceIdentity
+                        # reads an existing identity back. Non-fatal.
+                        if (-not $SkipIdentityGroup -and $identityGroupId) {
+                            try {
+                                $groupEntry = Add-FabricWorkspaceIdentityToGroup `
+                                    -ServicePrincipalObjectId $identityEntry.ServicePrincipalObjectId `
+                                    -GroupId                  $identityGroupId `
+                                    -WorkspaceName            $resolvedName `
+                                    -WorkspaceId              $workspaceId
+                                $results.IdentityGroupMemberships.Add($groupEntry)
+                            }
+                            catch {
+                                Write-Warning "Failed to add the workspace identity for '$resolvedName' to group '$identityGroupId' — $_"
+                                $results.Failures.Add(@{
+                                    WorkspaceName = $resolvedName
+                                    Environment   = $env.name
+                                    Step          = 'IdentityGroupMembership'
+                                    Error         = $_.ToString()
+                                })
+                            }
                         }
                     }
                 }

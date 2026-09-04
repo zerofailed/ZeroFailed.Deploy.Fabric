@@ -30,6 +30,7 @@ $FabricTopologyConfigPath = './fabric/topology.json'
 $FabricEnvironmentFilter  = @('Dev')   # omit to process all environments
 $FabricSkipGit            = $false
 $FabricSkipIdentity       = $false
+$FabricSkipIdentityGroup  = $false
 $FabricSkipMonitoring     = $false
 $FabricSkipEnvironment    = $false
 $FabricSkipRbac           = $false
@@ -212,6 +213,8 @@ New-FabricTopologyConfig `
 | `-GitEnvironment` | `string` | No | `Dev` | Single environment where Git integration is enabled. Set to `''` to disable for all |
 | `-GitWorkspaceConfig` | `hashtable` | No | — | Per-workspace-type Git configuration (see below) |
 | `-EnableIdentity` | `string[]` | No | All types | Workspace types that should have a Workspace Identity provisioned |
+| `-IdentityGroupId` | `string` | No | — | Entra **object id** of an existing security group that every provisioned Workspace Identity is added to (see below) |
+| `-SkipIdentityGroupMembership` | `switch` | No | Off | Opt out of adding Workspace Identities to `-IdentityGroupId` (membership is applied by default) |
 | `-EnableMonitoring` | `string[]` | No | None | Workspace types that should have monitoring enabled |
 | `-EnablePipelines` | `string[]` | No | None | Workspace types that should have a Fabric deployment pipeline created (one pipeline per type, spanning all environments) |
 | `-EnableEnvironments` | `string[]` | No | None | Workspace types that should have a Fabric Spark Environment provisioned (one environment per workspace) |
@@ -251,6 +254,21 @@ Each entry supports:
     # All other workspace types (Bronze, Silver, Gold) get no Git integration
 }
 ```
+
+**`-IdentityGroupId` — workspace identity security group:**
+
+Workspace identities are typically granted their downstream access (for example, the source data that Fabric shortcuts read using the identity) via a single Entra security group rather than individually. Supply that group's **object id** and every provisioned Workspace Identity is added to it as part of provisioning:
+
+```powershell
+-EnableIdentity   @("Bronze", "Silver", "Gold") `
+-IdentityGroupId  "00000000-0000-0000-0000-000000000000"
+```
+
+The group must **already exist** — it is never created. Membership is applied by default whenever a group id is present, and is idempotent: an identity that is already a member is reported as `Skipped`. Identities that were provisioned on an earlier run are added too, not just newly created ones.
+
+Pass `-SkipIdentityGroupMembership` to record the group id in the config but leave membership alone, or use `Invoke-FabricSetup -SkipIdentityGroup` to skip it for a single run. Omitting `-IdentityGroupId` entirely disables the step.
+
+> **Permissions:** the deploying identity needs directory permissions to read and modify the group's membership (for example Group Owner on that group, or a directory role such as Groups Administrator). Failures are non-fatal and reported under the `IdentityGroupMembership` step.
 
 **Inspect the config:**
 
@@ -418,6 +436,7 @@ $result = Invoke-FabricSetup -Config $topology -SkipGit -SkipIdentity -SkipMonit
 | `-Environments` | `string[]` | Filter to a subset of environments. Defaults to all |
 | `-SkipGit` | `switch` | Skip Git integration for all workspaces |
 | `-SkipIdentity` | `switch` | Skip identity provisioning for all workspaces |
+| `-SkipIdentityGroup` | `switch` | Skip adding Workspace Identities to the config's `identityGroup` security group |
 | `-SkipMonitoring` | `switch` | Skip monitoring enablement for all workspaces |
 | `-SkipEnvironment` | `switch` | Skip Spark Environment provisioning for all workspaces |
 | `-SkipRbac` | `switch` | Skip role assignment application for all workspaces |
@@ -430,6 +449,7 @@ $result = Invoke-FabricSetup -Config $topology -SkipGit -SkipIdentity -SkipMonit
 ```powershell
 $result.Summary         # @{ Created=int; Skipped=int; Failed=int }
 $result.Identities      # Array of identity entries — handoff for downstream Azure RBAC
+$result.IdentityGroupMemberships # Array of identity → security group membership entries
 $result.Monitoring      # Array of monitoring report entries
 $result.Environments    # Array of environment provisioning report entries
 $result.RoleAssignments # Array of role assignment report entries
@@ -446,6 +466,18 @@ $result.Failures        # Array of per-workspace/pipeline failure details
     WorkspaceId              = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
     ServicePrincipalObjectId = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
     ApplicationId            = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+}
+```
+
+**Identity group membership report structure** (one entry per identity added to the configured group):
+
+```powershell
+@{
+    WorkspaceName            = "salesanalytics-Bronze [DEV]"
+    WorkspaceId              = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+    ServicePrincipalObjectId = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+    GroupId                  = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+    Action                   = "Added"   # or "Skipped" (already a member) / "WhatIf"
 }
 ```
 
@@ -571,6 +603,20 @@ Connects a workspace to a Git repository using the Fabric REST API (`POST /git/c
 #### `Enable-FabricWorkspaceIdentity`
 
 Provisions a Workspace Identity (managed identity / service principal) for a workspace via the `MicrosoftFabricMgmt` module (`Add-FabricWorkspaceIdentity`). Checks for an existing identity first and skips provisioning if one is already present. Waits for the asynchronous provisioning operation to complete using the module's LRO tracking functions before returning the service principal details. Normally called by `Invoke-FabricSetup`.
+
+#### `Add-FabricWorkspaceIdentityToGroup`
+
+Adds a provisioned Workspace Identity's service principal to an existing Entra security group, so it inherits the shared downstream access granted to that group. Idempotent — the group's membership is checked first (`Get-AzADGroupMember`), and an identity that is already a member is reported as `Skipped` rather than re-added; an "already exists" response is treated the same way, so concurrent runs do not fail each other. The group is never created.
+
+Uses the `Az.Resources` Entra cmdlets (as `_Get-FabricDeploymentIdentity` does) rather than calling Microsoft Graph directly, so the signed-in Az context supplies the credentials and no second token has to be managed alongside the Fabric one. Normally called by `Invoke-FabricSetup` when the topology config has an `identityGroup.groupId`.
+
+```powershell
+Add-FabricWorkspaceIdentityToGroup `
+    -ServicePrincipalObjectId $identity.ServicePrincipalObjectId `
+    -GroupId                  "00000000-0000-0000-0000-000000000000" `
+    -WorkspaceName            "salesanalytics-Bronze [DEV]" `
+    -WorkspaceId              $ws.id
+```
 
 #### `Enable-FabricWorkspaceMonitoring`
 
@@ -782,9 +828,16 @@ Invoke-FabricSetup
     │   ├── POST /git/connect
     │   └── POST /git/initializeConnection  [LRO polled if HTTP 202]
     ├── Enable-FabricWorkspaceIdentity  (unless -SkipIdentity or identity.enabled=false)
-    │   ├── GET workspaces/{id}/managedIdentity  (idempotency check)
-    │   ├── Add-FabricWorkspaceIdentity  → Get-FabricLongRunningOperation  (if not present)
-    │   └── Get-FabricLongRunningOperationResult  → append to $result.Identities
+    │   ├── Add-FabricWorkspaceIdentity
+    │   │   ├── 202 → Get-FabricLongRunningOperation → Get-FabricLongRunningOperationResult
+    │   │   ├── 200 with identity data → use inline details
+    │   │   └── empty (already provisioned) → GET /workspaces/{id} → workspaceIdentity block
+    │   ├── → append to $result.Identities
+    │   ├── Set-FabricWorkspaceRoleAssignment  (workspace identity → Contributor on its own workspace)
+    │   └── Add-FabricWorkspaceIdentityToGroup  (unless -SkipIdentityGroup or no identityGroup configured)
+    │       ├── Get-AzADGroupMember  (idempotency check)
+    │       ├── already a member → skip
+    │       └── else → Add-AzADGroupMember  → append to $result.IdentityGroupMemberships
     ├── Enable-FabricWorkspaceMonitoring  (unless -SkipMonitoring or monitoring.enabled=false)
     │   └── GET workspaces/{id}/items  → check for Monitoring Eventhouse
     │       ├── found   → append to $result.Monitoring
@@ -844,7 +897,8 @@ $result = Invoke-FabricSetup -Config $topology
 # Re-running does nothing destructive:
 # existing workspaces → Skipped
 # existing Git connections → logged as already connected (Dev only)
-# existing identities → skipped, SP details still returned
+# existing identities → skipped, SP details still returned (read back from the workspace)
+# identities already in the security group → Skipped
 # existing environments → skipped, workspace default only re-set if it has drifted
 # existing role assignments with correct role → Skipped
 # existing pipelines with correct stage assignments → Skipped
@@ -886,12 +940,13 @@ Invoke-Pester ./module -Output Detailed
 
 The test suite covers:
 - `_Resolve-WorkspaceName` — correct name generation, lowercasing, truncation, error cases
-- `New-FabricTopologyConfig` — environment count, workspace count, capacity assignment, Git opt-in per workspace type (`-GitWorkspaceConfig`), single Git environment (`-GitEnvironment`), identity filtering, monitoring filtering, pipeline opt-in (`-EnablePipelines`), Spark Environment opt-in (`-EnableEnvironments`, `-SetEnvironmentAsDefault`, `-EnvironmentRuntimeVersion`), per-type Spark Environment stage scoping (`-EnvironmentStages`, defaulting, validation errors), RBAC role assignment rules (`-RoleAssignments`), pipeline role assignment rules (`-PipelineRoleAssignments`), `-OutputPath` JSON output, GitHub provider, validation errors
+- `New-FabricTopologyConfig` — environment count, workspace count, capacity assignment, Git opt-in per workspace type (`-GitWorkspaceConfig`), single Git environment (`-GitEnvironment`), identity filtering, workspace identity security group (`-IdentityGroupId`, `-SkipIdentityGroupMembership`), monitoring filtering, pipeline opt-in (`-EnablePipelines`), Spark Environment opt-in (`-EnableEnvironments`, `-SetEnvironmentAsDefault`, `-EnvironmentRuntimeVersion`), per-type Spark Environment stage scoping (`-EnvironmentStages`, defaulting, validation errors), RBAC role assignment rules (`-RoleAssignments`), pipeline role assignment rules (`-PipelineRoleAssignments`), `-OutputPath` JSON output, GitHub provider, validation errors
 - `New-FabricEnvironment` — WhatIf, idempotent skip when present, create via POST, description in body, 409 conflict resolution, non-conflict error propagation
 - `Set-FabricWorkspaceDefaultEnvironment` — WhatIf, PATCH body shape, custom runtime version, skip when default already matches
 - `Set-FabricDeploymentPipeline` — WhatIf, create+assign all stages, skip when fully assigned, update vacant stages, skip missing workspaces gracefully, pagination across continuation tokens, API error propagation, report field correctness
 - `Set-FabricDeploymentPipelineRoleAssignment` — WhatIf, Admin default, non-Admin role rejection, skip when principal already present, create via POST, principal type acceptance, API error propagation, report field correctness
-- `Invoke-FabricSetup` — pipeline role assignment application, `-SkipPipelineRbac`, non-fatal pipeline RBAC failures, no RBAC attempt when pipeline setup fails, environment provisioning + set-as-default, `-SkipEnvironment`, non-fatal environment failures
+- `Add-FabricWorkspaceIdentityToGroup` — add when absent, idempotent skip when already a member, empty group, concurrent "already exists" treated as skip, unexpected add failure rethrown, membership lookup failure rethrown, WhatIf no-op
+- `Invoke-FabricSetup` — pipeline role assignment application, `-SkipPipelineRbac`, non-fatal pipeline RBAC failures, no RBAC attempt when pipeline setup fails, environment provisioning + set-as-default, `-SkipEnvironment`, non-fatal environment failures, identity group membership (`-SkipIdentityGroup`, config opt-out, missing group id, configs predating the `identityGroup` block, non-fatal failures)
 - `_Invoke-FabricFileUpload` — multipart upload URL/headers, no manual Content-Type, missing-file guard, API error unwrap
 - `Add-FabricEnvironmentLibrary` — staging-libraries endpoint, WhatIf no-op
 - `Remove-FabricEnvironmentLibrary` — staging delete endpoint, library-name URL encoding, 404 treated as already removed, other API errors rethrown, WhatIf no-op
@@ -930,6 +985,8 @@ ZeroFailed.Deploy.Fabric/
     │   ├── _Resolve-WorkspaceName.ps1             # Private: naming convention engine
     │   ├── Add-FabricEnvironmentLibrary.ps1       # Python library deploy: upload library to staging
     │   ├── Add-FabricEnvironmentLibrary.Tests.ps1
+    │   ├── Add-FabricWorkspaceIdentityToGroup.ps1
+    │   ├── Add-FabricWorkspaceIdentityToGroup.Tests.ps1
     │   ├── Enable-FabricWorkspaceIdentity.ps1
     │   ├── Enable-FabricWorkspaceIdentity.Tests.ps1
     │   ├── Enable-FabricWorkspaceMonitoring.ps1

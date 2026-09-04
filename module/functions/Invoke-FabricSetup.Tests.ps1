@@ -18,6 +18,7 @@ BeforeAll {
     function New-TestConfig {
         [pscustomobject]@{
             gitEnvironment = 'Dev'
+            identityGroup  = [pscustomobject]@{ enabled = $true; groupId = 'grp-1' }
             environments   = @(
                 [pscustomobject]@{ name = 'Dev';  capacityName = 'cap-dev' }
                 [pscustomobject]@{ name = 'Test'; capacityName = 'cap-test' }
@@ -63,6 +64,7 @@ Describe 'Invoke-FabricSetup' {
             Mock New-FabricWorkspace { [pscustomobject]@{ id = 'ws-1' } } -ModuleName ZeroFailed.Deploy.Fabric
             Mock Set-FabricGitIntegration {} -ModuleName ZeroFailed.Deploy.Fabric
             Mock Enable-FabricWorkspaceIdentity { @{ WorkspaceName = 'bronze'; ServicePrincipalObjectId = 'sp-oid' } } -ModuleName ZeroFailed.Deploy.Fabric
+            Mock Add-FabricWorkspaceIdentityToGroup { @{ Action = 'Added' } } -ModuleName ZeroFailed.Deploy.Fabric
             Mock Enable-FabricWorkspaceMonitoring { @{ Enabled = $true } } -ModuleName ZeroFailed.Deploy.Fabric
             Mock New-FabricEnvironment { [pscustomobject]@{ id = 'env-1'; displayName = 'bronze Env' } } -ModuleName ZeroFailed.Deploy.Fabric
             Mock Set-FabricWorkspaceDefaultEnvironment { @{ EnvironmentName = 'bronze Env'; Action = 'Set' } } -ModuleName ZeroFailed.Deploy.Fabric
@@ -125,6 +127,65 @@ Describe 'Invoke-FabricSetup' {
 
             Should -Invoke Set-FabricWorkspaceRoleAssignment -Times 0 -Exactly -ModuleName ZeroFailed.Deploy.Fabric `
                 -ParameterFilter { $Role -eq 'Contributor' }
+        }
+
+        It 'adds each provisioned workspace identity to the configured Entra group' {
+            $r = Invoke-FabricSetup -Config (New-TestConfig)
+
+            # 1 workspace x 2 environments
+            $r.IdentityGroupMemberships.Count | Should -Be 2
+            Should -Invoke Add-FabricWorkspaceIdentityToGroup -Times 2 -Exactly -ModuleName ZeroFailed.Deploy.Fabric `
+                -ParameterFilter { $ServicePrincipalObjectId -eq 'sp-oid' -and $GroupId -eq 'grp-1' -and $WorkspaceId -eq 'ws-1' }
+        }
+
+        It 'does not add the identity to a group when -SkipIdentityGroup is set' {
+            $r = Invoke-FabricSetup -Config (New-TestConfig) -SkipIdentityGroup
+
+            $r.IdentityGroupMemberships.Count | Should -Be 0
+            $r.Identities.Count | Should -Be 2     # identity provisioning itself still runs
+            Should -Invoke Add-FabricWorkspaceIdentityToGroup -Times 0 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
+        }
+
+        It 'does not add the identity to a group when the config disables it' {
+            $config = New-TestConfig
+            $config.identityGroup.enabled = $false
+
+            $r = Invoke-FabricSetup -Config $config
+            $r.IdentityGroupMemberships.Count | Should -Be 0
+            Should -Invoke Add-FabricWorkspaceIdentityToGroup -Times 0 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
+        }
+
+        It 'does not add the identity to a group when no group id is configured' {
+            $config = New-TestConfig
+            $config.identityGroup.groupId = ''
+
+            $r = Invoke-FabricSetup -Config $config
+            $r.IdentityGroupMemberships.Count | Should -Be 0
+            Should -Invoke Add-FabricWorkspaceIdentityToGroup -Times 0 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
+        }
+
+        It 'runs against a config with no identityGroup block at all' {
+            # Configs generated before the identityGroup block existed must keep working — a bare
+            # property access on the missing block would throw under Set-StrictMode.
+            $config = New-TestConfig
+            $config.PSObject.Properties.Remove('identityGroup')
+
+            $r = Invoke-FabricSetup -Config $config -Environments @('Dev')
+
+            $r.Summary.Created | Should -Be 1
+            $r.Failures.Count  | Should -Be 0
+            $r.IdentityGroupMemberships.Count | Should -Be 0
+            Should -Invoke Add-FabricWorkspaceIdentityToGroup -Times 0 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
+        }
+
+        It 'records a non-fatal failure when adding the identity to the group fails' {
+            Mock Add-FabricWorkspaceIdentityToGroup { throw 'group boom' } -ModuleName ZeroFailed.Deploy.Fabric
+
+            $r = Invoke-FabricSetup -Config (New-TestConfig) -Environments @('Dev')
+
+            ($r.Failures.Step) | Should -Contain 'IdentityGroupMembership'
+            $r.IdentityGroupMemberships.Count | Should -Be 0
+            $r.Identities.Count | Should -Be 1     # identity provisioning itself still succeeded
         }
 
         It 'records a non-fatal failure when granting the workspace identity Contributor fails' {
