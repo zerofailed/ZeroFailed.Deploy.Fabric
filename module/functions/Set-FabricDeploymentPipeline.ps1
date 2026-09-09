@@ -16,6 +16,11 @@ function Set-FabricDeploymentPipeline {
         The workspace type name to create the pipeline for (e.g. "Bronze").
     .PARAMETER Token
         Bearer token string for the Fabric REST API.
+    .PARAMETER KnownWorkspaceIds
+        Optional map of environment name -> Fabric workspace GUID, supplied by Invoke-FabricSetup from
+        the workspace IDs it already resolved in the per-workspace provisioning loop. Environments
+        absent from this map (or mapped to $null) fall back to a live _Resolve-WorkspaceName +
+        Test-FabricWorkspaceExists lookup, so behaviour is unchanged for callers that omit it.
     .EXAMPLE
         Set-FabricDeploymentPipeline -Config $topology -WorkspaceType 'Bronze' -Token $token
 
@@ -31,7 +36,9 @@ function Set-FabricDeploymentPipeline {
         [string]$WorkspaceType,
 
         [Parameter(Mandatory)]
-        [string]$Token
+        [string]$Token,
+
+        [hashtable]$KnownWorkspaceIds
     )
 
     $wsConfig     = $Config.workspaces | Where-Object { $_.type -eq $WorkspaceType }
@@ -41,9 +48,22 @@ function Set-FabricDeploymentPipeline {
     if ($PSCmdlet.ShouldProcess($pipelineName, 'Configure Fabric Deployment Pipeline')) {
         Write-Debug "Setting up deployment pipeline '$pipelineName' for workspace type '$WorkspaceType'..."
 
-        # 1. Resolve workspace IDs for every environment in the full config
+        # 1. Resolve workspace IDs for every environment in the full config. Prefer an id the caller
+        #    already resolved (Invoke-FabricSetup passes -KnownWorkspaceIds); only fall back to a live
+        #    GET /workspaces lookup for environments it did not supply.
         $stageMap = [ordered]@{}
         foreach ($env in $Config.environments) {
+            $knownId = if ($PSBoundParameters.ContainsKey('KnownWorkspaceIds') -and $KnownWorkspaceIds.ContainsKey($env.name)) {
+                $KnownWorkspaceIds[$env.name]
+            }
+            else { $null }
+
+            if ($knownId) {
+                $stageMap[$env.name] = $knownId
+                Write-Verbose "Stage '$($env.name)' uses caller-supplied workspace id '$knownId'."
+                continue
+            }
+
             $wsDisplayName = _Resolve-WorkspaceName -Config $Config -WorkspaceId $typeCode -EnvironmentName $env.name
             $wsObj         = Test-FabricWorkspaceExists -DisplayName $wsDisplayName -Token $Token
             $stageMap[$env.name] = if ($wsObj) { $wsObj.id } else { $null }
@@ -146,15 +166,25 @@ function Set-FabricDeploymentPipeline {
             WorkspaceType  = $WorkspaceType
             StagesAssigned = $stagesAssigned
             Action         = $action
+            Stages         = $stageMap
         }
     }
     else {
+        # Mirror the Stages shape without any API calls: caller-supplied ids where available, else $null.
+        $stageMap = [ordered]@{}
+        foreach ($env in $Config.environments) {
+            $stageMap[$env.name] = if ($PSBoundParameters.ContainsKey('KnownWorkspaceIds') -and $KnownWorkspaceIds.ContainsKey($env.name)) {
+                $KnownWorkspaceIds[$env.name]
+            }
+            else { $null }
+        }
         return @{
             PipelineName   = $pipelineName
             PipelineId     = 'whatif-pipeline-id'
             WorkspaceType  = $WorkspaceType
             StagesAssigned = 0
             Action         = 'WhatIf'
+            Stages         = $stageMap
         }
     }
 }

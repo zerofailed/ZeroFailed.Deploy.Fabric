@@ -440,10 +440,19 @@ function Invoke-FabricSetup {
 
         foreach ($ws in $pipelineWorkspaces) {
             try {
-                $pipelineResult = Set-FabricDeploymentPipeline `
-                    -Config        $Config `
-                    -WorkspaceType $ws.type `
-                    -Token         $token
+                $pipelineParams = @{
+                    Config        = $Config
+                    WorkspaceType = $ws.type
+                    Token         = $token
+                }
+                # Hand the pipeline the workspace IDs this run already resolved, so it does not
+                # re-walk GET /workspaces per environment. Environments it did not cover (e.g. an
+                # -Environments filter, or a failed workspace) are looked up by Set-FabricDeploymentPipeline.
+                $typeIds = $knownWorkspaceIds[$ws.type]
+                if ($typeIds -and $typeIds.Count -gt 0) {
+                    $pipelineParams['KnownWorkspaceIds'] = $typeIds
+                }
+                $pipelineResult = Set-FabricDeploymentPipeline @pipelineParams
                 $results.Pipelines.Add($pipelineResult)
             }
             catch {
