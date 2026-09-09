@@ -15,6 +15,19 @@ $FabricSkipPipeline      = [Convert]::ToBoolean((property FabricSkipPipeline $fa
 $FabricSkipPipelineRbac  = [Convert]::ToBoolean((property FabricSkipPipelineRbac $false))
 $FabricWhatIf            = [Convert]::ToBoolean((property FabricWhatIf $false))
 
+# Provisioning run report, published by the 'provisionFabricWorkspaces' or 'resolveFabricTopologyState'
+# task for later Invoke-Build tasks (and a consuming repo's PostDeploy hooks) — mirrors
+# ZeroFailed.Deploy.Azure's $script:ZF_ArmDeploymentOutputs. Read the workspace / identity /
+# environment / pipeline IDs from $FabricProvisioningResult.WorkspacesByType.<type>.<env> instead of
+# re-querying Fabric. Not a 'property' — it is a task output, not a tunable — and InvokeBuild's
+# 'property' rejects a $null default anyway (same reason $FabricEnvironmentFilter stays on ??= above).
+# $null until a provisioning/discovery task has run; '??=' keeps a value a consuming repo pre-set.
+$FabricProvisioningResult ??= $null
+
+# Optional path to also persist that report as JSON (a publishable build artifact a separate
+# deployment pipeline can pick up). Empty string = don't write a file.
+$FabricProvisioningResultPath = property FabricProvisioningResultPath ''
+
 # Python library deployment (Invoke-FabricPythonLibraryDeploy) — runs after provisioning, typically
 # as a separate pipeline. Stage/package coordinates flow from the calling pipeline's build/stage context.
 $FabricPythonLibraryConfigPath = property FabricPythonLibraryConfigPath $FabricTopologyConfigPath
