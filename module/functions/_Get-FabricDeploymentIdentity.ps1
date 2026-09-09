@@ -46,13 +46,8 @@ function _Get-FabricDeploymentIdentity {
             }
         }
         else {
-            $objectId = (Get-AzADUser -UserPrincipalName $account.Id -ErrorAction SilentlyContinue).Id
-            if (-not $objectId -and
-                $account.ExtendedProperties -and
-                $account.ExtendedProperties.ContainsKey('HomeAccountId')) {
-                # HomeAccountId is "<objectId>.<tenantId>"; the leading segment is the object id.
-                $objectId = $account.ExtendedProperties['HomeAccountId'].Split('.')[0]
-            }
+            # Use '-SignedIn' as it gives us the local tenant object id for regular & guest users.
+            $objectId = (Get-AzADuser -SignedIn -ErrorAction Stop).Id
             if ($objectId) {
                 return @{ Id = $objectId; Type = 'User' }
             }
