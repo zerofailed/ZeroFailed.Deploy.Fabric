@@ -11,7 +11,7 @@ BeforeAll {
     New-Module -Name _AzIdentityStub {
         function Get-AzContext { }
         function Get-AzADServicePrincipal { param([string]$ApplicationId, $ErrorAction) }
-        function Get-AzADUser { param([string]$UserPrincipalName, $ErrorAction) }
+        function Get-AzADUser { param([string]$UserPrincipalName, [switch]$SignedIn, $ErrorAction) }
         Export-ModuleMember -Function Get-AzContext, Get-AzADServicePrincipal, Get-AzADUser
     } | Import-Module
 }
@@ -41,28 +41,31 @@ Describe '_Get-FabricDeploymentIdentity' {
         $result.Type | Should -Be 'ServicePrincipal'
     }
 
-    It 'resolves a user object id from the user principal name' {
+    It 'resolves a user object id via Get-AzADUser -SignedIn' {
         Mock Get-AzContext { [pscustomobject]@{ Account = [pscustomobject]@{ Id = 'james@contoso.com'; Type = 'User' } } } -ModuleName ZeroFailed.Deploy.Fabric
         Mock Get-AzADUser { [pscustomobject]@{ Id = 'user-oid-1' } } -ModuleName ZeroFailed.Deploy.Fabric
 
         $result = & (Get-Module ZeroFailed.Deploy.Fabric) { _Get-FabricDeploymentIdentity }
         $result.Id   | Should -Be 'user-oid-1'
         $result.Type | Should -Be 'User'
+        Should -Invoke Get-AzADUser -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $SignedIn }
     }
 
-    It 'falls back to the HomeAccountId object id for a guest user' {
+    It 'resolves a guest user object id via Get-AzADUser -SignedIn' {
+        # A guest (external) account is resolved the same way as a regular user: '-SignedIn'
+        # returns the local-tenant object id, which is what Fabric role assignments require.
         Mock Get-AzContext {
             [pscustomobject]@{ Account = [pscustomobject]@{
-                Id                = 'guest@external.com'
-                Type              = 'User'
-                ExtendedProperties = @{ HomeAccountId = 'guest-oid-9.tenant-abc' }
+                Id   = 'guest@external.com'
+                Type = 'User'
             } }
         } -ModuleName ZeroFailed.Deploy.Fabric
-        Mock Get-AzADUser { $null } -ModuleName ZeroFailed.Deploy.Fabric
+        Mock Get-AzADUser { [pscustomobject]@{ Id = 'guest-oid-9' } } -ModuleName ZeroFailed.Deploy.Fabric
 
         $result = & (Get-Module ZeroFailed.Deploy.Fabric) { _Get-FabricDeploymentIdentity }
         $result.Id   | Should -Be 'guest-oid-9'
         $result.Type | Should -Be 'User'
+        Should -Invoke Get-AzADUser -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $SignedIn }
     }
 
     It 'returns $null when there is no signed-in account' {
