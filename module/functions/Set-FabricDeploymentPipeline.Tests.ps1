@@ -24,6 +24,12 @@ BeforeAll {
 
 Describe 'Set-FabricDeploymentPipeline' {
 
+    BeforeAll {
+        # Silence the "Creating deployment pipeline..." progress line so a passing run stays
+        # clean. No test asserts on this output.
+        Mock Write-Host {} -ModuleName ZeroFailed.Deploy.Fabric
+    }
+
     It 'returns WhatIf placeholder when -WhatIf is specified' {
         $result = Set-FabricDeploymentPipeline -Config $script:config -WorkspaceType 'Bronze' -Token 'tok' -WhatIf
         $result.Action       | Should -Be 'WhatIf'
@@ -219,9 +225,124 @@ Describe 'Set-FabricDeploymentPipeline' {
         $result.PipelineId    | Should -Be 'pipeline-999'
         $result.WorkspaceType | Should -Be 'Bronze'
     }
+
+    It 'returns a Stages map of environment -> workspace id' {
+        Mock Test-FabricWorkspaceExists {
+            param($DisplayName)
+            [pscustomobject]@{ id = "ws-$($DisplayName -replace '.*\[(\w+)\].*', '$1')" }
+        } -ModuleName ZeroFailed.Deploy.Fabric
+
+        Mock _Invoke-FabricRestMethod {
+            param($Method, $RelativeUri)
+            if ($Method -eq 'GET' -and $RelativeUri -eq 'deploymentPipelines') {
+                return [pscustomobject]@{ value = @(); continuationToken = $null }
+            }
+            if ($Method -eq 'POST' -and $RelativeUri -eq 'deploymentPipelines') {
+                return [pscustomobject]@{
+                    id     = 'pipeline-001'
+                    stages = @(
+                        [pscustomobject]@{ id = 'stage-dev';  order = 0; displayName = 'Dev' }
+                        [pscustomobject]@{ id = 'stage-test'; order = 1; displayName = 'Test' }
+                        [pscustomobject]@{ id = 'stage-prod'; order = 2; displayName = 'Production' }
+                    )
+                }
+            }
+            return $null
+        } -ModuleName ZeroFailed.Deploy.Fabric
+
+        $result = Set-FabricDeploymentPipeline -Config $script:config -WorkspaceType 'Bronze' -Token 'tok'
+        ($result.Stages.Keys -join ',')  | Should -Be 'Dev,Test,Production'
+        $result.Stages['Dev']            | Should -Be 'ws-DEV'
+        $result.Stages['Production']     | Should -Be 'ws-PROD'
+    }
+
+    Context 'with caller-supplied workspace ids (-KnownWorkspaceIds)' {
+
+        It 'uses the supplied ids and makes no workspace lookups when every environment is covered' {
+            Mock Test-FabricWorkspaceExists { throw 'Test-FabricWorkspaceExists should not be called' } -ModuleName ZeroFailed.Deploy.Fabric
+            Mock _Resolve-WorkspaceName { throw '_Resolve-WorkspaceName should not be called' } -ModuleName ZeroFailed.Deploy.Fabric
+
+            Mock _Invoke-FabricRestMethod {
+                param($Method, $RelativeUri)
+                if ($Method -eq 'GET' -and $RelativeUri -eq 'deploymentPipelines') {
+                    return [pscustomobject]@{ value = @(); continuationToken = $null }
+                }
+                if ($Method -eq 'POST' -and $RelativeUri -eq 'deploymentPipelines') {
+                    return [pscustomobject]@{
+                        id     = 'pipeline-001'
+                        stages = @(
+                            [pscustomobject]@{ id = 'stage-dev';  order = 0; displayName = 'Dev';        workspaceId = $null }
+                            [pscustomobject]@{ id = 'stage-test'; order = 1; displayName = 'Test';       workspaceId = $null }
+                            [pscustomobject]@{ id = 'stage-prod'; order = 2; displayName = 'Production'; workspaceId = $null }
+                        )
+                    }
+                }
+                return $null
+            } -ModuleName ZeroFailed.Deploy.Fabric
+
+            $known = @{ Dev = 'ws-DEV'; Test = 'ws-TEST'; Production = 'ws-PROD' }
+            $result = Set-FabricDeploymentPipeline -Config $script:config -WorkspaceType 'Bronze' -Token 'tok' -KnownWorkspaceIds $known
+
+            $result.Action         | Should -Be 'Created'
+            $result.StagesAssigned | Should -Be 3
+            $result.Stages['Dev']  | Should -Be 'ws-DEV'
+            Should -Invoke Test-FabricWorkspaceExists -Times 0 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
+            Should -Invoke _Resolve-WorkspaceName     -Times 0 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
+        }
+
+        It 'falls back to a live lookup only for environments not in the map' {
+            Mock Test-FabricWorkspaceExists {
+                param($DisplayName)
+                [pscustomobject]@{ id = "ws-$($DisplayName -replace '.*\[(\w+)\].*', '$1')" }
+            } -ModuleName ZeroFailed.Deploy.Fabric
+
+            Mock _Invoke-FabricRestMethod {
+                param($Method, $RelativeUri)
+                if ($Method -eq 'GET' -and $RelativeUri -eq 'deploymentPipelines') {
+                    return [pscustomobject]@{ value = @(); continuationToken = $null }
+                }
+                if ($Method -eq 'POST' -and $RelativeUri -eq 'deploymentPipelines') {
+                    return [pscustomobject]@{
+                        id     = 'pipeline-001'
+                        stages = @(
+                            [pscustomobject]@{ id = 'stage-dev';  order = 0; displayName = 'Dev' }
+                            [pscustomobject]@{ id = 'stage-test'; order = 1; displayName = 'Test' }
+                            [pscustomobject]@{ id = 'stage-prod'; order = 2; displayName = 'Production' }
+                        )
+                    }
+                }
+                return $null
+            } -ModuleName ZeroFailed.Deploy.Fabric
+
+            $result = Set-FabricDeploymentPipeline -Config $script:config -WorkspaceType 'Bronze' -Token 'tok' -KnownWorkspaceIds @{ Dev = 'ws-DEV' }
+
+            $result.Stages['Dev']  | Should -Be 'ws-DEV'
+            $result.Stages['Test'] | Should -Be 'ws-TEST'
+            # Only Test + Production are looked up; Dev came from the map.
+            Should -Invoke Test-FabricWorkspaceExists -Times 2 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
+        }
+
+        It 'builds the Stages map from the supplied ids under -WhatIf without any API calls' {
+            Mock Test-FabricWorkspaceExists { throw 'should not be called' } -ModuleName ZeroFailed.Deploy.Fabric
+            Mock _Invoke-FabricRestMethod  { throw 'should not be called' } -ModuleName ZeroFailed.Deploy.Fabric
+
+            $result = Set-FabricDeploymentPipeline -Config $script:config -WorkspaceType 'Bronze' -Token 'tok' `
+                -KnownWorkspaceIds @{ Dev = 'ws-DEV' } -WhatIf
+
+            $result.Action         | Should -Be 'WhatIf'
+            $result.Stages['Dev']  | Should -Be 'ws-DEV'
+            $result.Stages['Test'] | Should -BeNullOrEmpty
+            Should -Invoke Test-FabricWorkspaceExists -Times 0 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
+        }
+    }
 }
 
 Describe 'Set-FabricDeploymentPipeline — StrictMode safety' {
+
+    BeforeAll {
+        # Silence the "Creating deployment pipeline..." progress line. No test asserts on it.
+        Mock Write-Host {} -ModuleName ZeroFailed.Deploy.Fabric
+    }
 
     # The ZeroFailed build harness (e.g. in Azure DevOps) runs under Set-StrictMode, where
     # accessing a property the API omitted throws "The property X cannot be found on this object".

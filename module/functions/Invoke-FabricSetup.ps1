@@ -16,8 +16,11 @@ function Invoke-FabricSetup {
         Then, for each workspace type with pipelines enabled:
           8. Creates or updates the deployment pipeline across all environments
           9. Applies deployment pipeline role assignments (if configured)
-        Returns a structured results object with a summary, identity report, monitoring report,
-        role assignment report, pipeline report, and pipeline role assignment report.
+        Returns a structured results object with a summary; a per-workspace model (a flat
+        'Workspaces' list and a nested 'WorkspacesByType.<type>.<environment>' index, each record
+        carrying the workspace id, identity principal/application ids, Spark environment id and
+        status); and the identity, monitoring, environment, role assignment, pipeline and pipeline
+        role assignment reports.
     .PARAMETER Config
         Topology config object produced by New-FabricTopologyConfig.
     .PARAMETER ConfigPath
@@ -134,6 +137,8 @@ function Invoke-FabricSetup {
     # --- 4. Provision ---
     $results = [pscustomobject]@{
         Summary         = [pscustomobject]@{ Created = 0; Skipped = 0; Failed = 0 }
+        Workspaces      = [System.Collections.Generic.List[pscustomobject]]::new()
+        WorkspacesByType = [ordered]@{}
         Identities      = [System.Collections.Generic.List[hashtable]]::new()
         Monitoring      = [System.Collections.Generic.List[hashtable]]::new()
         Environments    = [System.Collections.Generic.List[hashtable]]::new()
@@ -142,6 +147,10 @@ function Invoke-FabricSetup {
         PipelineRoleAssignments = [System.Collections.Generic.List[hashtable]]::new()
         Failures        = [System.Collections.Generic.List[hashtable]]::new()
     }
+
+    # type name -> @{ env name -> workspace GUID }; fed to Set-FabricDeploymentPipeline so the pipeline
+    # phase does not re-walk GET /workspaces for IDs this loop already resolved.
+    $knownWorkspaceIds = @{}
 
     foreach ($env in $targetEnvs) {
         Write-Verbose "=== Environment: $($env.name) ==="
@@ -169,6 +178,17 @@ function Invoke-FabricSetup {
             $resolvedName = _Resolve-WorkspaceName -Config $Config -WorkspaceId $ws.id -EnvironmentName $env.name
             Write-Verbose "Processing: $resolvedName"
 
+            # Addressable record for this workspace type x environment. Added before anything can fail,
+            # so a creation failure still leaves a record (with a null WorkspaceId) in $results.Workspaces.
+            # Enriched in place as the identity / Spark environment steps complete below. The schema
+            # lives in _New-FabricWorkspaceRecord so it stays identical to Get-FabricTopologyState's.
+            $wsRecord = _New-FabricWorkspaceRecord `
+                -Type         $ws.type `
+                -Environment  $env.name `
+                -Name         $resolvedName `
+                -CapacityName $env.capacityName
+            $results.Workspaces.Add($wsRecord)
+
             # b. Create workspace (idempotent) — fatal for this workspace if it fails
             try {
                 $existed = Test-FabricWorkspaceExists -DisplayName $resolvedName -Token $token
@@ -192,6 +212,7 @@ function Invoke-FabricSetup {
             }
             catch {
                 Write-Error "FAILED: $resolvedName — $_" -ErrorAction Continue
+                $wsRecord.Status = 'Failed'
                 $results.Failures.Add(@{
                     WorkspaceName = $resolvedName
                     Environment   = $env.name
@@ -203,6 +224,17 @@ function Invoke-FabricSetup {
             }
 
             $workspaceId = $workspaceObj.id
+
+            $wsRecord.WorkspaceId = $workspaceId
+            $wsRecord.Status      = if ($existed) { 'Existing' }
+                                    elseif ($WhatIfPreference) { 'WhatIf' }
+                                    else { 'Created' }
+
+            # Remember the resolved id for the deployment-pipeline phase (skip WhatIf placeholders).
+            if ($workspaceId -and -not $WhatIfPreference) {
+                if (-not $knownWorkspaceIds.ContainsKey($ws.type)) { $knownWorkspaceIds[$ws.type] = @{} }
+                $knownWorkspaceIds[$ws.type][$env.name] = $workspaceId
+            }
 
             # b2. Grant the deploying identity Admin on the workspace (idempotent, non-fatal).
             # Guarantees the deployer can resolve the workspace on future runs. Independent of
@@ -238,6 +270,7 @@ function Invoke-FabricSetup {
                         -GitConfig     $ws.git `
                         -Branch        $ws.git.branch `
                         -Token         $token
+                    $wsRecord.GitConnected = $true
                 }
                 catch {
                     Write-Warning "Git integration failed for '$resolvedName' — $_"
@@ -259,6 +292,10 @@ function Invoke-FabricSetup {
                         -Token         $token
                     if ($identityEntry) {
                         $results.Identities.Add($identityEntry)
+                        $wsRecord.Identity = [pscustomobject]@{
+                            PrincipalId   = $identityEntry.ServicePrincipalObjectId
+                            ApplicationId = $identityEntry.ApplicationId
+                        }
 
                         # Grant the workspace identity Contributor on its own workspace, so that
                         # Fabric shortcuts using the identity can authenticate outbound requests.
@@ -338,6 +375,11 @@ function Invoke-FabricSetup {
                         EnvironmentName = $envName
                         EnvironmentId   = $environmentObj.id
                     })
+                    $wsRecord.SparkEnvironment = [pscustomobject]@{
+                        Name               = $envName
+                        Id                 = $environmentObj.id
+                        IsWorkspaceDefault = $false
+                    }
 
                     if ($wsEnvironment.setAsWorkspaceDefault) {
                         $defaultResult = Set-FabricWorkspaceDefaultEnvironment `
@@ -347,6 +389,8 @@ function Invoke-FabricSetup {
                             -RuntimeVersion  $wsEnvironment.runtimeVersion `
                             -Token           $token
                         $results.Environments.Add($defaultResult)
+                        # 'Set' = applied this run; 'Skipped' = already the default; 'whatif' = simulated.
+                        $wsRecord.SparkEnvironment.IsWorkspaceDefault = ($defaultResult.Action -in @('Set', 'Skipped'))
                     }
                 }
                 catch {
@@ -396,10 +440,19 @@ function Invoke-FabricSetup {
 
         foreach ($ws in $pipelineWorkspaces) {
             try {
-                $pipelineResult = Set-FabricDeploymentPipeline `
-                    -Config        $Config `
-                    -WorkspaceType $ws.type `
-                    -Token         $token
+                $pipelineParams = @{
+                    Config        = $Config
+                    WorkspaceType = $ws.type
+                    Token         = $token
+                }
+                # Hand the pipeline the workspace IDs this run already resolved, so it does not
+                # re-walk GET /workspaces per environment. Environments it did not cover (e.g. an
+                # -Environments filter, or a failed workspace) are looked up by Set-FabricDeploymentPipeline.
+                $typeIds = $knownWorkspaceIds[$ws.type]
+                if ($typeIds -and $typeIds.Count -gt 0) {
+                    $pipelineParams['KnownWorkspaceIds'] = $typeIds
+                }
+                $pipelineResult = Set-FabricDeploymentPipeline @pipelineParams
                 $results.Pipelines.Add($pipelineResult)
             }
             catch {
@@ -442,6 +495,10 @@ function Invoke-FabricSetup {
             }
         }
     }
+
+    # --- 5b. Index the workspace records by type then environment. Synthesised once from the flat
+    #         list so the two views hold the same record objects and cannot drift. ---
+    $results.WorkspacesByType = _ConvertTo-FabricWorkspaceIndex -Workspace $results.Workspaces
 
     # --- 6. Report ---
     $s = $results.Summary

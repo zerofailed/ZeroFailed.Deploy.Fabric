@@ -41,6 +41,19 @@ task provisionFabricWorkspaces -After DeployCore {
 
     $result = Invoke-FabricSetup @setupParams
 
+    # Publish the results for subsequently-running tasks BEFORE the failure throw below, so partial
+    # results (workspace IDs, identity principal IDs, etc.) are still available after a failed run.
+    $script:FabricProvisioningResult = $result
+
+    if ($FabricProvisioningResultPath) {
+        $resultDir = Split-Path -Parent $FabricProvisioningResultPath
+        if ($resultDir -and -not (Test-Path $resultDir)) {
+            New-Item -ItemType Directory -Path $resultDir -Force | Out-Null
+        }
+        $result | ConvertTo-Json -Depth 10 | Set-Content -Path $FabricProvisioningResultPath -Encoding utf8
+        Write-Build Green "Fabric provisioning result written to: $FabricProvisioningResultPath"
+    }
+
     $s = $result.Summary
     Write-Build Green "Provisioning complete — Created: $($s.Created)  Skipped: $($s.Skipped)  Failed: $($s.Failed)"
 
@@ -139,5 +152,58 @@ task deployFabricPythonLibraries {
             Write-Build Red "  $($_.WorkspaceName) [$($_.Stage)]: $($_.Error)"
         }
         throw "Fabric Python library deployment completed with $($result.Failures.Count) failure(s)."
+    }
+}
+
+# Resolves the current Fabric topology state via read-only lookups (no provisioning, no changes) and
+# publishes it as $script:FabricProvisioningResult — the same handoff variable that
+# 'provisionFabricWorkspaces' populates. Lets a deploy-only pipeline consume workspace / identity /
+# environment / pipeline IDs without running provisioning. Standalone: not chained via -Before/-After;
+# invoke it by name from the deploy-only pipeline.
+# The condition allows other tasks to include it as a dependency, but skipping it if the
+# 'provisionFabricWorkspaces' task has already run.
+task resolveFabricTopologyState -If { $FabricProvisioningResult -eq $null } {
+    Write-Build Cyan "Resolving Fabric topology state from: $FabricTopologyConfigPath"
+
+    if (-not (Test-Path $FabricTopologyConfigPath)) {
+        throw "Fabric topology config not found: $FabricTopologyConfigPath"
+    }
+
+    $stateParams = @{
+        ConfigPath      = $FabricTopologyConfigPath
+        SkipGit         = $FabricSkipGit
+        SkipIdentity    = $FabricSkipIdentity
+        SkipEnvironment = $FabricSkipEnvironment
+        SkipPipeline    = $FabricSkipPipeline
+    }
+
+    if ($FabricEnvironmentFilter -and $FabricEnvironmentFilter.Count -gt 0) {
+        $stateParams.Environments = $FabricEnvironmentFilter
+    }
+
+    $result = Get-FabricTopologyState @stateParams
+
+    # Same handoff variable + JSON artifact as provisionFabricWorkspaces, so downstream tasks are
+    # agnostic about whether provisioning or discovery populated it.
+    $script:FabricProvisioningResult = $result
+
+    if ($FabricProvisioningResultPath) {
+        $resultDir = Split-Path -Parent $FabricProvisioningResultPath
+        if ($resultDir -and -not (Test-Path $resultDir)) {
+            New-Item -ItemType Directory -Path $resultDir -Force | Out-Null
+        }
+        $result | ConvertTo-Json -Depth 10 | Set-Content -Path $FabricProvisioningResultPath -Encoding utf8
+        Write-Build Green "Fabric topology state written to: $FabricProvisioningResultPath"
+    }
+
+    $s = $result.Summary
+    Write-Build Green "Topology state resolved — Found: $($s.Found)  Missing: $($s.Missing)  Failed: $($s.Failed)"
+
+    # A read-only scan tolerates partial lookup failures — record them and still publish the result.
+    if ($result.Failures.Count -gt 0) {
+        Write-Build Yellow "$($result.Failures.Count) lookup(s) failed:"
+        $result.Failures | ForEach-Object {
+            Write-Build Yellow "  $($_.WorkspaceName) [$($_.Environment)]: $($_.Error)"
+        }
     }
 }

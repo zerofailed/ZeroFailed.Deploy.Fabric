@@ -42,6 +42,12 @@ BeforeAll {
 
 Describe '_Resolve-WorkspaceName' {
 
+    BeforeAll {
+        # The over-length-name test deliberately triggers the truncation warning; silence it so a
+        # passing run stays clean. No test asserts on this output.
+        Mock Write-Warning {} -ModuleName ZeroFailed.Deploy.Fabric
+    }
+
     It 'produces correct name: bronze x Dev' {
         $name = & (Get-Module ZeroFailed.Deploy.Fabric) { _Resolve-WorkspaceName -Config $args[0] -WorkspaceId 'bronze' -EnvironmentName 'Dev' } $script:testConfig
         $name | Should -Be 'salesanalytics-Bronze [DEV]'
