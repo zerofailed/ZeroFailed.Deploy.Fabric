@@ -160,7 +160,9 @@ task deployFabricPythonLibraries {
 # 'provisionFabricWorkspaces' populates. Lets a deploy-only pipeline consume workspace / identity /
 # environment / pipeline IDs without running provisioning. Standalone: not chained via -Before/-After;
 # invoke it by name from the deploy-only pipeline.
-task resolveFabricTopologyState {
+# The condition allows other tasks to include it as a dependency, but skipping it if the
+# 'provisionFabricWorkspaces' task has already run.
+task resolveFabricTopologyState -If { $FabricProvisioningResult -eq $null } {
     Write-Build Cyan "Resolving Fabric topology state from: $FabricTopologyConfigPath"
 
     if (-not (Test-Path $FabricTopologyConfigPath)) {
