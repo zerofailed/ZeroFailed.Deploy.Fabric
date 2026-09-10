@@ -36,13 +36,15 @@ $FabricSkipRbac           = $false
 $FabricSkipPipeline       = $false
 $FabricSkipPipelineRbac   = $false
 $FabricWhatIf             = $false
+$FabricProvisioningResultPath = ''   # set a path to also write the provisioning result as JSON
 ```
 
 Every `$Fabric*` property above (and the Python library deployment ones below) can also be overridden via an identically-named environment variable — e.g. `$env:FabricSkipGit = 'true'` — without editing `.zf/config.ps1`, which is useful for varying behaviour between CI/CD and local runs. An explicit assignment in `.zf/config.ps1` still takes priority over the environment variable. (`$FabricEnvironmentFilter` is the one exception — it's an array, which doesn't have a clean single-environment-variable representation.)
 
 The module registers these Invoke-Build tasks:
 - `ensureFabricModules` — registers Az.Accounts, Az.Resources and MicrosoftFabricMgmt with ZeroFailed.DevOps.Common's `RequiredPowerShellModules`, so `setupModules` installs/imports them (runs before `setupModules`)
-- `provisionFabricWorkspaces` — runs `Invoke-FabricSetup` from the topology config (runs after `DeployCore`)
+- `provisionFabricWorkspaces` — runs `Invoke-FabricSetup` from the topology config (runs after `DeployCore`). Publishes the result as `$script:FabricProvisioningResult` for later tasks (e.g. a repo's own `PostDeploy` hook), and writes it as JSON to `$FabricProvisioningResultPath` when that is set
+- `resolveFabricTopologyState` — runs `Get-FabricTopologyState` (read-only Fabric REST GETs) and publishes the **same** `$script:FabricProvisioningResult` (and `$FabricProvisioningResultPath` JSON) as `provisionFabricWorkspaces`, **without** provisioning or changing anything. Standalone (not auto-chained) — invoke it from a deploy-only pipeline that must consume workspace / identity / environment / pipeline IDs
 - `ensureFabricPythonLibraryTooling` — verifies Python/pip is available (runs before `deployFabricPythonLibraries`)
 - `deployFabricPythonLibraries` — runs `Invoke-FabricPythonLibraryDeploy` for a single stage (standalone; invoke from a separate deployment pipeline)
 
@@ -428,15 +430,44 @@ $result = Invoke-FabricSetup -Config $topology -SkipGit -SkipIdentity -SkipMonit
 **Return value:**
 
 ```powershell
-$result.Summary         # @{ Created=int; Skipped=int; Failed=int }
-$result.Identities      # Array of identity entries — handoff for downstream Azure RBAC
-$result.Monitoring      # Array of monitoring report entries
-$result.Environments    # Array of environment provisioning report entries
-$result.RoleAssignments # Array of role assignment report entries
-$result.Pipelines       # Array of deployment pipeline report entries
+$result.Summary          # @{ Created=int; Skipped=int; Failed=int }
+$result.Workspaces       # Flat list of per-workspace records (one per type × environment) — see below
+$result.WorkspacesByType # Nested index of the same records: $result.WorkspacesByType.<Type>.<Environment>
+$result.Identities       # Array of identity entries — handoff for downstream Azure RBAC
+$result.Monitoring       # Array of monitoring report entries
+$result.Environments     # Array of environment provisioning report entries
+$result.RoleAssignments  # Array of role assignment report entries
+$result.Pipelines        # Array of deployment pipeline report entries
 $result.PipelineRoleAssignments # Array of pipeline role assignment report entries
-$result.Failures        # Array of per-workspace/pipeline failure details
+$result.Failures         # Array of per-workspace/pipeline failure details
 ```
+
+**Per-workspace record structure** — `$result.Workspaces` holds one record per workspace type ×
+environment that provisioning touched, **including pre-existing and failed workspaces** (so every
+provisioned workspace's id is always available, regardless of which optional features ran).
+`$result.WorkspacesByType.<Type>.<Environment>` indexes the *same* record objects.
+
+```powershell
+[pscustomobject]@{
+    Type             = "Bronze"
+    Environment      = "Dev"
+    Name             = "salesanalytics-Bronze [DEV]"
+    WorkspaceId      = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"   # $null only when creation failed
+    CapacityName     = "cap-dev"
+    Status           = "Created"   # Created | Existing | Failed | WhatIf
+    GitConnected     = $true       # $true only for the single Git environment
+    Identity         = [pscustomobject]@{ PrincipalId = "<sp object id>"; ApplicationId = "<app id>" }  # or $null
+    SparkEnvironment = [pscustomobject]@{ Name = "salesanalytics-Bronze Env"; Id = "<guid>"; IsWorkspaceDefault = $true }  # or $null
+}
+```
+
+`Identity` / `SparkEnvironment` are `$null` when the step is skipped, disabled for the type, or
+failed. Use `WorkspacesByType.<Type>.<Environment>` for known-key lookups (workspace id, identity
+principal id, …); iterate the flat `Workspaces` list to enumerate or filter. Type / environment
+names containing a space or `.` need index syntax — `$result.WorkspacesByType['My Type']['Dev']`.
+After a `ConvertTo-Json | ConvertFrom-Json` round-trip, `WorkspacesByType` becomes a plain object
+and a missing type/env key throws under `Set-StrictMode` — test for existence before indexing keys
+you may not have provisioned.
 
 **Identity report structure** (one entry per provisioned identity):
 
@@ -501,6 +532,7 @@ $result.Failures        # Array of per-workspace/pipeline failure details
     WorkspaceType  = "Bronze"
     StagesAssigned = 3        # number of stage-workspace assignments made this run
     Action         = "Created"  # Created | Updated | Skipped | WhatIf
+    Stages         = @{ Dev = "<guid>"; Test = "<guid>"; Production = $null }  # environment -> assigned workspace id
 }
 ```
 
@@ -524,6 +556,14 @@ $result = Invoke-FabricSetup -Config $topology
 
 # Summary
 $result.Summary
+
+# Per-workspace model
+$result.Workspaces | Format-Table Type, Environment, Status, WorkspaceId, GitConnected
+
+# Direct lookup — no filtering, no re-query
+$result.WorkspacesByType.Bronze.Dev.WorkspaceId
+$result.WorkspacesByType.Bronze.Dev.Identity.PrincipalId
+$result.WorkspacesByType.Bronze.Dev.SparkEnvironment.Id
 
 # Export identity report to CSV for RBAC handoff
 $result.Identities | ForEach-Object { [pscustomobject]$_ } |
@@ -552,6 +592,59 @@ if ($result.Failures.Count -gt 0) {
     $result.Failures | ForEach-Object { [pscustomobject]$_ } | Format-List
 }
 ```
+
+---
+
+#### `Get-FabricTopologyState`
+
+Read-only counterpart to `Invoke-FabricSetup`. Walks the same topology config but issues **only**
+Fabric REST `GET`s — it never creates or mutates a workspace, identity, Spark environment or
+deployment pipeline, never imports `MicrosoftFabricMgmt`, and does not resolve the deploying identity.
+It returns the **same result-object model** as `Invoke-FabricSetup` (`Workspaces` flat list +
+`WorkspacesByType.<Type>.<Environment>` index + `Pipelines` with a `Stages` map), so a deploy-only
+pipeline can populate the `$FabricProvisioningResult` handoff without deploying.
+
+```powershell
+Connect-AzAccount -UseDeviceAuthentication
+$state = Get-FabricTopologyState -Config $topology -Environments @("Dev")
+
+$state.Summary                                     # @{ Found=int; Missing=int; Failed=int }
+$state.WorkspacesByType.Bronze.Dev.WorkspaceId
+$state.WorkspacesByType.Bronze.Dev.Identity.PrincipalId
+$state.WorkspacesByType.Bronze.Dev.SparkEnvironment.Id
+$state.Workspaces | Format-Table Type, Environment, Status, WorkspaceId, GitConnected
+```
+
+**Parameters:** `-Config` / `-ConfigPath` (one required), `-Environments`, `-SkipGit`,
+`-SkipIdentity`, `-SkipEnvironment`, `-SkipPipeline` (each `-Skip*` suppresses that lookup to keep the
+scan cheap).
+
+**Core parity — what the lookups populate:**
+
+| Field | Populated | Source |
+|---|---|---|
+| `Workspaces[].WorkspaceId`, `.Status`, `.Name`, `.CapacityName` | yes | `GET /workspaces` (fetched once) |
+| `Workspaces[].Identity` `{ PrincipalId, ApplicationId }` | yes, or `$null` | `GET /workspaces/{id}` → `workspaceIdentity` |
+| `Workspaces[].SparkEnvironment` `{ Name, Id, IsWorkspaceDefault }` | yes, or `$null` | `GET /workspaces/{id}/environments` (+ `/spark/settings` when `setAsWorkspaceDefault`) |
+| `Workspaces[].GitConnected` | yes | `GET /workspaces/{id}/git/connection` (Git environment / Git-enabled types only) |
+| `WorkspacesByType` | yes | index of the same record objects |
+| `Identities`, `Environments` | yes (by-products of the above) | — |
+| `Pipelines[]` `{ PipelineId, Stages, StagesAssigned, Action }` | yes | `GET /deploymentPipelines` + `/{id}/stages` |
+| `Monitoring`, `RoleAssignments`, `PipelineRoleAssignments` | **always empty** | no non-invasive read-only equivalent |
+| `Failures` | populated on sub-lookup errors (non-fatal) | — |
+
+**`Status` values:** `Existing` \| `NotFound`. A workspace that exists stays `Existing` even if an
+enrichment lookup fails — the failure is recorded in `Failures` and counted in `Summary.Failed`.
+(`Failed` is retained in the model's `Status` union for schema parity with `Invoke-FabricSetup`.)
+
+**`Summary` shape differs from `Invoke-FabricSetup`:** `Found` / `Missing` / `Failed` here vs
+`Created` / `Skipped` / `Failed` there. Consumers that only need IDs read `WorkspacesByType`.
+
+The **`resolveFabricTopologyState`** task runs this function from `$FabricTopologyConfigPath` and
+publishes `$script:FabricProvisioningResult` (and writes `$FabricProvisioningResultPath` JSON) exactly
+as `provisionFabricWorkspaces` does — but never provisions and never throws on lookup failures. It
+reuses the existing `$FabricEnvironmentFilter`, `$FabricSkipGit`, `$FabricSkipIdentity`,
+`$FabricSkipEnvironment`, `$FabricSkipPipeline` properties.
 
 ---
 
@@ -774,8 +867,10 @@ Invoke-FabricSetup
 └── For each environment × workspace:
     ├── [token refresh if < 5 min remaining]
     ├── _Resolve-WorkspaceName  → e.g. "salesanalytics-Bronze [DEV]"
+    ├── add a $result.Workspaces record (indexed as $result.WorkspacesByType.<type>.<env>);
+    │   enriched below with Status, WorkspaceId, GitConnected, Identity, SparkEnvironment
     ├── Test-FabricWorkspaceExists  → GET /workspaces (paginated, exact displayName match)
-    │   ├── exists  → skip creation, increment Skipped
+    │   ├── exists  → skip creation, increment Skipped, record Status=Existing
     │   └── missing → New-FabricWorkspace (POST /workspaces; 409 → resolve existing), increment Created
     ├── Set-FabricWorkspaceRoleAssignment  (deploying identity → Admin; idempotent, independent of -SkipRbac)
     ├── Set-FabricGitIntegration    (unless -SkipGit; only when env=gitEnvironment and ws.git.enabled)
@@ -804,9 +899,12 @@ Invoke-FabricSetup
             ├── different role → PATCH /roleAssignments/{id}
             └── not found → POST /roleAssignments  → append to $result.RoleAssignments
 │
+└── build WorkspacesByType index from the Workspaces list
+│
 └── For each workspace type with pipeline.enabled=true:  (unless -SkipPipeline)
-    └── Set-FabricDeploymentPipeline
-        ├── Test-FabricWorkspaceExists per environment → build stageMap
+    └── Set-FabricDeploymentPipeline  (-KnownWorkspaceIds: the ids already resolved this run)
+        ├── build stageMap from -KnownWorkspaceIds, falling back to
+        │   Test-FabricWorkspaceExists per environment for any it does not cover
         ├── GET /deploymentPipelines  (paginated, find by name)
         │   ├── not found → POST /deploymentPipelines  (stages defined at creation)
         │   └── found     → GET /deploymentPipelines/{id}/stages
@@ -819,6 +917,9 @@ Invoke-FabricSetup
                 ├── principal present → skip
                 └── not found → POST /deploymentPipelines/{id}/roleAssignments
                     → append to $result.PipelineRoleAssignments
+│
+└── (task provisionFabricWorkspaces) publish $script:FabricProvisioningResult
+    + write JSON to $FabricProvisioningResultPath when set
 ```
 
 ---
@@ -891,7 +992,9 @@ The test suite covers:
 - `Set-FabricWorkspaceDefaultEnvironment` — WhatIf, PATCH body shape, custom runtime version, skip when default already matches
 - `Set-FabricDeploymentPipeline` — WhatIf, create+assign all stages, skip when fully assigned, update vacant stages, skip missing workspaces gracefully, pagination across continuation tokens, API error propagation, report field correctness
 - `Set-FabricDeploymentPipelineRoleAssignment` — WhatIf, Admin default, non-Admin role rejection, skip when principal already present, create via POST, principal type acceptance, API error propagation, report field correctness
-- `Invoke-FabricSetup` — pipeline role assignment application, `-SkipPipelineRbac`, non-fatal pipeline RBAC failures, no RBAC attempt when pipeline setup fails, environment provisioning + set-as-default, `-SkipEnvironment`, non-fatal environment failures
+- `Invoke-FabricSetup` — pipeline role assignment application, `-SkipPipelineRbac`, non-fatal pipeline RBAC failures, no RBAC attempt when pipeline setup fails, environment provisioning + set-as-default, `-SkipEnvironment`, non-fatal environment failures, per-workspace model (`Workspaces` / `WorkspacesByType`) shape/status/identity
+- `Get-FabricTopologyState` — full read-only model for existing workspaces, `NotFound` status for absent ones, `-Skip*` suppress their lookups, pipeline `Existing`/`NotFound` + `Stages` map, non-fatal sub-lookup failures, Git 404 as not-connected, `-Environments` filter, `-ConfigPath`, JSON round-trip, `Found/Missing/Failed` summary
+- `_New-FabricWorkspaceRecord` / `_ConvertTo-FabricWorkspaceIndex` / `_Get-FabricResourceMap` — record schema/defaults, nested-index object identity, paginated `displayName` maps
 - `_Invoke-FabricFileUpload` — multipart upload URL/headers, no manual Content-Type, missing-file guard, API error unwrap
 - `Add-FabricEnvironmentLibrary` — staging-libraries endpoint, WhatIf no-op
 - `Remove-FabricEnvironmentLibrary` — staging delete endpoint, library-name URL encoding, 404 treated as already removed, other API errors rethrown, WhatIf no-op
@@ -921,11 +1024,14 @@ ZeroFailed.Deploy.Fabric/
     ├── ZeroFailed.Deploy.Fabric.psm1              # Auto-discovery module loader
     ├── ZeroFailed.Deploy.Fabric.module.tests.ps1  # Module-level Pester tests
     ├── functions/
+    │   ├── _ConvertTo-FabricWorkspaceIndex.ps1    # Private: flat Workspaces list -> WorkspacesByType index
     │   ├── _Get-FabricAuthToken.ps1               # Private: auth token + expiry check
     │   ├── _Get-FabricDeploymentIdentity.ps1      # Private: resolve deploying identity object id
+    │   ├── _Get-FabricResourceMap.ps1             # Private: paginated GET /workspaces & /deploymentPipelines -> name maps
     │   ├── _Invoke-FabricFileUpload.ps1           # Private: multipart file upload
     │   ├── _Invoke-FabricRestMethod.ps1           # Private: REST wrapper with LRO
     │   ├── _Invoke-PipDownload.ps1                # Private: mockable pip download shim
+    │   ├── _New-FabricWorkspaceRecord.ps1         # Private: shared per-workspace record schema
     │   ├── _Resolve-FabricEnvironment.ps1         # Private: resolve Spark Environment by name
     │   ├── _Resolve-WorkspaceName.ps1             # Private: naming convention engine
     │   ├── Add-FabricEnvironmentLibrary.ps1       # Python library deploy: upload library to staging
@@ -936,6 +1042,8 @@ ZeroFailed.Deploy.Fabric/
     │   ├── Enable-FabricWorkspaceMonitoring.Tests.ps1
     │   ├── Get-FabricEnvironmentLibraries.ps1     # Python library deploy: read published/staging libs
     │   ├── Get-FabricEnvironmentLibraries.Tests.ps1
+    │   ├── Get-FabricTopologyState.ps1            # Read-only topology state discovery (no changes)
+    │   ├── Get-FabricTopologyState.Tests.ps1
     │   ├── Invoke-FabricPythonLibraryDeploy.ps1   # Python library deploy: orchestrator
     │   ├── Invoke-FabricPythonLibraryDeploy.Tests.ps1
     │   ├── Invoke-FabricSetup.ps1
