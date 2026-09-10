@@ -24,6 +24,12 @@ BeforeAll {
 
 Describe 'Set-FabricDeploymentPipeline' {
 
+    BeforeAll {
+        # Silence the "Creating deployment pipeline..." progress line so a passing run stays
+        # clean. No test asserts on this output.
+        Mock Write-Host {} -ModuleName ZeroFailed.Deploy.Fabric
+    }
+
     It 'returns WhatIf placeholder when -WhatIf is specified' {
         $result = Set-FabricDeploymentPipeline -Config $script:config -WorkspaceType 'Bronze' -Token 'tok' -WhatIf
         $result.Action       | Should -Be 'WhatIf'
@@ -332,6 +338,11 @@ Describe 'Set-FabricDeploymentPipeline' {
 }
 
 Describe 'Set-FabricDeploymentPipeline — StrictMode safety' {
+
+    BeforeAll {
+        # Silence the "Creating deployment pipeline..." progress line. No test asserts on it.
+        Mock Write-Host {} -ModuleName ZeroFailed.Deploy.Fabric
+    }
 
     # The ZeroFailed build harness (e.g. in Azure DevOps) runs under Set-StrictMode, where
     # accessing a property the API omitted throws "The property X cannot be found on this object".

@@ -43,6 +43,14 @@ AfterAll {
 
 Describe 'Invoke-FabricSetup' {
 
+    BeforeAll {
+        # Many tests deliberately drive the "no deploying identity" and per-step failure-
+        # aggregation branches; silence the warnings and non-terminating errors they emit so a
+        # passing run stays clean. No test asserts on this output.
+        Mock Write-Warning {} -ModuleName ZeroFailed.Deploy.Fabric
+        Mock Write-Error   {} -ModuleName ZeroFailed.Deploy.Fabric
+    }
+
     Context 'input validation' {
         It 'throws when ConfigPath does not exist' {
             { Invoke-FabricSetup -ConfigPath './nonexistent.json' } | Should -Throw

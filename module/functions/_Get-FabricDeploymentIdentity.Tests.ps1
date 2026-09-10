@@ -22,6 +22,12 @@ AfterAll {
 
 Describe '_Get-FabricDeploymentIdentity' {
 
+    BeforeAll {
+        # Several tests deliberately drive the "cannot resolve the deploying identity" branches;
+        # silence the warnings they emit so a passing run stays clean. No test asserts on it.
+        Mock Write-Warning {} -ModuleName ZeroFailed.Deploy.Fabric
+    }
+
     It 'resolves a service principal object id from its application id' {
         Mock Get-AzContext { [pscustomobject]@{ Account = [pscustomobject]@{ Id = 'app-123'; Type = 'ServicePrincipal' } } } -ModuleName ZeroFailed.Deploy.Fabric
         Mock Get-AzADServicePrincipal { [pscustomobject]@{ Id = 'sp-oid-1' } } -ModuleName ZeroFailed.Deploy.Fabric

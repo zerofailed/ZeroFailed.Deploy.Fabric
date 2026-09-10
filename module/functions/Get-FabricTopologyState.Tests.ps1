@@ -26,6 +26,12 @@ BeforeAll {
 
 Describe 'Get-FabricTopologyState' {
 
+    BeforeAll {
+        # Many tests deliberately drive the non-fatal per-lookup failure branches; silence the
+        # warnings they emit so a passing run stays clean. No test asserts on this output.
+        Mock Write-Warning {} -ModuleName ZeroFailed.Deploy.Fabric
+    }
+
     BeforeEach {
         Mock _Get-FabricAuthToken { @{ Token = 'tok'; ExpiresOn = [DateTimeOffset]::UtcNow.AddHours(1) } } -ModuleName ZeroFailed.Deploy.Fabric
         Mock _Test-FabricTokenExpiry { $false } -ModuleName ZeroFailed.Deploy.Fabric

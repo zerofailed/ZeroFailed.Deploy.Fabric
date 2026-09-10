@@ -15,6 +15,12 @@ AfterAll {
 
 Describe '_Invoke-FabricFileUpload' {
 
+    BeforeAll {
+        # The retry tests deliberately trigger transient-failure warnings; silence them so a
+        # passing run stays clean. No test asserts on this output.
+        Mock Write-Warning {} -ModuleName ZeroFailed.Deploy.Fabric
+    }
+
     It 'throws when the file does not exist' {
         InModuleScope ZeroFailed.Deploy.Fabric {
             { _Invoke-FabricFileUpload -RelativeUri 'workspaces/ws/environments/env/staging/libraries' `
