@@ -28,6 +28,7 @@ Describe 'ZeroFailed.Deploy.Fabric module' {
             'Publish-FabricEnvironment'
             'Get-FabricEnvironmentLibraries'
             'Save-FabricLibraryPackage'
+            'New-FabricVariableLibrary'
         )
         foreach ($fn in $expectedFunctions) {
             $exported | Should -Contain $fn

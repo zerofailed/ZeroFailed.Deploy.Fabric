@@ -26,7 +26,8 @@ New-FabricTopologyConfig [-Project] <string> [-WorkspaceTypes] <string[]> [-Envi
  [[-EnableIdentity] <string[]>] [[-EnableMonitoring] <string[]>] [[-RoleAssignments] <hashtable[]>]
  [[-EnablePipelines] <string[]>] [[-PipelineRoleAssignments] <hashtable[]>]
  [[-EnableEnvironments] <string[]>] [[-EnvironmentStages] <hashtable>]
- [[-EnvironmentRuntimeVersion] <string>] [[-TypeShortCodes] <hashtable>]
+ [[-EnvironmentRuntimeVersion] <string>] [[-EnableVariableLibraries] <string[]>]
+ [[-VariableLibraryNameTemplate] <string>] [[-TypeShortCodes] <hashtable>]
  [[-EnvShortCodes] <hashtable>] [[-OutputPath] <string>] [-SetEnvironmentAsDefault]
 ```
 
@@ -180,6 +181,29 @@ AcceptedValues: []
 HelpMessage: ''
 ```
 
+### -EnableVariableLibraries
+
+Array of workspace type names that should have a Fabric Variable Library provisioned
+(one empty library per workspace, in every environment).
+Defaults to no workspace types (opt-in).
+
+```yaml
+Type: System.String[]
+DefaultValue: ''
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: (All)
+  Position: 17
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
+```
+
 ### -EnvironmentRuntimeVersion
 
 Spark runtime version used for provisioned environments.
@@ -269,7 +293,7 @@ SupportsWildcards: false
 Aliases: []
 ParameterSets:
 - Name: (All)
-  Position: 18
+  Position: 20
   IsRequired: false
   ValueFromPipeline: false
   ValueFromPipelineByPropertyName: false
@@ -412,7 +436,7 @@ SupportsWildcards: false
 Aliases: []
 ParameterSets:
 - Name: (All)
-  Position: 19
+  Position: 21
   IsRequired: false
   ValueFromPipeline: false
   ValueFromPipelineByPropertyName: false
@@ -538,7 +562,31 @@ SupportsWildcards: false
 Aliases: []
 ParameterSets:
 - Name: (All)
-  Position: 17
+  Position: 19
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
+```
+
+### -VariableLibraryNameTemplate
+
+Template for the variable library display name.
+The name is the same in every environment, so
+only the {project} and {type} tokens are supported.
+Default: '{project}-{type} Variables'.
+
+```yaml
+Type: System.String
+DefaultValue: '{project}-{type} Variables'
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: (All)
+  Position: 18
   IsRequired: false
   ValueFromPipeline: false
   ValueFromPipelineByPropertyName: false

@@ -21,16 +21,16 @@ Orchestrates the full Fabric workspace provisioning pipeline from a topology con
 
 ```
 Invoke-FabricSetup [-Config] <psobject> [-Environments <string[]>] [-SkipGit] [-SkipIdentity]
- [-SkipMonitoring] [-SkipEnvironment] [-SkipRbac] [-SkipPipeline] [-SkipPipelineRbac] [-WhatIf]
- [-Confirm] [<CommonParameters>]
+ [-SkipMonitoring] [-SkipEnvironment] [-SkipVariableLibrary] [-SkipRbac] [-SkipPipeline]
+ [-SkipPipelineRbac] [-WhatIf] [-Confirm] [<CommonParameters>]
 ```
 
 ### File
 
 ```
 Invoke-FabricSetup -ConfigPath <string> [-Environments <string[]>] [-SkipGit] [-SkipIdentity]
- [-SkipMonitoring] [-SkipEnvironment] [-SkipRbac] [-SkipPipeline] [-SkipPipelineRbac] [-WhatIf]
- [-Confirm] [<CommonParameters>]
+ [-SkipMonitoring] [-SkipEnvironment] [-SkipVariableLibrary] [-SkipRbac] [-SkipPipeline]
+ [-SkipPipelineRbac] [-WhatIf] [-Confirm] [<CommonParameters>]
 ```
 
 ## ALIASES
@@ -53,14 +53,17 @@ Enables workspace monitoring (if enabled)
   7.
 Provisions a Spark Environment and (optionally) sets it as workspace default (if enabled)
   8.
+Provisions an empty Variable Library, leaving any existing library untouched (if enabled)
+  9.
 Applies RBAC role assignments (if configured)
 Then, for each workspace type with pipelines enabled:
-  8.
+  10.
 Creates or updates the deployment pipeline across all environments
-  9.
+  11.
 Applies deployment pipeline role assignments (if configured)
 Returns a structured results object with a summary, identity report, monitoring report,
-role assignment report, pipeline report, and pipeline role assignment report.
+environment report, variable library report, role assignment report, pipeline report, and
+pipeline role assignment report.
 
 ## EXAMPLES
 
@@ -293,6 +296,27 @@ HelpMessage: ''
 ### -SkipRbac
 
 Skip role assignment application for all workspaces.
+
+```yaml
+Type: System.Management.Automation.SwitchParameter
+DefaultValue: False
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: (All)
+  Position: Named
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
+```
+
+### -SkipVariableLibrary
+
+Skip Variable Library provisioning for all workspaces.
 
 ```yaml
 Type: System.Management.Automation.SwitchParameter

@@ -12,12 +12,14 @@ function Invoke-FabricSetup {
           6. Enables workspace monitoring (if enabled)
           7. Provisions a Spark Environment and (optionally) sets it as workspace default (if enabled
              for the type and the current environment is in the type's configured stages)
-          8. Applies RBAC role assignments (if configured)
+          8. Provisions an empty Variable Library, leaving any existing library untouched (if enabled)
+          9. Applies RBAC role assignments (if configured)
         Then, for each workspace type with pipelines enabled:
-          8. Creates or updates the deployment pipeline across all environments
-          9. Applies deployment pipeline role assignments (if configured)
+          10. Creates or updates the deployment pipeline across all environments
+          11. Applies deployment pipeline role assignments (if configured)
         Returns a structured results object with a summary, identity report, monitoring report,
-        role assignment report, pipeline report, and pipeline role assignment report.
+        environment report, variable library report, role assignment report, pipeline report, and
+        pipeline role assignment report.
     .PARAMETER Config
         Topology config object produced by New-FabricTopologyConfig.
     .PARAMETER ConfigPath
@@ -32,6 +34,8 @@ function Invoke-FabricSetup {
         Skip monitoring enablement for all workspaces.
     .PARAMETER SkipEnvironment
         Skip Spark Environment provisioning for all workspaces.
+    .PARAMETER SkipVariableLibrary
+        Skip Variable Library provisioning for all workspaces.
     .PARAMETER SkipRbac
         Skip role assignment application for all workspaces.
     .PARAMETER SkipPipeline
@@ -62,6 +66,7 @@ function Invoke-FabricSetup {
         [switch]$SkipIdentity,
         [switch]$SkipMonitoring,
         [switch]$SkipEnvironment,
+        [switch]$SkipVariableLibrary,
         [switch]$SkipRbac,
         [switch]$SkipPipeline,
         [switch]$SkipPipelineRbac
@@ -137,7 +142,8 @@ function Invoke-FabricSetup {
         Identities      = [System.Collections.Generic.List[hashtable]]::new()
         Monitoring      = [System.Collections.Generic.List[hashtable]]::new()
         Environments    = [System.Collections.Generic.List[hashtable]]::new()
-        RoleAssignments = [System.Collections.Generic.List[hashtable]]::new()
+        VariableLibraries = [System.Collections.Generic.List[hashtable]]::new()
+        RoleAssignments =[System.Collections.Generic.List[hashtable]]::new()
         Pipelines       = [System.Collections.Generic.List[hashtable]]::new()
         PipelineRoleAssignments = [System.Collections.Generic.List[hashtable]]::new()
         Failures        = [System.Collections.Generic.List[hashtable]]::new()
@@ -360,7 +366,38 @@ function Invoke-FabricSetup {
                 }
             }
 
-            # g. Role Assignments — non-fatal, log and continue
+            # g. Variable Library — non-fatal, log and continue.
+            # The name is the same in every environment. An existing library is returned unchanged, so
+            # variables and value sets populated after provisioning are never overwritten. A config
+            # without a 'variableLibrary' block (older config) provisions none.
+            $wsVariableLibrary = if ($ws.PSObject.Properties.Name -contains 'variableLibrary') { $ws.variableLibrary } else { $null }
+            if (-not $SkipVariableLibrary -and $wsVariableLibrary -and $wsVariableLibrary.enabled) {
+                try {
+                    $libraryName = _Resolve-VariableLibraryName -Config $Config -WorkspaceId $ws.id
+
+                    $libraryObj = New-FabricVariableLibrary `
+                        -WorkspaceId $workspaceId `
+                        -DisplayName $libraryName `
+                        -Token       $token
+                    $results.VariableLibraries.Add(@{
+                        WorkspaceName       = $resolvedName
+                        WorkspaceId         = $workspaceId
+                        VariableLibraryName = $libraryName
+                        VariableLibraryId   = $libraryObj.id
+                    })
+                }
+                catch {
+                    Write-Warning "Variable library provisioning failed for '$resolvedName' — $_"
+                    $results.Failures.Add(@{
+                        WorkspaceName = $resolvedName
+                        Environment   = $env.name
+                        Step          = 'VariableLibrary'
+                        Error         = $_.ToString()
+                    })
+                }
+            }
+
+            # h. Role Assignments — non-fatal, log and continue
             if (-not $SkipRbac) {
                 $rbacEntries = $ws.rbac.$($env.name)
                 if ($rbacEntries -and $rbacEntries.Count -gt 0) {

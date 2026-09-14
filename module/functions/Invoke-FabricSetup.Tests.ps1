@@ -31,6 +31,7 @@ BeforeAll {
                     rbac       = [pscustomobject]@{ Dev = @([pscustomobject]@{ principalId = 'g1'; principalType = 'Group'; role = 'Member' }) }
                     pipeline   = [pscustomobject]@{ enabled = $true; roleAssignments = @([pscustomobject]@{ principalId = 'pg1'; principalType = 'Group'; role = 'Admin' }) }
                     environment = [pscustomobject]@{ enabled = $true; setAsWorkspaceDefault = $true; runtimeVersion = '1.3' }
+                    variableLibrary = [pscustomobject]@{ enabled = $true }
                 }
             )
         }
@@ -66,6 +67,8 @@ Describe 'Invoke-FabricSetup' {
             Mock Enable-FabricWorkspaceMonitoring { @{ Enabled = $true } } -ModuleName ZeroFailed.Deploy.Fabric
             Mock New-FabricEnvironment { [pscustomobject]@{ id = 'env-1'; displayName = 'bronze Env' } } -ModuleName ZeroFailed.Deploy.Fabric
             Mock Set-FabricWorkspaceDefaultEnvironment { @{ EnvironmentName = 'bronze Env'; Action = 'Set' } } -ModuleName ZeroFailed.Deploy.Fabric
+            Mock _Resolve-VariableLibraryName { 'bronze Variables' } -ModuleName ZeroFailed.Deploy.Fabric
+            Mock New-FabricVariableLibrary { [pscustomobject]@{ id = 'vl-1'; displayName = 'bronze Variables' } } -ModuleName ZeroFailed.Deploy.Fabric
             Mock Set-FabricWorkspaceRoleAssignment { @{ Action = 'Created' } } -ModuleName ZeroFailed.Deploy.Fabric
             Mock Set-FabricDeploymentPipeline { @{ Action = 'Created'; PipelineId = 'pipe-1'; PipelineName = 'bronze-pipeline' } } -ModuleName ZeroFailed.Deploy.Fabric
             Mock Set-FabricDeploymentPipelineRoleAssignment { @{ Action = 'Created' } } -ModuleName ZeroFailed.Deploy.Fabric
@@ -159,10 +162,12 @@ Describe 'Invoke-FabricSetup' {
         }
 
         It 'honours the Skip switches' {
-            $r = Invoke-FabricSetup -Config (New-TestConfig) -SkipGit -SkipIdentity -SkipMonitoring -SkipEnvironment -SkipRbac -SkipPipeline
+            $r = Invoke-FabricSetup -Config (New-TestConfig) -SkipGit -SkipIdentity -SkipMonitoring -SkipEnvironment -SkipVariableLibrary -SkipRbac -SkipPipeline
             $r.Identities.Count      | Should -Be 0
             $r.Monitoring.Count      | Should -Be 0
             $r.Environments.Count    | Should -Be 0
+            $r.VariableLibraries.Count | Should -Be 0
+            Should -Invoke New-FabricVariableLibrary     -Times 0 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
             $r.RoleAssignments.Count | Should -Be 0
             $r.Pipelines.Count       | Should -Be 0
             $r.PipelineRoleAssignments.Count | Should -Be 0
@@ -219,6 +224,44 @@ Describe 'Invoke-FabricSetup' {
 
             $r.Environments.Count | Should -Be 0
             ($r.Failures.Step) | Should -Contain 'Environment'
+        }
+
+        It 'provisions a variable library with the same name in each environment' {
+            $r = Invoke-FabricSetup -Config (New-TestConfig)
+
+            $r.VariableLibraries.Count | Should -Be 2     # 1 workspace x 2 environments
+            ($r.VariableLibraries.VariableLibraryName | Sort-Object -Unique) | Should -Be 'bronze Variables'
+            $r.VariableLibraries[0].VariableLibraryId | Should -Be 'vl-1'
+            Should -Invoke New-FabricVariableLibrary -Times 2 -Exactly -ModuleName ZeroFailed.Deploy.Fabric `
+                -ParameterFilter { $WorkspaceId -eq 'ws-1' -and $DisplayName -eq 'bronze Variables' }
+        }
+
+        It 'skips variable library provisioning when the workspace has it disabled' {
+            $config = New-TestConfig
+            $config.workspaces[0].variableLibrary.enabled = $false
+            $r = Invoke-FabricSetup -Config $config -Environments @('Dev')
+
+            $r.VariableLibraries.Count | Should -Be 0
+            Should -Invoke New-FabricVariableLibrary -Times 0 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
+        }
+
+        It 'skips variable library provisioning for an older config without a variableLibrary block' {
+            $config = New-TestConfig
+            $config.workspaces[0].PSObject.Properties.Remove('variableLibrary')
+            $r = Invoke-FabricSetup -Config $config -Environments @('Dev')
+
+            $r.VariableLibraries.Count | Should -Be 0
+            $r.Failures.Count          | Should -Be 0
+            Should -Invoke New-FabricVariableLibrary -Times 0 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
+        }
+
+        It 'records a non-fatal failure when variable library provisioning throws' {
+            Mock New-FabricVariableLibrary { throw 'variable library boom' } -ModuleName ZeroFailed.Deploy.Fabric
+            $r = Invoke-FabricSetup -Config (New-TestConfig) -Environments @('Dev')
+
+            $r.VariableLibraries.Count | Should -Be 0
+            ($r.Failures.Step) | Should -Contain 'VariableLibrary'
+            $r.Environments.Count | Should -Be 2     # later/earlier steps unaffected
         }
 
         It 'configures the pipeline but skips pipeline role assignments with -SkipPipelineRbac' {
