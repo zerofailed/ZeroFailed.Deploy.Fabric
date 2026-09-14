@@ -4,7 +4,7 @@ external help file: ZeroFailed.Deploy.Fabric-Help.xml
 HelpUri: https://learn.microsoft.com/rest/api/fabric/
 Locale: en-US
 Module Name: ZeroFailed.Deploy.Fabric
-ms.date: 08/18/2026
+ms.date: 09/14/2026
 PlatyPS schema version: 2024-05-01
 title: Invoke-FabricSetup
 ---
@@ -20,17 +20,17 @@ Orchestrates the full Fabric workspace provisioning pipeline from a topology con
 ### Object (Default)
 
 ```
-Invoke-FabricSetup [-Config] <psobject> [-Environments <string[]>] [-SkipGit] [-SkipIdentity]
+Invoke-FabricSetup [-Config] <psobject> [-Environment <string>] [-SkipGit] [-SkipIdentity]
  [-SkipMonitoring] [-SkipEnvironment] [-SkipRbac] [-SkipPipeline] [-SkipPipelineRbac] [-WhatIf]
- [-Confirm] [<CommonParameters>]
+ [-Confirm]
 ```
 
 ### File
 
 ```
-Invoke-FabricSetup -ConfigPath <string> [-Environments <string[]>] [-SkipGit] [-SkipIdentity]
+Invoke-FabricSetup -ConfigPath <string> [-Environment <string>] [-SkipGit] [-SkipIdentity]
  [-SkipMonitoring] [-SkipEnvironment] [-SkipRbac] [-SkipPipeline] [-SkipPipelineRbac] [-WhatIf]
- [-Confirm] [<CommonParameters>]
+ [-Confirm]
 ```
 
 ## ALIASES
@@ -66,7 +66,7 @@ role assignment report, pipeline report, and pipeline role assignment report.
 
 ### EXAMPLE 1
 
-Invoke-FabricSetup -Config $topology -Environments @("Dev") -WhatIf
+Invoke-FabricSetup -Config $topology -Environment "Dev" -WhatIf
 
 Runs the provisioning pipeline for the Dev environment in WhatIf mode.
 
@@ -142,13 +142,13 @@ AcceptedValues: []
 HelpMessage: ''
 ```
 
-### -Environments
+### -Environment
 
-Subset of environment names to process.
+Single environment name to process.
 Defaults to all environments in config.
 
 ```yaml
-Type: System.String[]
+Type: System.String
 DefaultValue: ''
 SupportsWildcards: false
 Aliases: []

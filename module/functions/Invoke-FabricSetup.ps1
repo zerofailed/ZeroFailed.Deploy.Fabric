@@ -22,8 +22,8 @@ function Invoke-FabricSetup {
         Topology config object produced by New-FabricTopologyConfig.
     .PARAMETER ConfigPath
         Path to a JSON file containing the topology config (alternative to -Config).
-    .PARAMETER Environments
-        Subset of environment names to process. Defaults to all environments in config.
+    .PARAMETER Environment
+        Single environment name to process. Defaults to all environments in config.
     .PARAMETER SkipGit
         Skip Git integration for all workspaces.
     .PARAMETER SkipIdentity
@@ -39,7 +39,7 @@ function Invoke-FabricSetup {
     .PARAMETER SkipPipelineRbac
         Skip deployment pipeline role assignment application for all workspace types.
     .EXAMPLE
-        Invoke-FabricSetup -Config $topology -Environments @("Dev") -WhatIf
+        Invoke-FabricSetup -Config $topology -Environment "Dev" -WhatIf
 
         Runs the provisioning pipeline for the Dev environment in WhatIf mode.
     .EXAMPLE
@@ -56,7 +56,7 @@ function Invoke-FabricSetup {
         [Parameter(Mandatory, ParameterSetName = 'File')]
         [string]$ConfigPath,
 
-        [string[]]$Environments,
+        [string]$Environment,
 
         [switch]$SkipGit,
         [switch]$SkipIdentity,
@@ -120,15 +120,15 @@ function Invoke-FabricSetup {
     }
 
     # --- 3. Determine environments to process ---
-    $targetEnvs = if ($Environments) {
-        $Config.environments | Where-Object { $_.name -in $Environments }
+    $targetEnvs = if ($Environment) {
+        $Config.environments | Where-Object { $_.name -eq $Environment }
     }
     else {
         $Config.environments
     }
 
     if (-not $targetEnvs) {
-        throw "No matching environments found in config for filter: $($Environments -join ', ')"
+        throw "Environment '$Environment' not found in config. Available: $(($Config.environments.name) -join ', ')."
     }
 
     # --- 4. Provision ---

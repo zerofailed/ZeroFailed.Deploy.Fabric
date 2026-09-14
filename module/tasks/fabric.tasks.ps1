@@ -15,9 +15,12 @@ task ensureFabricModules -Before setupModules {
     }
 }
 
-# Provisions Fabric workspaces after the core deploy tasks complete.
+# Provisions Fabric workspaces after the core deploy tasks complete. Set $FabricEnvironment (e.g.
+# per ADO pipeline stage) to provision a single environment; leave it unset to provision all of
+# them in one run.
 task provisionFabricWorkspaces -After DeployCore {
-    Write-Build Cyan "Provisioning Fabric workspaces from: $FabricTopologyConfigPath"
+    $envMessage = if ([string]::IsNullOrWhiteSpace($FabricEnvironment)) { 'all environments' } else { "environment '$FabricEnvironment'" }
+    Write-Build Cyan "Provisioning Fabric workspaces ($envMessage) from: $FabricTopologyConfigPath"
 
     if (-not (Test-Path $FabricTopologyConfigPath)) {
         throw "Fabric topology config not found: $FabricTopologyConfigPath"
@@ -35,8 +38,8 @@ task provisionFabricWorkspaces -After DeployCore {
         WhatIf        = $FabricWhatIf
     }
 
-    if ($FabricEnvironmentFilter -and $FabricEnvironmentFilter.Count -gt 0) {
-        $setupParams.Environments = $FabricEnvironmentFilter
+    if (-not [string]::IsNullOrWhiteSpace($FabricEnvironment)) {
+        $setupParams.Environment = $FabricEnvironment
     }
 
     $result = Invoke-FabricSetup @setupParams

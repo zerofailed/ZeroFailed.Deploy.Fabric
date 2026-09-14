@@ -3,9 +3,8 @@
 $FabricTopologyConfigPath = property FabricTopologyConfigPath './fabric/topology.json'
 
 # Behaviour flags
-# $FabricEnvironmentFilter stays on ??=, not property: InvokeBuild's 'property' collapses an empty
-# array default (@()) to $null, and a single env var has no clean way to represent an array anyway.
-$FabricEnvironmentFilter ??= @()
+# Single environment name to provision. Defaults to all environments in the topology config.
+$FabricEnvironment       = property FabricEnvironment ''
 $FabricSkipGit           = [Convert]::ToBoolean((property FabricSkipGit $false))
 $FabricSkipIdentity      = [Convert]::ToBoolean((property FabricSkipIdentity $false))
 $FabricSkipMonitoring    = [Convert]::ToBoolean((property FabricSkipMonitoring $false))
