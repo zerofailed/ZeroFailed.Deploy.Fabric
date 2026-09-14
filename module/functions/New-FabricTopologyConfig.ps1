@@ -102,6 +102,22 @@ function New-FabricTopologyConfig {
           WorkspaceTypes (optional) — array of workspace type names this rule applies to; omit for all types
         Pipelines span all environments, so these rules are not environment-scoped. Each rule is
         resolved per workspace type and stored on the workspace's pipeline block in the topology config.
+    .PARAMETER ManagedPrivateEndpoints
+        Array of managed private endpoint rules to create in workspaces. Each rule is a hashtable with:
+          Name                  (required) — logical endpoint name, used as the {name} token in the endpoint
+                                             naming convention; letters, digits, hyphens and underscores only
+          TargetResourceIds     (one of)   — hashtable mapping environment name to the Azure resource ID of
+                                             the private link resource for that stage; a stage left out of
+                                             the map gets no endpoint
+          TargetResourceId      (one of)   — a single Azure resource ID, used for every stage
+          TargetSubresourceType (optional) — private link sub-resource, e.g. 'vault' for Key Vault, or 'blob'
+                                             or 'dfs' for Storage (one endpoint per storage sub-resource)
+          RequestMessage        (optional) — message sent with the approval request; at most 140 characters
+          TargetFQDNs           (optional) — FQDNs to associate with the endpoint; at most 20
+          WorkspaceTypes        (optional) — array of workspace type names this rule applies to; omit for all types
+        Each rule is resolved per workspace type and environment and stored in the topology config.
+        Endpoint names follow the '{project}-{type}-{name}-{env}' template (e.g.
+        'SalesAnalytics-ETL-KeyVault-DEV') and must fit Fabric's 64-character limit.
     .PARAMETER TypeShortCodes
         Optional hashtable mapping workspace type names to the display short code used in workspace names.
         Overrides built-in defaults and the generated fallback. E.g. @{ Lakehouse = 'LH' }.
@@ -189,6 +205,8 @@ function New-FabricTopologyConfig {
 
         [hashtable]$EnvShortCodes,
 
+        [hashtable[]]$ManagedPrivateEndpoints,
+
         [string]$OutputPath
     )
 
@@ -262,6 +280,68 @@ function New-FabricTopologyConfig {
                 if ($wsType -and $wsType -notin $WorkspaceTypes) {
                     throw "-PipelineRoleAssignments entry for '$($rule.PrincipalId)' references workspace type '$wsType' which is not in -WorkspaceTypes."
                 }
+            }
+        }
+    }
+
+    # Validate ManagedPrivateEndpoints rules. Resolved endpoint name lengths depend on the short
+    # codes, so they are checked once the config has been assembled (below).
+    if ($ManagedPrivateEndpoints) {
+        foreach ($rule in $ManagedPrivateEndpoints) {
+            if (-not $rule.Name) {
+                throw "Each -ManagedPrivateEndpoints entry must include 'Name'."
+            }
+            if ($rule.Name -notmatch '^[A-Za-z0-9_-]+$') {
+                throw "-ManagedPrivateEndpoints entry '$($rule.Name)' has an invalid Name. Use only letters, digits, hyphens and underscores."
+            }
+
+            $hasSingleTarget = $rule.ContainsKey('TargetResourceId') -and [bool]$rule.TargetResourceId
+            $hasTargetMap    = $rule.ContainsKey('TargetResourceIds') -and $null -ne $rule.TargetResourceIds
+            if ($hasSingleTarget -eq $hasTargetMap) {
+                throw "-ManagedPrivateEndpoints entry '$($rule.Name)' must include exactly one of 'TargetResourceId' or 'TargetResourceIds'."
+            }
+
+            if ($hasTargetMap) {
+                if ($rule.TargetResourceIds -isnot [System.Collections.IDictionary] -or $rule.TargetResourceIds.Count -eq 0) {
+                    throw "-ManagedPrivateEndpoints entry '$($rule.Name)' has an invalid 'TargetResourceIds'. Supply a hashtable mapping environment names to Azure resource IDs."
+                }
+                foreach ($envName in $rule.TargetResourceIds.Keys) {
+                    if ($envName -notin $Environments) {
+                        throw "-ManagedPrivateEndpoints entry '$($rule.Name)' references environment '$envName' which is not in -Environments."
+                    }
+                }
+            }
+
+            $resourceIds = if ($hasTargetMap) { @($rule.TargetResourceIds.Values) } else { @($rule.TargetResourceId) }
+            foreach ($resourceId in $resourceIds) {
+                if ("$resourceId" -notmatch '^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/[^/]+/.+') {
+                    throw "-ManagedPrivateEndpoints entry '$($rule.Name)' has an invalid resource ID '$resourceId'. Expected an Azure resource ID, e.g. '/subscriptions/{id}/resourceGroups/{group}/providers/Microsoft.KeyVault/vaults/{name}'."
+                }
+            }
+
+            if ($rule.ContainsKey('RequestMessage') -and "$($rule.RequestMessage)".Length -gt 140) {
+                throw "-ManagedPrivateEndpoints entry '$($rule.Name)' has a RequestMessage longer than Fabric's 140-character limit."
+            }
+            if ($rule.ContainsKey('TargetFQDNs') -and @($rule.TargetFQDNs).Count -gt 20) {
+                throw "-ManagedPrivateEndpoints entry '$($rule.Name)' has more than Fabric's limit of 20 TargetFQDNs."
+            }
+            foreach ($wsType in @($rule.WorkspaceTypes)) {
+                if ($wsType -and $wsType -notin $WorkspaceTypes) {
+                    throw "-ManagedPrivateEndpoints entry '$($rule.Name)' references workspace type '$wsType' which is not in -WorkspaceTypes."
+                }
+            }
+        }
+
+        # Two rules giving one workspace type the same name would resolve to the same endpoint, and
+        # the second would be reported as drift of the first on every run.
+        foreach ($wsType in $WorkspaceTypes) {
+            $duplicate = $ManagedPrivateEndpoints |
+                Where-Object { -not $_.WorkspaceTypes -or $wsType -in $_.WorkspaceTypes } |
+                Group-Object -Property { $_.Name } |
+                Where-Object { $_.Count -gt 1 } |
+                Select-Object -First 1
+            if ($duplicate) {
+                throw "-ManagedPrivateEndpoints defines the endpoint name '$($duplicate.Name)' more than once for workspace type '$wsType'."
             }
         }
     }
@@ -476,6 +556,36 @@ function New-FabricTopologyConfig {
             }
         )
 
+        # Resolve managed private endpoints per environment for this workspace type. The target
+        # resource is resolved for each stage here, so a rule whose TargetResourceIds leaves a stage
+        # out produces no endpoint there. The endpoint name is resolved from the naming convention at
+        # provisioning time, like the workspace name.
+        $mpeByEnv = [ordered]@{}
+        foreach ($envName in $Environments) {
+            $mpeByEnv[$envName] = @(
+                if ($ManagedPrivateEndpoints) {
+                    $ManagedPrivateEndpoints |
+                        Where-Object { -not $_.WorkspaceTypes -or $wsType -in $_.WorkspaceTypes } |
+                        ForEach-Object {
+                            $resourceId = if ($_.ContainsKey('TargetResourceIds') -and $null -ne $_.TargetResourceIds) {
+                                $_.TargetResourceIds[$envName]
+                            }
+                            else { $_.TargetResourceId }
+
+                            if ($resourceId) {
+                                [pscustomobject]@{
+                                    name                        = $_.Name
+                                    targetPrivateLinkResourceId = $resourceId
+                                    targetSubresourceType       = if ($_.ContainsKey('TargetSubresourceType')) { $_.TargetSubresourceType } else { $null }
+                                    requestMessage              = if ($_.ContainsKey('RequestMessage')) { $_.RequestMessage } else { $null }
+                                    targetFQDNs                 = @(if ($_.ContainsKey('TargetFQDNs')) { $_.TargetFQDNs })
+                                }
+                            }
+                        }
+                }
+            )
+        }
+
         [pscustomobject]@{
             id         = $typeCode
             type       = $wsType
@@ -496,6 +606,7 @@ function New-FabricTopologyConfig {
                 defaultValues = $variableLibraryEnabled -and $VariableLibraryDefaultValues.IsPresent
             }
             rbac       = $rbacByEnv
+            managedPrivateEndpoints = $mpeByEnv
         }
     }
 
@@ -508,12 +619,23 @@ function New-FabricTopologyConfig {
         namingConvention  = [pscustomobject]@{
             template                = '{project}-{type} [{env}]'
             environmentNameTemplate = '{project}-{type} Env'
+            managedPrivateEndpointNameTemplate = '{project}-{type}-{name}-{env}'
             maxLength               = 64
             typeShortCodes          = [pscustomobject]$resolvedTypeShortCodes
             envShortCodes           = [pscustomobject]$resolvedEnvShortCodes
         }
         environments      = @($envList)
         workspaces        = @($workspaceList)
+    }
+
+    # Resolve every endpoint name now, so a name over Fabric's 64-character limit fails here rather
+    # than part-way through provisioning.
+    foreach ($workspace in $config.workspaces) {
+        foreach ($envName in $workspace.managedPrivateEndpoints.Keys) {
+            foreach ($entry in $workspace.managedPrivateEndpoints[$envName]) {
+                _Resolve-ManagedPrivateEndpointName -Config $config -WorkspaceId $workspace.id -EnvironmentName $envName -EndpointName $entry.name | Out-Null
+            }
+        }
     }
 
     # Optionally write to file

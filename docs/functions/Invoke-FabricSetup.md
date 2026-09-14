@@ -228,6 +228,27 @@ AcceptedValues: []
 HelpMessage: ''
 ```
 
+### -SkipManagedPrivateEndpoints
+
+Skip managed private endpoint creation for all workspaces.
+
+```yaml
+Type: System.Management.Automation.SwitchParameter
+DefaultValue: False
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: (All)
+  Position: Named
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
+```
+
 ### -SkipMonitoring
 
 Skip monitoring enablement for all workspaces.

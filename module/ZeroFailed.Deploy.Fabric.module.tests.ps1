@@ -22,6 +22,7 @@ Describe 'ZeroFailed.Deploy.Fabric module' {
             'New-FabricTopologyConfig'
             'New-FabricWorkspace'
             'Set-FabricGitIntegration'
+            'Set-FabricManagedPrivateEndpoint'
             'Test-FabricWorkspaceExists'
             'Invoke-FabricPythonLibraryDeploy'
             'Add-FabricEnvironmentLibrary'

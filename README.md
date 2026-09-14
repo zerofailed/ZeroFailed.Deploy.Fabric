@@ -116,6 +116,14 @@ $topology = New-FabricTopologyConfig `
     -PipelineRoleAssignments @(
         # Platform team administers every deployment pipeline (Admin is the only pipeline role)
         @{ PrincipalId = "dddddddd-0000-0000-0000-000000000004"; PrincipalType = "Group" }
+    ) `
+    -ManagedPrivateEndpoints @(
+        # Every workspace type connects to its own stage's Key Vault (stages left out get no endpoint)
+        @{ Name = "KeyVault"; TargetSubresourceType = "vault"
+           TargetResourceIds = @{
+               Dev        = "/subscriptions/{dev-sub-id}/resourceGroups/rg-sales-dev/providers/Microsoft.KeyVault/vaults/kv-sales-dev"
+               Production = "/subscriptions/{prod-sub-id}/resourceGroups/rg-sales-prod/providers/Microsoft.KeyVault/vaults/kv-sales-prod"
+           } }
     )
 
 # 3. Preview what will be created (no API calls made)
@@ -163,6 +171,8 @@ Workspace names follow the template `{project}-{type} [{env}]`, with casing cont
 | Reporting | `Report` | | |
 
 **Examples:** `salesanalytics-Bronze [DEV]`, `salesanalytics-Report [PROD]`, `salesanalytics-ETL [ACC]`
+
+Managed private endpoint names follow `{project}-{type}-{name}-{env}` with the same short codes, where `{name}` is the endpoint's logical name from `-ManagedPrivateEndpoints` — e.g. `salesanalytics-Bronze-KeyVault-DEV`. Characters other than letters, digits, hyphens and underscores become hyphens. A name over Fabric's 64-character limit is rejected rather than truncated, because the name is how an existing endpoint is found on re-runs.
 
 ---
 
@@ -236,6 +246,7 @@ New-FabricTopologyConfig `
 | `-VariableLibraryDefaultValues` | `switch` | No | Off | When set, variable libraries are populated with default variables and a value set per stage (see below) |
 | `-RoleAssignments` | `hashtable[]` | No | None | Role assignment rules applied by workspace type and environment (see below) |
 | `-PipelineRoleAssignments` | `hashtable[]` | No | None | Deployment pipeline role assignment rules applied by workspace type (see below) |
+| `-ManagedPrivateEndpoints` | `hashtable[]` | No | None | Managed private endpoints to create per workspace type, with a target resource per environment (see below) |
 | `-OutputPath` | `string` | No | — | Write the generated config as JSON to this path |
 
 **Returns:** A `pscustomobject` topology config. Also writes JSON to `-OutputPath` if specified.
@@ -365,6 +376,48 @@ Deployment pipelines have their own access control, separate from the workspaces
 ```
 
 > **Note:** Fabric deployment pipelines only support the `Admin` role. Supplying any other `Role` value is rejected by `New-FabricTopologyConfig`. As with workspace RBAC, the idempotency check (`Set-FabricDeploymentPipelineRoleAssignment`) skips principals that already have access on re-runs. Pipeline role assignments are applied only for workspace types whose pipelines are enabled via `-EnablePipelines`.
+
+**`-ManagedPrivateEndpoints` — managed private endpoints:**
+
+Managed private endpoints let a Fabric workspace's Spark workloads reach Azure resources that are closed to public network access, such as a Key Vault or storage account. Each rule in `-ManagedPrivateEndpoints` declares an endpoint for one or more workspace types, and — because each stage normally has its own copy of the resource — which resource it targets in each environment. Rules are resolved and stored per workspace type and environment; `Invoke-FabricSetup` then creates them idempotently in each workspace.
+
+| Key | Required | Description |
+|---|---|---|
+| `Name` | Yes | Logical endpoint name, used as `{name}` in the endpoint naming convention (letters, digits, hyphens and underscores) |
+| `TargetResourceIds` | One of | Hashtable mapping environment name → Azure resource ID for that stage. An environment left out gets no endpoint |
+| `TargetResourceId` | One of | A single Azure resource ID used in every environment (for a resource shared across stages) |
+| `TargetSubresourceType` | No | Private link sub-resource, e.g. `vault` for Key Vault; `blob` or `dfs` for Storage |
+| `RequestMessage` | No | Message shown to the resource owner with the approval request (at most 140 characters) |
+| `TargetFQDNs` | No | FQDNs to associate with the endpoint (at most 20), for resource types that need them such as API Management |
+| `WorkspaceTypes` | No | Array of workspace type names to apply this rule to; omit for all types |
+
+```powershell
+-ManagedPrivateEndpoints @(
+    # Every workspace type reaches its own stage's Key Vault
+    @{ Name = "KeyVault"; TargetSubresourceType = "vault"
+       TargetResourceIds = @{
+           Dev        = "/subscriptions/{dev-sub-id}/resourceGroups/rg-sales-dev/providers/Microsoft.KeyVault/vaults/kv-sales-dev"
+           Test       = "/subscriptions/{test-sub-id}/resourceGroups/rg-sales-test/providers/Microsoft.KeyVault/vaults/kv-sales-test"
+           Production = "/subscriptions/{prod-sub-id}/resourceGroups/rg-sales-prod/providers/Microsoft.KeyVault/vaults/kv-sales-prod"
+       } }
+
+    # ETL reads the data lake — one endpoint per storage sub-resource it uses
+    @{ Name = "Lake-Dfs"; TargetSubresourceType = "dfs"; WorkspaceTypes = @("ETL")
+       TargetResourceIds = @{
+           Dev        = "/subscriptions/{dev-sub-id}/resourceGroups/rg-sales-dev/providers/Microsoft.Storage/storageAccounts/stsalesdev"
+           Production = "/subscriptions/{prod-sub-id}/resourceGroups/rg-sales-prod/providers/Microsoft.Storage/storageAccounts/stsalesprod"
+       } }
+)
+# ETL in Dev gets: salesanalytics-ETL-KeyVault-DEV and salesanalytics-ETL-Lake-Dfs-DEV
+```
+
+Any resource type Fabric supports for managed private endpoints can be used — the resource ID and sub-resource are passed through as given. Storage needs a **separate endpoint per sub-resource** (`blob`, `dfs`, …) that workloads use. Endpoint names follow `{project}-{type}-{name}-{env}` (see [Naming convention](#naming-convention)); `New-FabricTopologyConfig` rejects any rule whose resolved name would exceed Fabric's 64-character limit, as well as duplicate names for a workspace type, unknown environments or workspace types, and values that aren't Azure resource IDs.
+
+> **Approval is a manual step.** Creating an endpoint only *requests* a private link connection. The owner of each target resource must approve it (Azure portal → the resource → **Networking** → **Private endpoint connections**) before it can be used. `Invoke-FabricSetup` reports each endpoint's `ConnectionStatus` and writes a warning on every run until it is `Approved`.
+
+> **Endpoints can't be updated in place.** Fabric has no API to change an endpoint's target. If a rule's resource ID or sub-resource changes, `Invoke-FabricSetup` reports a `ManagedPrivateEndpoint` failure rather than deleting the existing endpoint — deleting it would drop an approved connection. Delete the endpoint in the workspace's **Network security** settings and re-run to create it with the new target. Endpoints removed from the topology are likewise left in place.
+
+> **Requirements:** the deploying identity needs the workspace **Admin** role (already granted by `Invoke-FabricSetup`), the workspace must be on a Fabric capacity that supports managed private endpoints, and the `Microsoft.Network` resource provider must be registered in the target resource's subscription.
 
 **`-EnableEnvironments` — Spark Environments:**
 
@@ -754,6 +807,17 @@ $defaultResult = Set-FabricWorkspaceDefaultEnvironment -WorkspaceId $ws.id -Work
 
 Applies a single Entra Group, User, or Service Principal role assignment to a Fabric workspace using the role assignment API (`GET/POST/PATCH /workspaces/{id}/roleAssignments`). Idempotent — skips if the principal already holds the correct role, updates if the role has drifted, creates if not present. Normally called by `Invoke-FabricSetup`.
 
+#### `Set-FabricManagedPrivateEndpoint`
+
+Ensures a managed private endpoint exists in a workspace using the managed private endpoints API (`GET/POST /workspaces/{id}/managedPrivateEndpoints`). Idempotent — finds the endpoint by name (following continuation tokens), creates it if absent, and skips it if it already targets the same resource and sub-resource. Fabric can't update an endpoint in place, so one that exists with a *different* target is reported as an error rather than deleted and re-created. Returns the endpoint's provisioning state and connection (approval) status, and warns while the endpoint isn't yet usable. Requires the workspace **Admin** role. Normally called by `Invoke-FabricSetup`; can also be used directly.
+
+```powershell
+$mpe = Set-FabricManagedPrivateEndpoint -WorkspaceId $ws.id -WorkspaceName "salesanalytics-Bronze [DEV]" -Token $token `
+    -Name "salesanalytics-Bronze-KeyVault-DEV" `
+    -TargetPrivateLinkResourceId "/subscriptions/{sub-id}/resourceGroups/rg-sales-dev/providers/Microsoft.KeyVault/vaults/kv-sales-dev" `
+    -TargetSubresourceType "vault"
+```
+
 #### `Set-FabricDeploymentPipeline`
 
 Creates or updates a Fabric deployment pipeline for a single workspace type. Each environment in the topology becomes a named stage, and each environment's workspace is assigned to its stage. Every environment's workspace must already exist and be visible to the caller — if any cannot be found, it throws before creating or modifying the pipeline, so a partially-assigned pipeline is never left behind.
@@ -1062,7 +1126,8 @@ Invoke-Pester ./module -Output Detailed
 
 The test suite covers:
 - `_Resolve-WorkspaceName` — correct name generation, lowercasing, truncation, error cases
-- `New-FabricTopologyConfig` — environment count, workspace count, capacity assignment, Git opt-in per workspace type (`-GitWorkspaceConfig`), single Git environment (`-GitEnvironment`), identity filtering, monitoring filtering, pipeline opt-in (`-EnablePipelines`), Spark Environment opt-in (`-EnableEnvironments`, `-SetEnvironmentAsDefault`, `-EnvironmentRuntimeVersion`), per-type Spark Environment stage scoping (`-EnvironmentStages`, defaulting, validation errors), Variable Library opt-in (`-EnableVariableLibraries`, `-VariableLibraryName` default/custom name and naming-rule validation, `-VariableLibraryStages` defaulting and validation errors, `-VariableLibraryDefaultValues`), RBAC role assignment rules (`-RoleAssignments`), pipeline role assignment rules (`-PipelineRoleAssignments`), `-OutputPath` JSON output, GitHub provider, validation errors
+- `_Resolve-ManagedPrivateEndpointName` — default and custom templates, stage in the name, short codes, invalid-character replacement, 64-character limit (rejected, not truncated), unresolved tokens, unknown workspace/environment
+- `New-FabricTopologyConfig` — environment count, workspace count, capacity assignment, Git opt-in per workspace type (`-GitWorkspaceConfig`), single Git environment (`-GitEnvironment`), identity filtering, monitoring filtering, pipeline opt-in (`-EnablePipelines`), Spark Environment opt-in (`-EnableEnvironments`, `-SetEnvironmentAsDefault`, `-EnvironmentRuntimeVersion`), per-type Spark Environment stage scoping (`-EnvironmentStages`, defaulting, validation errors), Variable Library opt-in (`-EnableVariableLibraries`, `-VariableLibraryName` default/custom name and naming-rule validation, `-VariableLibraryStages` defaulting and validation errors, `-VariableLibraryDefaultValues`), RBAC role assignment rules (`-RoleAssignments`), pipeline role assignment rules (`-PipelineRoleAssignments`), managed private endpoint rules (`-ManagedPrivateEndpoints`), `-OutputPath` JSON output, GitHub provider, validation errors
 - `New-FabricEnvironment` — WhatIf, idempotent skip when present, create via POST, description in body, 409 conflict resolution, non-conflict error propagation
 - `New-FabricVariableLibrary` — existing library returned with no create/update calls, WhatIf, empty create via POST (no definition), description in body, LRO resolution by name, 409 conflict resolution, non-conflict error propagation
 - `_Resolve-VariableLibraryName` / `_Resolve-FabricVariableLibrary` — configured name or `DefaultVariableLibrary` default, naming-rule rejection; lookup by name with pagination
@@ -1111,6 +1176,7 @@ ZeroFailed.Deploy.Fabric/
     │   ├── _Resolve-FabricEnvironment.ps1         # Private: resolve Spark Environment by name
     │   ├── _Resolve-FabricVariableLibrary.ps1     # Private: resolve Variable Library by name
     │   ├── _Resolve-VariableLibraryName.ps1       # Private: Variable Library name default + validation
+    │   ├── _Resolve-ManagedPrivateEndpointName.ps1  # Private: managed private endpoint naming convention
     │   ├── _Resolve-WorkspaceName.ps1             # Private: naming convention engine
     │   ├── Add-FabricEnvironmentLibrary.ps1       # Python library deploy: upload library to staging
     │   ├── Add-FabricEnvironmentLibrary.Tests.ps1
@@ -1148,6 +1214,8 @@ ZeroFailed.Deploy.Fabric/
     │   ├── Set-FabricGitIntegration.Tests.ps1
     │   ├── Set-FabricVariableLibraryValues.ps1
     │   ├── Set-FabricVariableLibraryValues.Tests.ps1
+    │   ├── Set-FabricManagedPrivateEndpoint.ps1
+    │   ├── Set-FabricManagedPrivateEndpoint.Tests.ps1
     │   ├── Set-FabricWorkspaceDefaultEnvironment.ps1
     │   ├── Set-FabricWorkspaceDefaultEnvironment.Tests.ps1
     │   ├── Set-FabricWorkspaceRoleAssignment.ps1

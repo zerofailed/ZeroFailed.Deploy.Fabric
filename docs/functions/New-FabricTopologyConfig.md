@@ -28,7 +28,8 @@ New-FabricTopologyConfig [-Project] <string> [-WorkspaceTypes] <string[]> [-Envi
  [[-EnableEnvironments] <string[]>] [[-EnvironmentStages] <hashtable>]
  [[-EnvironmentRuntimeVersion] <string>] [[-EnableVariableLibraries] <string[]>]
  [[-VariableLibraryName] <string>] [[-VariableLibraryStages] <hashtable>]
- [[-TypeShortCodes] <hashtable>] [[-EnvShortCodes] <hashtable>] [[-OutputPath] <string>]
+ [[-TypeShortCodes] <hashtable>] [[-EnvShortCodes] <hashtable>]
+ [[-ManagedPrivateEndpoints] <hashtable[]>] [[-OutputPath] <string>]
  [-SetEnvironmentAsDefault] [-VariableLibraryDefaultValues]
 ```
 
@@ -425,6 +426,43 @@ AcceptedValues: []
 HelpMessage: ''
 ```
 
+### -ManagedPrivateEndpoints
+
+Array of managed private endpoint rules to create in workspaces.
+Each rule is a hashtable with:
+  Name                  (required) — logical endpoint name, used as the {name} token in the endpoint
+                                     naming convention; letters, digits, hyphens and underscores only
+  TargetResourceIds     (one of)   — hashtable mapping environment name to the Azure resource ID of
+                                     the private link resource for that stage; a stage left out of
+                                     the map gets no endpoint
+  TargetResourceId      (one of)   — a single Azure resource ID, used for every stage
+  TargetSubresourceType (optional) — private link sub-resource, e.g.
+'vault' for Key Vault, or 'blob'
+                                     or 'dfs' for Storage (one endpoint per storage sub-resource)
+  RequestMessage        (optional) — message sent with the approval request; at most 140 characters
+  TargetFQDNs           (optional) — FQDNs to associate with the endpoint; at most 20
+  WorkspaceTypes        (optional) — array of workspace type names this rule applies to; omit for all types
+Each rule is resolved per workspace type and environment and stored in the topology config.
+Endpoint names follow the '{project}-{type}-{name}-{env}' template (e.g.
+'SalesAnalytics-ETL-KeyVault-DEV') and must fit Fabric's 64-character limit.
+
+```yaml
+Type: System.Collections.Hashtable[]
+DefaultValue: ''
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: (All)
+  Position: 22
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
+```
+
 ### -OutputPath
 
 Optional file path to write the generated config as JSON.
@@ -437,7 +475,7 @@ SupportsWildcards: false
 Aliases: []
 ParameterSets:
 - Name: (All)
-  Position: 22
+  Position: 23
   IsRequired: false
   ValueFromPipeline: false
   ValueFromPipelineByPropertyName: false

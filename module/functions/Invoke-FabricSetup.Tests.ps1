@@ -32,6 +32,10 @@ BeforeAll {
                     pipeline   = [pscustomobject]@{ enabled = $true; roleAssignments = @([pscustomobject]@{ principalId = 'pg1'; principalType = 'Group'; role = 'Admin' }) }
                     environment = [pscustomobject]@{ enabled = $true; setAsWorkspaceDefault = $true; runtimeVersion = '1.3' }
                     variableLibrary = [pscustomobject]@{ enabled = $true; name = 'Bronze Variables' }
+                    managedPrivateEndpoints = [pscustomobject]@{
+                        Dev  = @([pscustomobject]@{ name = 'KeyVault'; targetPrivateLinkResourceId = '/subscriptions/s/resourceGroups/rg-dev/providers/Microsoft.KeyVault/vaults/kv-dev'; targetSubresourceType = 'vault'; requestMessage = $null; targetFQDNs = @() })
+                        Test = @([pscustomobject]@{ name = 'KeyVault'; targetPrivateLinkResourceId = '/subscriptions/s/resourceGroups/rg-test/providers/Microsoft.KeyVault/vaults/kv-test'; targetSubresourceType = 'vault'; requestMessage = $null; targetFQDNs = @() })
+                    }
                 }
             )
         }
@@ -73,6 +77,8 @@ Describe 'Invoke-FabricSetup' {
             Mock Set-FabricWorkspaceRoleAssignment { @{ Action = 'Created' } } -ModuleName ZeroFailed.Deploy.Fabric
             Mock Set-FabricDeploymentPipeline { @{ Action = 'Created'; PipelineId = 'pipe-1'; PipelineName = 'bronze-pipeline' } } -ModuleName ZeroFailed.Deploy.Fabric
             Mock Set-FabricDeploymentPipelineRoleAssignment { @{ Action = 'Created' } } -ModuleName ZeroFailed.Deploy.Fabric
+            Mock _Resolve-ManagedPrivateEndpointName { "$EnvironmentName-$EndpointName" } -ModuleName ZeroFailed.Deploy.Fabric
+            Mock Set-FabricManagedPrivateEndpoint { @{ Name = $Name; TargetPrivateLinkResourceId = $TargetPrivateLinkResourceId; Action = 'Created' } } -ModuleName ZeroFailed.Deploy.Fabric
         }
 
         It 'runs the full pipeline and aggregates results across both environments' {
@@ -148,6 +154,91 @@ Describe 'Invoke-FabricSetup' {
             $r.Identities.Count | Should -Be 1     # identity provisioning itself still succeeded
         }
 
+        It 'creates each environment''s managed private endpoints with the resolved name and stage-specific target' {
+            $r = Invoke-FabricSetup -Config (New-TestConfig)
+
+            $r.ManagedPrivateEndpoints.Count | Should -Be 2     # 1 workspace x 2 environments
+            Should -Invoke Set-FabricManagedPrivateEndpoint -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter {
+                $Name -eq 'Dev-KeyVault' -and $TargetPrivateLinkResourceId -like '*/vaults/kv-dev' -and
+                $TargetSubresourceType -eq 'vault' -and $WorkspaceId -eq 'ws-1'
+            }
+            Should -Invoke Set-FabricManagedPrivateEndpoint -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter {
+                $Name -eq 'Test-KeyVault' -and $TargetPrivateLinkResourceId -like '*/vaults/kv-test'
+            }
+        }
+
+        It 'does not pass optional endpoint fields that are not configured' {
+            Invoke-FabricSetup -Config (New-TestConfig) -Environments @('Dev') | Out-Null
+
+            Should -Invoke Set-FabricManagedPrivateEndpoint -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter {
+                -not $PSBoundParameters.ContainsKey('RequestMessage') -and -not $PSBoundParameters.ContainsKey('TargetFQDNs')
+            }
+        }
+
+        It 'passes the request message and FQDNs when they are configured' {
+            $config = New-TestConfig
+            $config.workspaces[0].managedPrivateEndpoints.Dev[0].requestMessage = 'Please approve'
+            $config.workspaces[0].managedPrivateEndpoints.Dev[0].targetFQDNs    = @('kv-dev.vault.azure.net')
+
+            Invoke-FabricSetup -Config $config -Environments @('Dev') | Out-Null
+
+            Should -Invoke Set-FabricManagedPrivateEndpoint -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter {
+                $RequestMessage -eq 'Please approve' -and @($TargetFQDNs).Count -eq 1
+            }
+        }
+
+        It 'creates no endpoints in an environment with none configured' {
+            $config = New-TestConfig
+            $config.workspaces[0].managedPrivateEndpoints.Test = @()
+
+            $r = Invoke-FabricSetup -Config $config
+            $r.ManagedPrivateEndpoints.Count | Should -Be 1
+            Should -Invoke Set-FabricManagedPrivateEndpoint -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
+        }
+
+        It 'does not create managed private endpoints when -SkipManagedPrivateEndpoints is set' {
+            $r = Invoke-FabricSetup -Config (New-TestConfig) -SkipManagedPrivateEndpoints
+            $r.ManagedPrivateEndpoints.Count | Should -Be 0
+            Should -Invoke Set-FabricManagedPrivateEndpoint -Times 0 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
+        }
+
+        It 'runs against a config that predates managed private endpoints' {
+            $config = New-TestConfig
+            $config.workspaces[0].PSObject.Properties.Remove('managedPrivateEndpoints')
+
+            $r = Invoke-FabricSetup -Config $config -Environments @('Dev')
+            $r.Summary.Created               | Should -Be 1
+            $r.Failures.Count                | Should -Be 0
+            $r.ManagedPrivateEndpoints.Count | Should -Be 0
+        }
+
+        It 'accepts the endpoint block as the ordered dictionary New-FabricTopologyConfig produces in memory' {
+            $config = New-TestConfig
+            $block  = $config.workspaces[0].managedPrivateEndpoints
+            $config.workspaces[0].managedPrivateEndpoints = [ordered]@{ Dev = $block.Dev; Test = $block.Test }
+
+            $r = Invoke-FabricSetup -Config $config
+            $r.ManagedPrivateEndpoints.Count | Should -Be 2
+        }
+
+        It 'records a non-fatal failure for a failing endpoint and still attempts the rest' {
+            $config = New-TestConfig
+            $config.workspaces[0].managedPrivateEndpoints.Dev = @(
+                [pscustomobject]@{ name = 'KeyVault'; targetPrivateLinkResourceId = '/subscriptions/s/resourceGroups/rg-dev/providers/Microsoft.KeyVault/vaults/kv-dev'; targetSubresourceType = 'vault'; requestMessage = $null; targetFQDNs = @() }
+                [pscustomobject]@{ name = 'Storage-Blob'; targetPrivateLinkResourceId = '/subscriptions/s/resourceGroups/rg-dev/providers/Microsoft.Storage/storageAccounts/stdev'; targetSubresourceType = 'blob'; requestMessage = $null; targetFQDNs = @() }
+            )
+            Mock Set-FabricManagedPrivateEndpoint {
+                if ($Name -eq 'Dev-KeyVault') { throw 'mpe boom' }
+                @{ Name = $Name; Action = 'Created' }
+            } -ModuleName ZeroFailed.Deploy.Fabric
+
+            $r = Invoke-FabricSetup -Config $config -Environments @('Dev')
+
+            ($r.Failures.Step)               | Should -Contain 'ManagedPrivateEndpoint'
+            $r.ManagedPrivateEndpoints.Count | Should -Be 1
+            Should -Invoke Set-FabricManagedPrivateEndpoint -Times 2 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
+        }
+
         It 'counts an existing workspace as skipped rather than created' {
             Mock Test-FabricWorkspaceExists { [pscustomobject]@{ id = 'existing-ws' } } -ModuleName ZeroFailed.Deploy.Fabric
 
@@ -168,13 +259,14 @@ Describe 'Invoke-FabricSetup' {
         }
 
         It 'honours the Skip switches' {
-            $r = Invoke-FabricSetup -Config (New-TestConfig) -SkipGit -SkipIdentity -SkipMonitoring -SkipEnvironment -SkipVariableLibrary -SkipRbac
+            $r = Invoke-FabricSetup -Config (New-TestConfig) -SkipGit -SkipIdentity -SkipMonitoring -SkipEnvironment -SkipVariableLibrary -SkipRbac -SkipManagedPrivateEndpoints
             $r.Identities.Count      | Should -Be 0
             $r.Monitoring.Count      | Should -Be 0
             $r.Environments.Count    | Should -Be 0
             $r.VariableLibraries.Count | Should -Be 0
             Should -Invoke New-FabricVariableLibrary     -Times 0 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
             $r.RoleAssignments.Count | Should -Be 0
+            $r.ManagedPrivateEndpoints.Count | Should -Be 0
             Should -Invoke Set-FabricGitIntegration     -Times 0 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
             Should -Invoke Enable-FabricWorkspaceIdentity -Times 0 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
             Should -Invoke New-FabricEnvironment         -Times 0 -Exactly -ModuleName ZeroFailed.Deploy.Fabric

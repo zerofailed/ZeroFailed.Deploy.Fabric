@@ -16,8 +16,10 @@ function Invoke-FabricSetup {
              type's configured stages) and, if default values are enabled, populates the default variables
              in a value set for the current stage and activates it
           9. Applies RBAC role assignments (if configured)
+         10. Creates the workspace type's managed private endpoints for the environment (if configured)
         Returns a structured results object with a summary, identity report, monitoring report,
-        environment report, variable library report, role assignment report, and failure details.
+        environment report, variable library report, role assignment report, managed private endpoint
+        report, and failure details.
 
         Deployment pipelines span every environment, so they are not configured here: run
         Invoke-FabricDeploymentPipelineSetup once each environment's workspaces have been provisioned.
@@ -39,6 +41,8 @@ function Invoke-FabricSetup {
         Skip Variable Library provisioning for all workspaces.
     .PARAMETER SkipRbac
         Skip role assignment application for all workspaces.
+    .PARAMETER SkipManagedPrivateEndpoints
+        Skip managed private endpoint creation for all workspaces.
     .EXAMPLE
         Invoke-FabricSetup -Config $topology -Environment "Dev" -WhatIf
 
@@ -64,7 +68,8 @@ function Invoke-FabricSetup {
         [switch]$SkipMonitoring,
         [switch]$SkipEnvironment,
         [switch]$SkipVariableLibrary,
-        [switch]$SkipRbac
+        [switch]$SkipRbac,
+        [switch]$SkipManagedPrivateEndpoints
     )
 
     $ErrorActionPreference = 'Stop'
@@ -139,6 +144,7 @@ function Invoke-FabricSetup {
         Environments    = [System.Collections.Generic.List[hashtable]]::new()
         VariableLibraries = [System.Collections.Generic.List[hashtable]]::new()
         RoleAssignments = [System.Collections.Generic.List[hashtable]]::new()
+        ManagedPrivateEndpoints = [System.Collections.Generic.List[hashtable]]::new()
         Failures        = [System.Collections.Generic.List[hashtable]]::new()
     }
 
@@ -469,6 +475,64 @@ function Invoke-FabricSetup {
                                 Error         = $_.ToString()
                             })
                         }
+                    }
+                }
+            }
+
+            # h. Managed Private Endpoints — non-fatal, log and continue.
+            # Configs generated before managed private endpoints were supported have no block, so guard
+            # the access (a bare one would throw under Set-StrictMode). The block is an ordered
+            # dictionary when the config comes straight from New-FabricTopologyConfig, and an object
+            # when it has been loaded from JSON.
+            if (-not $SkipManagedPrivateEndpoints -and $ws.PSObject.Properties.Name -contains 'managedPrivateEndpoints') {
+                $mpeByEnv   = $ws.managedPrivateEndpoints
+                $mpeEntries = @(
+                    if ($mpeByEnv -is [System.Collections.IDictionary]) {
+                        if ($mpeByEnv.Contains($env.name)) { $mpeByEnv[$env.name] }
+                    }
+                    elseif ($mpeByEnv -and $mpeByEnv.PSObject.Properties.Name -contains $env.name) {
+                        $mpeByEnv.$($env.name)
+                    }
+                )
+
+                foreach ($entry in $mpeEntries) {
+                    try {
+                        $mpeName = _Resolve-ManagedPrivateEndpointName `
+                            -Config          $Config `
+                            -WorkspaceId     $ws.id `
+                            -EnvironmentName $env.name `
+                            -EndpointName    $entry.name
+
+                        $mpeParams = @{
+                            WorkspaceId                 = $workspaceId
+                            WorkspaceName               = $resolvedName
+                            Token                       = $token
+                            Name                        = $mpeName
+                            TargetPrivateLinkResourceId = $entry.targetPrivateLinkResourceId
+                        }
+                        $entryProps = $entry.PSObject.Properties.Name
+                        if ($entryProps -contains 'targetSubresourceType' -and $entry.targetSubresourceType) {
+                            $mpeParams.TargetSubresourceType = $entry.targetSubresourceType
+                        }
+                        if ($entryProps -contains 'requestMessage' -and $entry.requestMessage) {
+                            $mpeParams.RequestMessage = $entry.requestMessage
+                        }
+                        if ($entryProps -contains 'targetFQDNs') {
+                            $fqdns = @($entry.targetFQDNs | Where-Object { $_ })
+                            if ($fqdns.Count -gt 0) { $mpeParams.TargetFQDNs = $fqdns }
+                        }
+
+                        $mpeResult = Set-FabricManagedPrivateEndpoint @mpeParams
+                        $results.ManagedPrivateEndpoints.Add($mpeResult)
+                    }
+                    catch {
+                        Write-Warning "Managed private endpoint '$($entry.name)' failed for '$resolvedName' — $_"
+                        $results.Failures.Add(@{
+                            WorkspaceName = $resolvedName
+                            Environment   = $env.name
+                            Step          = 'ManagedPrivateEndpoint'
+                            Error         = $_.ToString()
+                        })
                     }
                 }
             }

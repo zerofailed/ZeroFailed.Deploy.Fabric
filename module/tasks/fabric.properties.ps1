@@ -11,6 +11,7 @@ $FabricSkipMonitoring    = [Convert]::ToBoolean((property FabricSkipMonitoring $
 $FabricSkipEnvironment   = [Convert]::ToBoolean((property FabricSkipEnvironment $false))
 $FabricSkipVariableLibrary = [Convert]::ToBoolean((property FabricSkipVariableLibrary $false))
 $FabricSkipRbac          = [Convert]::ToBoolean((property FabricSkipRbac $false))
+$FabricSkipManagedPrivateEndpoints = [Convert]::ToBoolean((property FabricSkipManagedPrivateEndpoints $false))
 $FabricWhatIf            = [Convert]::ToBoolean((property FabricWhatIf $false))
 
 # Deployment pipeline setup (Invoke-FabricDeploymentPipelineSetup) — pipelines span every environment,
