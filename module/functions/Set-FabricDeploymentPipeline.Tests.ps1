@@ -131,43 +131,29 @@ Describe 'Set-FabricDeploymentPipeline' {
         Should -Invoke _Invoke-FabricRestMethod -Times 4 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
     }
 
-    It 'skips stage assignment when workspace does not yet exist' {
+    It 'throws without touching the pipeline when a workspace cannot be found' {
         Mock Test-FabricWorkspaceExists {
             param($DisplayName)
             if ($DisplayName -eq 'salesanalytics-Bronze [DEV]') {
                 return [pscustomobject]@{ id = 'ws-DEV' }
             }
-            return $null   # Test and Production workspaces don't exist yet
+            return $null   # Test and Production workspaces not found (not provisioned, or no access)
         } -ModuleName ZeroFailed.Deploy.Fabric
 
-        Mock _Invoke-FabricRestMethod {
-            param($Method, $RelativeUri)
-            if ($Method -eq 'GET' -and $RelativeUri -eq 'deploymentPipelines') {
-                return [pscustomobject]@{ value = @(); continuationToken = $null }
-            }
-            if ($Method -eq 'POST' -and $RelativeUri -eq 'deploymentPipelines') {
-                return [pscustomobject]@{
-                    id     = 'pipeline-001'
-                    stages = @(
-                        [pscustomobject]@{ id = 'stage-dev';  order = 0; displayName = 'Dev';        workspaceId = $null }
-                        [pscustomobject]@{ id = 'stage-test'; order = 1; displayName = 'Test';       workspaceId = $null }
-                        [pscustomobject]@{ id = 'stage-prod'; order = 2; displayName = 'Production'; workspaceId = $null }
-                    )
-                }
-            }
-            return $null
-        } -ModuleName ZeroFailed.Deploy.Fabric
+        Mock _Invoke-FabricRestMethod {} -ModuleName ZeroFailed.Deploy.Fabric
 
-        $result = Set-FabricDeploymentPipeline -Config $script:config -WorkspaceType 'Bronze' -Token 'tok'
-        $result.Action         | Should -Be 'Created'
-        $result.StagesAssigned | Should -Be 1  # Only Dev assigned
+        $err = { Set-FabricDeploymentPipeline -Config $script:config -WorkspaceType 'Bronze' -Token 'tok' } |
+            Should -Throw -PassThru
+        $err.Exception.Message | Should -Match ([regex]::Escape($script:wsNames.Test))
+        $err.Exception.Message | Should -Match ([regex]::Escape($script:wsNames.Production))
+        $err.Exception.Message | Should -Not -Match ([regex]::Escape($script:wsNames.Dev))
 
-        # GET pipelines + POST create + POST assign x1 (only Dev)
-        Should -Invoke _Invoke-FabricRestMethod -Times 3 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
+        # No pipeline lookup, creation or stage assignment
+        Should -Invoke _Invoke-FabricRestMethod -Times 0 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
     }
 
     It 'iterates continuation token to find pipeline on second page' {
-        Mock Test-FabricWorkspaceExists { $null } -ModuleName ZeroFailed.Deploy.Fabric
+        Mock Test-FabricWorkspaceExists { [pscustomobject]@{ id = 'ws-any' } } -ModuleName ZeroFailed.Deploy.Fabric
 
         Mock _Invoke-FabricRestMethod {
             param($Method, $RelativeUri)
@@ -193,15 +179,15 @@ Describe 'Set-FabricDeploymentPipeline' {
     }
 
     It 'propagates error when pipeline list API call fails' {
-        Mock Test-FabricWorkspaceExists { $null } -ModuleName ZeroFailed.Deploy.Fabric
+        Mock Test-FabricWorkspaceExists { [pscustomobject]@{ id = 'ws-any' } } -ModuleName ZeroFailed.Deploy.Fabric
         Mock _Invoke-FabricRestMethod { throw 'API unavailable' } -ModuleName ZeroFailed.Deploy.Fabric
 
         { Set-FabricDeploymentPipeline -Config $script:config -WorkspaceType 'Bronze' -Token 'tok' } |
-            Should -Throw
+            Should -Throw '*API unavailable*'
     }
 
     It 'returns correct report fields' {
-        Mock Test-FabricWorkspaceExists { $null } -ModuleName ZeroFailed.Deploy.Fabric
+        Mock Test-FabricWorkspaceExists { [pscustomobject]@{ id = 'ws-any' } } -ModuleName ZeroFailed.Deploy.Fabric
 
         Mock _Invoke-FabricRestMethod {
             param($Method)

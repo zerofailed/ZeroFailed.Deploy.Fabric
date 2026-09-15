@@ -13,11 +13,11 @@ function Invoke-FabricSetup {
           7. Provisions a Spark Environment and (optionally) sets it as workspace default (if enabled
              for the type and the current environment is in the type's configured stages)
           8. Applies RBAC role assignments (if configured)
-        Then, for each workspace type with pipelines enabled:
-          8. Creates or updates the deployment pipeline across all environments
-          9. Applies deployment pipeline role assignments (if configured)
         Returns a structured results object with a summary, identity report, monitoring report,
-        role assignment report, pipeline report, and pipeline role assignment report.
+        environment report, role assignment report, and failure details.
+
+        Deployment pipelines span every environment, so they are not configured here: run
+        Invoke-FabricDeploymentPipelineSetup once each environment's workspaces have been provisioned.
     .PARAMETER Config
         Topology config object produced by New-FabricTopologyConfig.
     .PARAMETER ConfigPath
@@ -34,10 +34,6 @@ function Invoke-FabricSetup {
         Skip Spark Environment provisioning for all workspaces.
     .PARAMETER SkipRbac
         Skip role assignment application for all workspaces.
-    .PARAMETER SkipPipeline
-        Skip deployment pipeline setup for all workspace types.
-    .PARAMETER SkipPipelineRbac
-        Skip deployment pipeline role assignment application for all workspace types.
     .EXAMPLE
         Invoke-FabricSetup -Config $topology -Environment "Dev" -WhatIf
 
@@ -62,9 +58,7 @@ function Invoke-FabricSetup {
         [switch]$SkipIdentity,
         [switch]$SkipMonitoring,
         [switch]$SkipEnvironment,
-        [switch]$SkipRbac,
-        [switch]$SkipPipeline,
-        [switch]$SkipPipelineRbac
+        [switch]$SkipRbac
     )
 
     $ErrorActionPreference = 'Stop'
@@ -138,9 +132,7 @@ function Invoke-FabricSetup {
         Monitoring      = [System.Collections.Generic.List[hashtable]]::new()
         Environments    = [System.Collections.Generic.List[hashtable]]::new()
         RoleAssignments = [System.Collections.Generic.List[hashtable]]::new()
-        Pipelines       = [System.Collections.Generic.List[hashtable]]::new()
-        PipelineRoleAssignments = [System.Collections.Generic.List[hashtable]]::new()
-        Failures        = [System.Collections.Generic.List[hashtable]]::new()
+        Failures       = [System.Collections.Generic.List[hashtable]]::new()
     }
 
     foreach ($env in $targetEnvs) {
@@ -390,60 +382,7 @@ function Invoke-FabricSetup {
         }
     }
 
-    # --- 5. Deployment Pipelines (per workspace type, spans all environments) ---
-    if (-not $SkipPipeline) {
-        $pipelineWorkspaces = $Config.workspaces | Where-Object { $_.pipeline.enabled }
-
-        foreach ($ws in $pipelineWorkspaces) {
-            try {
-                $pipelineResult = Set-FabricDeploymentPipeline `
-                    -Config        $Config `
-                    -WorkspaceType $ws.type `
-                    -Token         $token
-                $results.Pipelines.Add($pipelineResult)
-            }
-            catch {
-                Write-Warning "Deployment pipeline setup failed for '$($ws.type)' — $_"
-                $results.Failures.Add(@{
-                    WorkspaceName = "$($ws.type) pipeline"
-                    Environment   = 'all'
-                    Step          = 'Pipeline'
-                    Error         = $_.ToString()
-                })
-                continue
-            }
-
-            # Pipeline Role Assignments — non-fatal, log and continue
-            if (-not $SkipPipelineRbac) {
-                $pipelineRbac = $ws.pipeline.roleAssignments
-                if ($pipelineRbac -and $pipelineRbac.Count -gt 0) {
-                    foreach ($entry in $pipelineRbac) {
-                        try {
-                            $rbacResult = Set-FabricDeploymentPipelineRoleAssignment `
-                                -PipelineId    $pipelineResult.PipelineId `
-                                -PipelineName  $pipelineResult.PipelineName `
-                                -PrincipalId   $entry.principalId `
-                                -PrincipalType $entry.principalType `
-                                -Role          $entry.role `
-                                -Token         $token
-                            $results.PipelineRoleAssignments.Add($rbacResult)
-                        }
-                        catch {
-                            Write-Warning "Pipeline role assignment failed for '$($pipelineResult.PipelineName)' (principal: $($entry.principalId)) — $_"
-                            $results.Failures.Add(@{
-                                WorkspaceName = "$($ws.type) pipeline"
-                                Environment   = 'all'
-                                Step          = 'PipelineRoleAssignment'
-                                Error         = $_.ToString()
-                            })
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    # --- 6. Report ---
+    # --- 5. Report ---
     $s = $results.Summary
     Write-Verbose "=== Provisioning complete — Created: $($s.Created)  Skipped: $($s.Skipped)  Failed: $($s.Failed) ==="
 
