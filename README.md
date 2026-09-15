@@ -27,7 +27,7 @@ In a ZeroFailed build pipeline, add the module as a dependency and the tasks are
 ```powershell
 # In your build's .zf/config.ps1:
 $FabricTopologyConfigPath = './fabric/topology.json'
-$FabricEnvironmentFilter  = @('Dev')   # omit to process all environments
+$FabricEnvironment        = 'Dev'      # omit (or leave blank) to process all environments
 $FabricSkipGit            = $false
 $FabricSkipIdentity       = $false
 $FabricSkipMonitoring     = $false
@@ -38,7 +38,7 @@ $FabricSkipPipelineRbac   = $false
 $FabricWhatIf             = $false
 ```
 
-Every `$Fabric*` property above (and the Python library deployment ones below) can also be overridden via an identically-named environment variable — e.g. `$env:FabricSkipGit = 'true'` — without editing `.zf/config.ps1`, which is useful for varying behaviour between CI/CD and local runs. An explicit assignment in `.zf/config.ps1` still takes priority over the environment variable. (`$FabricEnvironmentFilter` is the one exception — it's an array, which doesn't have a clean single-environment-variable representation.)
+Every `$Fabric*` property above (and the Python library deployment ones below) can also be overridden via an identically-named environment variable — e.g. `$env:FabricEnvironment = 'Dev'` — without editing `.zf/config.ps1`, which is useful for varying behaviour between CI/CD and local runs (for example, setting `FabricEnvironment` per stage in a multi-stage ADO pipeline). An explicit assignment in `.zf/config.ps1` still takes priority over the environment variable.
 
 The module registers these Invoke-Build tasks:
 - `ensureFabricModules` — registers Az.Accounts, Az.Resources and MicrosoftFabricMgmt with ZeroFailed.DevOps.Common's `RequiredPowerShellModules`, so `setupModules` installs/imports them (runs before `setupModules`)
@@ -392,8 +392,8 @@ $result = Invoke-FabricSetup -Config $topology
 # From saved JSON file
 $result = Invoke-FabricSetup -ConfigPath "./topology.json"
 
-# Target a single environment only
-$result = Invoke-FabricSetup -Config $topology -Environments @("Dev")
+# Target a single environment only (e.g. one ADO pipeline stage per environment)
+$result = Invoke-FabricSetup -Config $topology -Environment "Dev"
 
 # Dry run — no API calls made
 $result = Invoke-FabricSetup -Config $topology -WhatIf
@@ -415,7 +415,7 @@ $result = Invoke-FabricSetup -Config $topology -SkipGit -SkipIdentity -SkipMonit
 |---|---|---|
 | `-Config` | `pscustomobject` | Topology config object from `New-FabricTopologyConfig` |
 | `-ConfigPath` | `string` | Path to a JSON topology config file (alternative to `-Config`) |
-| `-Environments` | `string[]` | Filter to a subset of environments. Defaults to all |
+| `-Environment` | `string` | Single environment name to process. Defaults to all environments in config |
 | `-SkipGit` | `switch` | Skip Git integration for all workspaces |
 | `-SkipIdentity` | `switch` | Skip identity provisioning for all workspaces |
 | `-SkipMonitoring` | `switch` | Skip monitoring enablement for all workspaces |
@@ -829,10 +829,10 @@ Invoke-FabricSetup
 
 ```powershell
 # Initial dev rollout
-$result = Invoke-FabricSetup -Config $topology -Environments @("Dev")
+$result = Invoke-FabricSetup -Config $topology -Environment "Dev"
 
 # After validation, promote to test
-$result = Invoke-FabricSetup -Config $topology -Environments @("Test")
+$result = Invoke-FabricSetup -Config $topology -Environment "Test"
 
 # Full DTAP in one pass
 $result = Invoke-FabricSetup -Config $topology
