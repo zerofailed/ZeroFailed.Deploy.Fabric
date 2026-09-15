@@ -4,6 +4,8 @@ A ZeroFailed extension module for provisioning Microsoft Fabric workspaces acros
 
 The module also handles **Python library deployment**: once workspaces and their Spark Environments have been provisioned, `Invoke-FabricPythonLibraryDeploy` downloads a Python package (`.whl`) and its full dependency closure from an Azure Artifacts feed and uploads them into the Spark Environments' custom libraries for a given stage. Provisioning and Python library deployment are designed to run as **two separate pipelines** — see [Python library deployment](#python-library-deployment).
 
+**Deployment pipelines** span every environment, so they are configured by a separate entry point, `Invoke-FabricDeploymentPipelineSetup`, from the same topology config — typically in a dedicated stage that runs once each environment's workspaces have been provisioned. See [`Invoke-FabricDeploymentPipelineSetup`](#invoke-fabricdeploymentpipelinesetup).
+
 ### Requirements
 
 | Requirement | Details |
@@ -33,8 +35,8 @@ $FabricSkipIdentity       = $false
 $FabricSkipMonitoring     = $false
 $FabricSkipEnvironment    = $false
 $FabricSkipRbac           = $false
-$FabricSkipPipeline       = $false
-$FabricSkipPipelineRbac   = $false
+$FabricSkipPipeline       = $false    # provisionFabricDeploymentPipelines task only
+$FabricSkipPipelineRbac   = $false    # provisionFabricDeploymentPipelines task only
 $FabricWhatIf             = $false
 ```
 
@@ -43,6 +45,7 @@ Every `$Fabric*` property above (and the Python library deployment ones below) c
 The module registers these Invoke-Build tasks:
 - `ensureFabricModules` — registers Az.Accounts, Az.Resources and MicrosoftFabricMgmt with ZeroFailed.DevOps.Common's `RequiredPowerShellModules`, so `setupModules` installs/imports them (runs before `setupModules`)
 - `provisionFabricWorkspaces` — runs `Invoke-FabricSetup` from the topology config (runs after `DeployCore`)
+- `provisionFabricDeploymentPipelines` — runs `Invoke-FabricDeploymentPipelineSetup` from the topology config (standalone; invoke from a dedicated stage once every environment's workspaces exist)
 - `ensureFabricPythonLibraryTooling` — verifies Python/pip is available (runs before `deployFabricPythonLibraries`)
 - `deployFabricPythonLibraries` — runs `Invoke-FabricPythonLibraryDeploy` for a single stage (standalone; invoke from a separate deployment pipeline)
 
@@ -130,11 +133,12 @@ $result.Environments | Format-Table WorkspaceName, EnvironmentName, EnvironmentI
 # 7. Inspect the role assignment report
 $result.RoleAssignments | Format-Table WorkspaceName, PrincipalId, Role, Action
 
-# 8. Inspect the deployment pipeline report
-$result.Pipelines | Format-Table PipelineName, PipelineId, WorkspaceType, StagesAssigned, Action
+# 8. Once every environment's workspaces exist, set up the deployment pipelines
+$pipelineResult = Invoke-FabricDeploymentPipelineSetup -Config $topology
 
-# 9. Inspect the pipeline role assignment report
-$result.PipelineRoleAssignments | Format-Table PipelineName, PrincipalId, Role, Action
+# 9. Inspect the deployment pipeline and pipeline role assignment reports
+$pipelineResult.Pipelines | Format-Table PipelineName, PipelineId, WorkspaceType, StagesAssigned, Action
+$pipelineResult.PipelineRoleAssignments | Format-Table PipelineName, PrincipalId, Role, Action
 ```
 
 ---
@@ -327,7 +331,7 @@ Rules are **additive** — all matching rules apply to a given workspace/environ
 
 **`-PipelineRoleAssignments` — deployment pipeline RBAC configuration:**
 
-Deployment pipelines have their own access control, separate from the workspaces they orchestrate. Each rule in `-PipelineRoleAssignments` declares which Entra principal should be granted access to a pipeline, with an optional filter for workspace type. A deployment pipeline spans all environments, so — unlike `-RoleAssignments` — these rules are **not** environment-scoped. Rules are resolved and stored on each workspace type's `pipeline` block; after a pipeline is created, `Invoke-FabricSetup` applies them idempotently using the Fabric deployment pipeline role assignment API.
+Deployment pipelines have their own access control, separate from the workspaces they orchestrate. Each rule in `-PipelineRoleAssignments` declares which Entra principal should be granted access to a pipeline, with an optional filter for workspace type. A deployment pipeline spans all environments, so — unlike `-RoleAssignments` — these rules are **not** environment-scoped. Rules are resolved and stored on each workspace type's `pipeline` block; after a pipeline is created, `Invoke-FabricDeploymentPipelineSetup` applies them idempotently using the Fabric deployment pipeline role assignment API.
 
 | Key | Required | Description |
 |---|---|---|
@@ -381,7 +385,7 @@ When `-SetEnvironmentAsDefault` is supplied, each enabled workspace's environmen
 
 #### `Invoke-FabricSetup`
 
-Orchestrates the full provisioning pipeline. For each environment × workspace combination: resolves the name, creates the workspace (idempotent), grants the deploying identity Admin on the workspace, connects Git (in the designated Git environment only, for configured workspace types), provisions identity, enables monitoring, provisions a Spark Environment (and optionally sets it as the workspace default), and applies RBAC role assignments. After the per-workspace loop, creates or updates Fabric deployment pipelines for workspace types with pipelines enabled, then applies each pipeline's role assignments. Returns a structured results object.
+Orchestrates the full provisioning pipeline. For each environment × workspace combination: resolves the name, creates the workspace (idempotent), grants the deploying identity Admin on the workspace, connects Git (in the designated Git environment only, for configured workspace types), provisions identity, enables monitoring, provisions a Spark Environment (and optionally sets it as the workspace default), and applies RBAC role assignments. Returns a structured results object. Deployment pipelines are not configured here — they span every environment, so they are set up separately by [`Invoke-FabricDeploymentPipelineSetup`](#invoke-fabricdeploymentpipelinesetup).
 
 > **Deploying identity auto-grant:** every workspace is granted the identity running the deployment the **Admin** role — idempotently, and independently of `-SkipRbac`. The identity (and its Entra **object id**, which Fabric role assignments require) is resolved with `Get-AzContext` plus `Get-AzADServicePrincipal`/`Get-AzADUser` (implemented directly in this module rather than depending on ZeroFailed.Deploy.Azure, to avoid pulling in a full deploy extension for a single identity lookup), so it works both as the Azure DevOps service principal and as a locally signed-in user. This guarantees the deployer can always see and re-manage the workspace on later runs — without it, a re-run hits `WorkspaceNameAlreadyExists` (names are unique tenant-wide) but cannot resolve the workspace via `GET /workspaces`. No topology config required.
 
@@ -404,9 +408,7 @@ $result = Invoke-FabricSetup -Config $topology -SkipIdentity
 $result = Invoke-FabricSetup -Config $topology -SkipMonitoring
 $result = Invoke-FabricSetup -Config $topology -SkipEnvironment
 $result = Invoke-FabricSetup -Config $topology -SkipRbac
-$result = Invoke-FabricSetup -Config $topology -SkipPipeline
-$result = Invoke-FabricSetup -Config $topology -SkipPipelineRbac
-$result = Invoke-FabricSetup -Config $topology -SkipGit -SkipIdentity -SkipMonitoring -SkipEnvironment -SkipRbac -SkipPipeline -SkipPipelineRbac
+$result = Invoke-FabricSetup -Config $topology -SkipGit -SkipIdentity -SkipMonitoring -SkipEnvironment -SkipRbac
 ```
 
 **Parameters:**
@@ -421,8 +423,6 @@ $result = Invoke-FabricSetup -Config $topology -SkipGit -SkipIdentity -SkipMonit
 | `-SkipMonitoring` | `switch` | Skip monitoring enablement for all workspaces |
 | `-SkipEnvironment` | `switch` | Skip Spark Environment provisioning for all workspaces |
 | `-SkipRbac` | `switch` | Skip role assignment application for all workspaces |
-| `-SkipPipeline` | `switch` | Skip deployment pipeline setup for all workspace types |
-| `-SkipPipelineRbac` | `switch` | Skip deployment pipeline role assignment application for all workspace types |
 | `-WhatIf` | `switch` | Simulate all operations; no API calls are made |
 
 **Return value:**
@@ -433,9 +433,7 @@ $result.Identities      # Array of identity entries — handoff for downstream A
 $result.Monitoring      # Array of monitoring report entries
 $result.Environments    # Array of environment provisioning report entries
 $result.RoleAssignments # Array of role assignment report entries
-$result.Pipelines       # Array of deployment pipeline report entries
-$result.PipelineRoleAssignments # Array of pipeline role assignment report entries
-$result.Failures        # Array of per-workspace/pipeline failure details
+$result.Failures        # Array of per-workspace failure details
 ```
 
 **Identity report structure** (one entry per provisioned identity):
@@ -492,6 +490,91 @@ $result.Failures        # Array of per-workspace/pipeline failure details
 }
 ```
 
+**Working with results:**
+
+```powershell
+$result = Invoke-FabricSetup -Config $topology
+
+# Summary
+$result.Summary
+
+# Export identity report to CSV for RBAC handoff
+$result.Identities | ForEach-Object { [pscustomobject]$_ } |
+    Export-Csv -Path "./identity-report.csv" -NoTypeInformation
+
+# View monitoring report
+$result.Monitoring | ForEach-Object { [pscustomobject]$_ } | Format-Table
+
+# View environment report
+$result.Environments | ForEach-Object { [pscustomobject]$_ } | Format-Table
+
+# View role assignment report
+$result.RoleAssignments | ForEach-Object { [pscustomobject]$_ } |
+    Format-Table WorkspaceName, PrincipalId, Role, Action
+
+# Check for failures
+if ($result.Failures.Count -gt 0) {
+    $result.Failures | ForEach-Object { [pscustomobject]$_ } | Format-List
+}
+```
+
+---
+
+#### `Invoke-FabricDeploymentPipelineSetup`
+
+Creates or updates the Fabric deployment pipelines — one per workspace type listed in `-EnablePipelines`, with a stage per environment — assigns each environment's workspace to its stage, then applies each pipeline's role assignments (`-PipelineRoleAssignments`). It reads the same topology config as `Invoke-FabricSetup`; no additional config is needed.
+
+Deployment pipelines span every environment, so this is deliberately separate from `Invoke-FabricSetup`. When each environment is provisioned in its own stage under its own service principal (keeping a security boundary between Dev, Test, Production, …), run pipeline setup in a **dedicated final stage** that depends on all of them — via the `provisionFabricDeploymentPipelines` task, which uses `$FabricTopologyConfigPath`, `$FabricSkipPipeline`, `$FabricSkipPipelineRbac` and `$FabricWhatIf`. All operations are idempotent, so the stage is safe to re-run.
+
+```powershell
+# From a config object
+$pipelineResult = Invoke-FabricDeploymentPipelineSetup -Config $topology
+
+# From saved JSON file
+$pipelineResult = Invoke-FabricDeploymentPipelineSetup -ConfigPath "./topology.json"
+
+# Dry run — no API calls made
+$pipelineResult = Invoke-FabricDeploymentPipelineSetup -Config $topology -WhatIf
+
+# Skip pipeline role assignments
+$pipelineResult = Invoke-FabricDeploymentPipelineSetup -Config $topology -SkipPipelineRbac
+```
+
+**Access for the pipeline identity:**
+
+The identity that runs pipeline setup must be able to see every environment's workspace for each pipeline-enabled type, and assigning a workspace to a pipeline stage requires the workspace **Admin** role. Grant this through the topology's existing `-RoleAssignments`, so that each environment's provisioning stage grants it as that environment's workspaces are created:
+
+```powershell
+-RoleAssignments @(
+    # Deployment pipeline service principal: Admin on every pipeline-enabled workspace, in every environment
+    @{ PrincipalId = "ffffffff-0000-0000-0000-000000000006"
+       PrincipalType = "ServicePrincipal"; Role = "Admin"
+       WorkspaceTypes = @("Bronze", "Silver", "Gold") }
+)
+```
+
+The identity must also have access to any deployment pipeline that already exists — Fabric only lists pipelines the caller can access, so a pipeline created by a different identity (for example by an earlier version of `Invoke-FabricSetup`) is not found by name. Grant access to the existing pipeline before the first run; `-PipelineRoleAssignments` then keeps it in place.
+
+**Missing workspaces fail the run:** if any environment's workspace for a pipeline-enabled type cannot be found — not yet provisioned, or not visible to the identity — that type's pipeline is not created or modified, and a `Pipeline` failure is recorded. Other workspace types are still processed. The `provisionFabricDeploymentPipelines` task throws if any failures were recorded, failing the stage.
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `-Config` | `pscustomobject` | Topology config object from `New-FabricTopologyConfig` |
+| `-ConfigPath` | `string` | Path to a JSON topology config file (alternative to `-Config`) |
+| `-SkipPipelineRbac` | `switch` | Skip deployment pipeline role assignment application for all workspace types |
+| `-WhatIf` | `switch` | Simulate all operations; no API calls are made |
+
+**Return value:**
+
+```powershell
+$pipelineResult.Summary                 # @{ Created=int; Updated=int; Skipped=int; Failed=int } — pipelines by action
+$pipelineResult.Pipelines               # Array of deployment pipeline report entries
+$pipelineResult.PipelineRoleAssignments # Array of pipeline role assignment report entries
+$pipelineResult.Failures                # Array of per-workspace-type failure details (WorkspaceType, Step, Error)
+```
+
 **Pipeline report structure** (one entry per workspace type with pipelines enabled):
 
 ```powershell
@@ -517,40 +600,12 @@ $result.Failures        # Array of per-workspace/pipeline failure details
 }
 ```
 
-**Working with results:**
-
 ```powershell
-$result = Invoke-FabricSetup -Config $topology
-
-# Summary
-$result.Summary
-
-# Export identity report to CSV for RBAC handoff
-$result.Identities | ForEach-Object { [pscustomobject]$_ } |
-    Export-Csv -Path "./identity-report.csv" -NoTypeInformation
-
-# View monitoring report
-$result.Monitoring | ForEach-Object { [pscustomobject]$_ } | Format-Table
-
-# View environment report
-$result.Environments | ForEach-Object { [pscustomobject]$_ } | Format-Table
-
-# View role assignment report
-$result.RoleAssignments | ForEach-Object { [pscustomobject]$_ } |
-    Format-Table WorkspaceName, PrincipalId, Role, Action
-
-# View pipeline report
-$result.Pipelines | ForEach-Object { [pscustomobject]$_ } |
+# View the pipeline and pipeline role assignment reports
+$pipelineResult.Pipelines | ForEach-Object { [pscustomobject]$_ } |
     Format-Table PipelineName, PipelineId, StagesAssigned, Action
-
-# View pipeline role assignment report
-$result.PipelineRoleAssignments | ForEach-Object { [pscustomobject]$_ } |
+$pipelineResult.PipelineRoleAssignments | ForEach-Object { [pscustomobject]$_ } |
     Format-Table PipelineName, PrincipalId, Role, Action
-
-# Check for failures
-if ($result.Failures.Count -gt 0) {
-    $result.Failures | ForEach-Object { [pscustomobject]$_ } | Format-List
-}
 ```
 
 ---
@@ -602,13 +657,13 @@ Applies a single Entra Group, User, or Service Principal role assignment to a Fa
 
 #### `Set-FabricDeploymentPipeline`
 
-Creates or updates a Fabric deployment pipeline for a single workspace type. Each environment in the topology becomes a named stage. Workspaces are assigned to stages where they already exist; stages for environments whose workspaces have not yet been provisioned are left unassigned and can be assigned on a subsequent run.
+Creates or updates a Fabric deployment pipeline for a single workspace type. Each environment in the topology becomes a named stage, and each environment's workspace is assigned to its stage. Every environment's workspace must already exist and be visible to the caller — if any cannot be found, it throws before creating or modifying the pipeline, so a partially-assigned pipeline is never left behind.
 
 Idempotent: if the pipeline already exists, only vacant stages are assigned. Stages already assigned to the correct workspace are skipped. Stages assigned to a different workspace emit a warning and are not touched (manual intervention required).
 
 Pipeline naming convention: `{project}-{typeCode} Pipeline` — e.g. `salesanalytics-Bronze Pipeline`.
 
-Normally called by `Invoke-FabricSetup`; can also be used directly.
+Normally called by `Invoke-FabricDeploymentPipelineSetup`; can also be used directly.
 
 ```powershell
 $pipelineResult = Set-FabricDeploymentPipeline -Config $topology -WorkspaceType 'Bronze' -Token $token
@@ -616,7 +671,7 @@ $pipelineResult = Set-FabricDeploymentPipeline -Config $topology -WorkspaceType 
 
 #### `Set-FabricDeploymentPipelineRoleAssignment`
 
-Applies a single Entra Group, User, or Service Principal role assignment to a Fabric deployment pipeline using the deployment pipeline role assignment API (`GET/POST /deploymentPipelines/{id}/roleAssignments`). Idempotent — skips if the principal already has access, creates it if not present. Fabric deployment pipelines only support the `Admin` role, so `-Role` defaults to (and only accepts) `Admin`. Normally called by `Invoke-FabricSetup` after the pipeline is created; can also be used directly.
+Applies a single Entra Group, User, or Service Principal role assignment to a Fabric deployment pipeline using the deployment pipeline role assignment API (`GET/POST /deploymentPipelines/{id}/roleAssignments`). Idempotent — skips if the principal already has access, creates it if not present. Fabric deployment pipelines only support the `Admin` role, so `-Role` defaults to (and only accepts) `Admin`. Normally called by `Invoke-FabricDeploymentPipelineSetup` after the pipeline is created; can also be used directly.
 
 ```powershell
 $rbacResult = Set-FabricDeploymentPipelineRoleAssignment -PipelineId $pipelineResult.PipelineId -PipelineName $pipelineResult.PipelineName -PrincipalId $groupId -PrincipalType 'Group' -Token $token
@@ -803,22 +858,27 @@ Invoke-FabricSetup
             ├── same role → skip
             ├── different role → PATCH /roleAssignments/{id}
             └── not found → POST /roleAssignments  → append to $result.RoleAssignments
+
+Invoke-FabricDeploymentPipelineSetup
+├── _Get-FabricAuthToken        (Get-AzAccessToken for Fabric API)
 │
-└── For each workspace type with pipeline.enabled=true:  (unless -SkipPipeline)
-    └── Set-FabricDeploymentPipeline
-        ├── Test-FabricWorkspaceExists per environment → build stageMap
-        ├── GET /deploymentPipelines  (paginated, find by name)
-        │   ├── not found → POST /deploymentPipelines  (stages defined at creation)
-        │   └── found     → GET /deploymentPipelines/{id}/stages
-        ├── For each vacant stage with a known workspace:
-        │   └── POST /deploymentPipelines/{id}/stages/{stageId}/assignWorkspace
-        │       → append to $result.Pipelines
-        └── For each role assignment in ws.pipeline.roleAssignments:  (unless -SkipPipelineRbac or no assignments)
-            └── Set-FabricDeploymentPipelineRoleAssignment
-                ├── GET /deploymentPipelines/{id}/roleAssignments  (idempotency check)
-                ├── principal present → skip
-                └── not found → POST /deploymentPipelines/{id}/roleAssignments
-                    → append to $result.PipelineRoleAssignments
+└── For each workspace type with pipeline.enabled=true:
+    ├── [token refresh if < 5 min remaining]
+    ├── Set-FabricDeploymentPipeline
+    │   ├── Test-FabricWorkspaceExists per environment → build stageMap
+    │   │   └── any missing → throw before touching the pipeline  → append to $result.Failures
+    │   ├── GET /deploymentPipelines  (paginated, find by name)
+    │   │   ├── not found → POST /deploymentPipelines  (stages defined at creation)
+    │   │   └── found     → GET /deploymentPipelines/{id}/stages
+    │   └── For each vacant stage:
+    │       └── POST /deploymentPipelines/{id}/stages/{stageId}/assignWorkspace
+    │           → append to $result.Pipelines
+    └── For each role assignment in ws.pipeline.roleAssignments:  (unless -SkipPipelineRbac or no assignments)
+        └── Set-FabricDeploymentPipelineRoleAssignment
+            ├── GET /deploymentPipelines/{id}/roleAssignments  (idempotency check)
+            ├── principal present → skip
+            └── not found → POST /deploymentPipelines/{id}/roleAssignments
+                → append to $result.PipelineRoleAssignments
 ```
 
 ---
@@ -847,24 +907,27 @@ $result = Invoke-FabricSetup -Config $topology
 # existing identities → skipped, SP details still returned
 # existing environments → skipped, workspace default only re-set if it has drifted
 # existing role assignments with correct role → Skipped
-# existing pipelines with correct stage assignments → Skipped
 $result = Invoke-FabricSetup -Config $topology
+
+# existing pipelines with correct stage assignments → Skipped
+$pipelineResult = Invoke-FabricDeploymentPipelineSetup -Config $topology
 ```
 
 **Skip individual steps:**
 
 ```powershell
-$result = Invoke-FabricSetup -Config $topology -SkipGit -SkipIdentity -SkipMonitoring -SkipEnvironment -SkipRbac -SkipPipeline
+$result = Invoke-FabricSetup -Config $topology -SkipGit -SkipIdentity -SkipMonitoring -SkipEnvironment -SkipRbac
 ```
 
-**Provision workspaces first, then wire up pipelines:**
+**Provision each environment, then wire up pipelines:**
 
 ```powershell
-# Provision all workspaces across all environments
-$result = Invoke-FabricSetup -Config $topology -SkipPipeline
+# One run per environment (e.g. one ADO stage each, under that environment's service principal)
+$result = Invoke-FabricSetup -Config $topology -Environment "Dev"
+$result = Invoke-FabricSetup -Config $topology -Environment "Test"
 
-# Once workspaces exist, set up deployment pipelines
-$result = Invoke-FabricSetup -Config $topology -SkipGit -SkipIdentity -SkipMonitoring -SkipEnvironment -SkipRbac
+# Once every environment's workspaces exist, set up the deployment pipelines (dedicated final stage)
+$pipelineResult = Invoke-FabricDeploymentPipelineSetup -Config $topology
 ```
 
 **Inspect resolved workspace names before provisioning:**
@@ -889,9 +952,10 @@ The test suite covers:
 - `New-FabricTopologyConfig` — environment count, workspace count, capacity assignment, Git opt-in per workspace type (`-GitWorkspaceConfig`), single Git environment (`-GitEnvironment`), identity filtering, monitoring filtering, pipeline opt-in (`-EnablePipelines`), Spark Environment opt-in (`-EnableEnvironments`, `-SetEnvironmentAsDefault`, `-EnvironmentRuntimeVersion`), per-type Spark Environment stage scoping (`-EnvironmentStages`, defaulting, validation errors), RBAC role assignment rules (`-RoleAssignments`), pipeline role assignment rules (`-PipelineRoleAssignments`), `-OutputPath` JSON output, GitHub provider, validation errors
 - `New-FabricEnvironment` — WhatIf, idempotent skip when present, create via POST, description in body, 409 conflict resolution, non-conflict error propagation
 - `Set-FabricWorkspaceDefaultEnvironment` — WhatIf, PATCH body shape, custom runtime version, skip when default already matches
-- `Set-FabricDeploymentPipeline` — WhatIf, create+assign all stages, skip when fully assigned, update vacant stages, skip missing workspaces gracefully, pagination across continuation tokens, API error propagation, report field correctness
+- `Set-FabricDeploymentPipeline` — WhatIf, create+assign all stages, skip when fully assigned, update vacant stages, throw without touching the pipeline when a workspace is missing, pagination across continuation tokens, API error propagation, report field correctness
 - `Set-FabricDeploymentPipelineRoleAssignment` — WhatIf, Admin default, non-Admin role rejection, skip when principal already present, create via POST, principal type acceptance, API error propagation, report field correctness
-- `Invoke-FabricSetup` — pipeline role assignment application, `-SkipPipelineRbac`, non-fatal pipeline RBAC failures, no RBAC attempt when pipeline setup fails, environment provisioning + set-as-default, `-SkipEnvironment`, non-fatal environment failures
+- `Invoke-FabricSetup` — deploying identity Admin and workspace identity Contributor grants, single-environment targeting, deployment pipelines not configured, environment provisioning + set-as-default, `-SkipEnvironment`, non-fatal environment failures
+- `Invoke-FabricDeploymentPipelineSetup` — pipeline-enabled types only, summary by action (WhatIf not counted), pipeline role assignment application, `-SkipPipelineRbac`, failed pipeline recorded without an RBAC attempt while other types continue, non-fatal pipeline RBAC failures, no-op warning when no pipelines are enabled, token refresh, `-ConfigPath`
 - `_Invoke-FabricFileUpload` — multipart upload URL/headers, no manual Content-Type, missing-file guard, API error unwrap
 - `Add-FabricEnvironmentLibrary` — staging-libraries endpoint, WhatIf no-op
 - `Remove-FabricEnvironmentLibrary` — staging delete endpoint, library-name URL encoding, 404 treated as already removed, other API errors rethrown, WhatIf no-op
@@ -936,6 +1000,8 @@ ZeroFailed.Deploy.Fabric/
     │   ├── Enable-FabricWorkspaceMonitoring.Tests.ps1
     │   ├── Get-FabricEnvironmentLibraries.ps1     # Python library deploy: read published/staging libs
     │   ├── Get-FabricEnvironmentLibraries.Tests.ps1
+    │   ├── Invoke-FabricDeploymentPipelineSetup.ps1  # Deployment pipelines: orchestrator
+    │   ├── Invoke-FabricDeploymentPipelineSetup.Tests.ps1
     │   ├── Invoke-FabricPythonLibraryDeploy.ps1   # Python library deploy: orchestrator
     │   ├── Invoke-FabricPythonLibraryDeploy.Tests.ps1
     │   ├── Invoke-FabricSetup.ps1

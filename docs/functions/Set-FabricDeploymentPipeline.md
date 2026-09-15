@@ -4,7 +4,7 @@ external help file: ZeroFailed.Deploy.Fabric-Help.xml
 HelpUri: https://learn.microsoft.com/rest/api/fabric/core/deployment-pipelines
 Locale: en-US
 Module Name: ZeroFailed.Deploy.Fabric
-ms.date: 08/18/2026
+ms.date: 09/15/2026
 PlatyPS schema version: 2024-05-01
 title: Set-FabricDeploymentPipeline
 ---
@@ -30,10 +30,14 @@ Set-FabricDeploymentPipeline [-Config] <psobject> [-WorkspaceType] <string> [-To
 
 Provisions a deployment pipeline for a single workspace type.
 Each environment in the
-topology config becomes a named stage in the pipeline.
-Workspaces are assigned to stages
-where they exist; stages for environments whose workspaces have not yet been provisioned
-are left unassigned and can be assigned on a subsequent run.
+topology config becomes a named stage in the pipeline, and each environment's workspace is
+assigned to its stage.
+
+Every environment's workspace must already exist and be visible to the caller (assigning a
+workspace to a stage requires workspace Admin).
+If any cannot be found, an error is thrown
+before the pipeline is created or modified, so a partially-assigned pipeline is never left
+behind.
 
 Idempotent: safe to call on an existing pipeline.
 Already-assigned stages are skipped.
