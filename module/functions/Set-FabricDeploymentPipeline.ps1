@@ -26,7 +26,8 @@ function Set-FabricDeploymentPipeline {
 
         Creates or updates the deployment pipeline for the Bronze workspace type across all environments.
     #>
-    [CmdletBinding(SupportsShouldProcess)]
+    [CmdletBinding(SupportsShouldProcess,
+        HelpUri = 'https://learn.microsoft.com/rest/api/fabric/core/deployment-pipelines')]
     [OutputType([hashtable])]
     param(
         [Parameter(Mandatory)]

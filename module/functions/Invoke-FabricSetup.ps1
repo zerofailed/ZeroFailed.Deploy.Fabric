@@ -13,9 +13,9 @@ function Invoke-FabricSetup {
           7. Provisions a Spark Environment and (optionally) sets it as workspace default (if enabled
              for the type and the current environment is in the type's configured stages)
           8. Applies RBAC role assignments (if configured)
-        Then, for each workspace type with pipelines enabled:
-          8. Creates or updates the deployment pipeline across all environments
-          9. Applies deployment pipeline role assignments (if configured)
+          9. Then, for each workspace type with pipelines enabled:
+             - Creates or updates the deployment pipeline across all environments
+             - Applies deployment pipeline role assignments (if configured)
         Returns a structured results object with a summary; a per-workspace model (a flat
         'Workspaces' list and a nested 'WorkspacesByType.<type>.<environment>' index, each record
         carrying the workspace id, identity principal/application ids, Spark environment id and
@@ -50,7 +50,8 @@ function Invoke-FabricSetup {
 
         Runs the full provisioning pipeline from a saved topology config, skipping Git integration.
     #>
-    [CmdletBinding(DefaultParameterSetName = 'Object', SupportsShouldProcess)]
+    [CmdletBinding(DefaultParameterSetName = 'Object', SupportsShouldProcess,
+        HelpUri = 'https://learn.microsoft.com/rest/api/fabric/')]
     [OutputType([pscustomobject])]
     param(
         [Parameter(Mandatory, ParameterSetName = 'Object', Position = 0)]

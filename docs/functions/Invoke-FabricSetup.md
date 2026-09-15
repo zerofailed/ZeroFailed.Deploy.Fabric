@@ -4,7 +4,7 @@ external help file: ZeroFailed.Deploy.Fabric-Help.xml
 HelpUri: https://learn.microsoft.com/rest/api/fabric/
 Locale: en-US
 Module Name: ZeroFailed.Deploy.Fabric
-ms.date: 08/18/2026
+ms.date: 09/15/2026
 PlatyPS schema version: 2024-05-01
 title: Invoke-FabricSetup
 ---
@@ -51,16 +51,19 @@ Provisions Workspace Identity and grants it Contributor on the workspace (if ena
   6.
 Enables workspace monitoring (if enabled)
   7.
-Provisions a Spark Environment and (optionally) sets it as workspace default (if enabled)
+Provisions a Spark Environment and (optionally) sets it as workspace default (if enabled
+     for the type and the current environment is in the type's configured stages)
   8.
 Applies RBAC role assignments (if configured)
-Then, for each workspace type with pipelines enabled:
-  8.
-Creates or updates the deployment pipeline across all environments
   9.
-Applies deployment pipeline role assignments (if configured)
-Returns a structured results object with a summary, identity report, monitoring report,
-role assignment report, pipeline report, and pipeline role assignment report.
+Then, for each workspace type with pipelines enabled:
+     - Creates or updates the deployment pipeline across all environments
+     - Applies deployment pipeline role assignments (if configured)
+Returns a structured results object with a summary; a per-workspace model (a flat
+'Workspaces' list and a nested 'WorkspacesByType.<type>.<environment>' index, each record
+carrying the workspace id, identity principal/application ids, Spark environment id and
+status); and the identity, monitoring, environment, role assignment, pipeline and pipeline
+role assignment reports.
 
 ## EXAMPLES
 

@@ -2,7 +2,7 @@
 document type: cmdlet
 external help file: ZeroFailed.Deploy.Fabric-Help.xml
 HelpUri: https://learn.microsoft.com/rest/api/fabric/
-Locale: en-GB
+Locale: en-US
 Module Name: ZeroFailed.Deploy.Fabric
 ms.date: 09/10/2026
 PlatyPS schema version: 2024-05-01
@@ -122,10 +122,6 @@ HelpMessage: ''
 
 ### -Environments
 
-Subset of environment names to inspect.
-Defaults to all environments in config.
-Subset of environment names to inspect.
-Defaults to all environments in config.
 Subset of environment names to inspect.
 Defaults to all environments in config.
 

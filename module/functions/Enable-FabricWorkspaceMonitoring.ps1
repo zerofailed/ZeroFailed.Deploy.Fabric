@@ -22,7 +22,8 @@ function Enable-FabricWorkspaceMonitoring {
 
         Verifies that the Monitoring Eventhouse exists for the workspace and returns a report entry.
     #>
-    [CmdletBinding(SupportsShouldProcess)]
+    [CmdletBinding(SupportsShouldProcess,
+        HelpUri = 'https://learn.microsoft.com/fabric/fundamentals/workspace-monitoring-overview')]
     [OutputType([hashtable])]
     param(
         [Parameter(Mandatory)]

@@ -52,7 +52,8 @@ function Get-FabricTopologyState {
     .LINK
         https://learn.microsoft.com/rest/api/fabric/
     #>
-    [CmdletBinding(DefaultParameterSetName = 'Object')]
+    [CmdletBinding(DefaultParameterSetName = 'Object',
+        HelpUri = 'https://learn.microsoft.com/rest/api/fabric/')]
     [OutputType([pscustomobject])]
     param(
         [Parameter(Mandatory, ParameterSetName = 'Object', Position = 0)]
