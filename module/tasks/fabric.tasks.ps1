@@ -274,13 +274,15 @@ task grantWorkspaceIdentitiesAzurePermissions `
         Write-Build White "Fabric -> Azure environment mapping: $fabricEnv -> $azureEnv"
 
         $groupName = $FabricWorkspaceIdentitiesAzureAccessGroupName -f $azureEnv
+        $groupDescription = $FabricWorkspaceIdentitiesAzureAccessGroupDescription -f $azureEnv
         $splat = @{
             DisplayName = $groupName
             MailNickname = $groupName
-            Description = "Used to grant Fabric Workspace Identities permissions to '$azureEnv' environment Azure resources"
+            Description = $groupDescription
             OwnersToAssignOnCreation = @(
                 $currentIdentity.Id
             )
+            StrictMode = $false         # This group will typically already exist, so avoid errors if 'groupDescription' is out-of-date
         }
         # Ensure the central group for managing RBAC permissions for Fabric Workspace IDs is setup
         Write-Build White "Ensuring Azure RBAC management group exists: $groupName"

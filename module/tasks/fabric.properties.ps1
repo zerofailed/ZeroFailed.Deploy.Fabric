@@ -59,3 +59,4 @@ $FabricAzureEnvironmentMapping = @{
 }
 
 $FabricWorkspaceIdentitiesAzureAccessGroupName = "fabric-workspace-identities-{0}"
+$FabricWorkspaceIdentitiesAzureAccessGroupDescription = "Used to grant Fabric Workspace Identities permissions to '{0}' environment Azure resources"
