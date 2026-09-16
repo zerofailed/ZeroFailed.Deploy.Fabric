@@ -208,14 +208,11 @@ task resolveFabricTopologyState -If { $FabricProvisioningResult -eq $null } {
 
     $stateParams = @{
         ConfigPath      = $FabricTopologyConfigPath
+        Environment     = $FabricEnvironment
         SkipGit         = $FabricSkipGit
         SkipIdentity    = $FabricSkipIdentity
         SkipEnvironment = $FabricSkipEnvironment
         SkipPipeline    = $FabricSkipPipeline
-    }
-
-    if ($FabricEnvironmentFilter -and $FabricEnvironmentFilter.Count -gt 0) {
-        $stateParams.Environments = $FabricEnvironmentFilter
     }
 
     $result = Get-FabricTopologyState @stateParams
@@ -257,16 +254,16 @@ task grantWorkspaceIdentitiesAzurePermissions `
     $currentIdentity = _Get-FabricDeploymentIdentity
 
     # Establish which environments we need to process
-    $availableEnvs = $FabricProvisioningResult.Workspaces | Select-Object -Unique -ExpandProperty Environment
-    $targetEnvs = if ($FabricEnvironmentFilter) {
-        $availableEnvs | Where-Object { $_.name -in $FabricEnvironmentFilter }
+    $availableFabricEnvs = $FabricProvisioningResult.Workspaces | Select-Object -Unique -ExpandProperty Environment
+    $targetFabricEnvs = if ($FabricEnvironment) {
+        $availableFabricEnvs | Where-Object { $_.name -in $FabricEnvironment }
     }
     else {
-        $availableEnvs
+        $availableFabricEnvs
     }
 
     # RBAC is managed on a per-environment basis
-    foreach ($fabricEnv in $targetEnvs) {
+    foreach ($fabricEnv in $targetFabricEnvs) {
         $azureEnv = $FabricAzureEnvironmentMapping[$fabricEnv]
         Write-Verbose "Fabric -> Azure environment mapping: $fabricEnv -> $azureEnv"
 
