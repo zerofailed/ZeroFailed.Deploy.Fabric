@@ -135,9 +135,7 @@ function Get-AzureAdDirectoryObject {
                     $matchesFound += $directoryObject
                 }
             }
-            catch {
-                Write-Verbose $_.Exception.Message -Verbose
-            }
+            catch {}
         }
     }
     catch {
