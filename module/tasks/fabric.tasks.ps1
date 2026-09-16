@@ -245,6 +245,7 @@ task resolveFabricTopologyState -If { $FabricProvisioningResult -eq $null } {
     }
 }
 
+# Synopsis: Ensures that provisioned Fabric Workspace Identities are members of a group that can be used for granting Azure RBAC permissions.
 task grantWorkspaceIdentitiesAzurePermissions `
         -If { !$FabricSkipEntra } `
         -After provisionFabricWorkspaces `
