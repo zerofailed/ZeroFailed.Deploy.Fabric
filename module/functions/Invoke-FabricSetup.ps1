@@ -360,11 +360,13 @@ function Invoke-FabricSetup {
             # g. Variable Library — non-fatal, log and continue.
             # The name is the same in every environment. An existing library is returned unchanged, so
             # variables and value sets populated after provisioning are never overwritten. A config
-            # without a 'variableLibrary' block (older config) provisions none.
+            # without a 'variableLibrary' block (older config) provisions none; a block without a name
+            # uses the default name.
             $wsVariableLibrary = if ($ws.PSObject.Properties.Name -contains 'variableLibrary') { $ws.variableLibrary } else { $null }
             if (-not $SkipVariableLibrary -and $wsVariableLibrary -and $wsVariableLibrary.enabled) {
                 try {
-                    $libraryName = _Resolve-VariableLibraryName -Config $Config -WorkspaceId $ws.id
+                    $configuredName = if ($wsVariableLibrary.PSObject.Properties.Name -contains 'name') { $wsVariableLibrary.name } else { $null }
+                    $libraryName = _Resolve-VariableLibraryName -Name $configuredName
 
                     $libraryObj = New-FabricVariableLibrary `
                         -WorkspaceId $workspaceId `

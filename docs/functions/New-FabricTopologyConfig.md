@@ -27,7 +27,7 @@ New-FabricTopologyConfig [-Project] <string> [-WorkspaceTypes] <string[]> [-Envi
  [[-EnablePipelines] <string[]>] [[-PipelineRoleAssignments] <hashtable[]>]
  [[-EnableEnvironments] <string[]>] [[-EnvironmentStages] <hashtable>]
  [[-EnvironmentRuntimeVersion] <string>] [[-EnableVariableLibraries] <string[]>]
- [[-VariableLibraryNameTemplate] <string>] [[-TypeShortCodes] <hashtable>]
+ [[-VariableLibraryName] <string>] [[-TypeShortCodes] <hashtable>]
  [[-EnvShortCodes] <hashtable>] [[-OutputPath] <string>] [-SetEnvironmentAsDefault]
 ```
 
@@ -572,16 +572,16 @@ AcceptedValues: []
 HelpMessage: ''
 ```
 
-### -VariableLibraryNameTemplate
+### -VariableLibraryName
 
-Template for the variable library display name.
-The name is the same in every environment, so
-only the {project} and {type} tokens are supported.
-Default: '{project}-{type} Variables'.
+Display name for the provisioned variable libraries.
+The name is used as-is, and is the same in
+every workspace and environment.
+Default: 'VariableLibrary'.
 
 ```yaml
 Type: System.String
-DefaultValue: '{project}-{type} Variables'
+DefaultValue: VariableLibrary
 SupportsWildcards: false
 Aliases: []
 ParameterSets:

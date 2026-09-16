@@ -592,39 +592,32 @@ Describe 'New-FabricTopologyConfig — Variable Library configuration' {
         $silverWs.variableLibrary.enabled | Should -Be $false
     }
 
-    It 'exposes the default variable library name template on the naming convention' {
-        $config = New-FabricTopologyConfig @script:commonParams
-        $config.namingConvention.variableLibraryNameTemplate | Should -Be '{project}-{type} Variables'
+    It 'names every variable library VariableLibrary by default' {
+        $config = New-FabricTopologyConfig @script:commonParams -EnableVariableLibraries @('Bronze')
+        $config.workspaces | ForEach-Object {
+            $_.variableLibrary.name | Should -Be 'VariableLibrary'
+        }
     }
 
-    It 'honours a custom -VariableLibraryNameTemplate' {
-        $config = New-FabricTopologyConfig @script:commonParams -EnableVariableLibraries @('Bronze') -VariableLibraryNameTemplate '{type}_Config'
-        $config.namingConvention.variableLibraryNameTemplate | Should -Be '{type}_Config'
+    It 'uses -VariableLibraryName as-is for every workspace' {
+        $config = New-FabricTopologyConfig @script:commonParams -EnableVariableLibraries @('Bronze', 'Gold') -VariableLibraryName 'Sales Config'
+        $config.workspaces | ForEach-Object {
+            $_.variableLibrary.name | Should -Be 'Sales Config'
+        }
     }
 
     It 'round-trips the variable library settings through JSON' {
         $outFile = Join-Path $TestDrive 'topology-vl.json'
-        New-FabricTopologyConfig @script:commonParams -EnableVariableLibraries @('Bronze') -OutputPath $outFile | Out-Null
+        New-FabricTopologyConfig @script:commonParams -EnableVariableLibraries @('Bronze') -VariableLibraryName 'Sales_Config' -OutputPath $outFile | Out-Null
         $json = Get-Content $outFile -Raw | ConvertFrom-Json
-        ($json.workspaces | Where-Object { $_.type -eq 'Bronze' }).variableLibrary.enabled | Should -Be $true
-        $json.namingConvention.variableLibraryNameTemplate | Should -Be '{project}-{type} Variables'
+        $bronzeWs = $json.workspaces | Where-Object { $_.type -eq 'Bronze' }
+        $bronzeWs.variableLibrary.enabled | Should -Be $true
+        $bronzeWs.variableLibrary.name    | Should -Be 'Sales_Config'
     }
 
-    It 'throws when -VariableLibraryNameTemplate contains a stage-specific token' {
-        { New-FabricTopologyConfig @script:commonParams -VariableLibraryNameTemplate '{project}-{type} [{env}]' } |
-            Should -Throw '*unsupported token*'
-    }
-
-    It 'throws when a resolved variable library name breaks the Fabric naming rules' {
-        $params = $script:commonParams.Clone()
-        $params.Project = '1salesanalytics'   # must start with a letter
-        { New-FabricTopologyConfig @params -EnableVariableLibraries @('Bronze') } | Should -Throw '*is invalid*'
-    }
-
-    It 'does not validate variable library names when no type has a variable library enabled' {
-        $params = $script:commonParams.Clone()
-        $params.Project = '1salesanalytics'
-        { New-FabricTopologyConfig @params } | Should -Not -Throw
+    It 'throws when -VariableLibraryName breaks the Fabric naming rules' {
+        { New-FabricTopologyConfig @script:commonParams -EnableVariableLibraries @('Bronze') -VariableLibraryName '1 Variables' } |
+            Should -Throw '*is invalid*'
     }
 }
 

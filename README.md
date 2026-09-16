@@ -229,7 +229,7 @@ New-FabricTopologyConfig `
 | `-SetEnvironmentAsDefault` | `switch` | No | Off | When set, environment-enabled workspaces have their environment registered as the workspace default |
 | `-EnvironmentRuntimeVersion` | `string` | No | `1.3` | Spark runtime version used for provisioned environments |
 | `-EnableVariableLibraries` | `string[]` | No | None | Workspace types that should have an empty Fabric Variable Library provisioned (one library per workspace, in every environment) |
-| `-VariableLibraryNameTemplate` | `string` | No | `{project}-{type} Variables` | Variable library display name template. Only `{project}` and `{type}` are supported — the name is the same in every environment |
+| `-VariableLibraryName` | `string` | No | `VariableLibrary` | Variable library display name, used as-is — the same in every workspace and environment |
 | `-RoleAssignments` | `hashtable[]` | No | None | Role assignment rules applied by workspace type and environment (see below) |
 | `-PipelineRoleAssignments` | `hashtable[]` | No | None | Deployment pipeline role assignment rules applied by workspace type (see below) |
 | `-OutputPath` | `string` | No | — | Write the generated config as JSON to this path |
@@ -391,9 +391,9 @@ When `-SetEnvironmentAsDefault` is supplied, each enabled workspace's environmen
 
 **`-EnableVariableLibraries` — Variable Libraries:**
 
-Fabric Variable Libraries hold configuration values (with a value set per stage) that other Fabric items reference. Variable Library provisioning is opt-in per workspace type via `-EnableVariableLibraries`; each enabled workspace gets one library, in **every** environment, named from `-VariableLibraryNameTemplate` (default `{project}-{type} Variables`, e.g. `salesanalytics-Bronze Variables`).
+Fabric Variable Libraries hold configuration values (with a value set per stage) that other Fabric items reference. Variable Library provisioning is opt-in per workspace type via `-EnableVariableLibraries`; each enabled workspace gets one library, in **every** environment, named `-VariableLibraryName` (default `VariableLibrary`).
 
-The name is deliberately **the same in every environment** — each stage's library lives in its own workspace, so there is no clash, and a stable name keeps references consistent as items are promoted between stages. The template therefore only supports the `{project}` and `{type}` tokens; a template containing any other token (such as `{env}`) is rejected by `New-FabricTopologyConfig`. The resolved name must also follow Fabric's variable library naming rules (starts with a letter; only letters, numbers, underscores, hyphens and spaces; at most 256 characters), which `New-FabricTopologyConfig` checks up front.
+The name is used as-is and is deliberately **the same in every workspace and environment** — each library lives in its own workspace, so there is no clash, and a stable name keeps references consistent as items are promoted between stages. It is stored as `variableLibrary.name` on each workspace in the config (a hand-written config that omits it gets the default). The name must follow Fabric's variable library naming rules (starts with a letter; only letters, numbers, underscores, hyphens and spaces; at most 256 characters), which `New-FabricTopologyConfig` checks up front.
 
 ```powershell
 New-FabricTopologyConfig `
@@ -402,7 +402,7 @@ New-FabricTopologyConfig `
     -Environments                @("Dev", "Test", "Production") `
     -CapacityMap                 @{ Dev="cap-dev"; Test="cap-test"; Production="cap-prod" } `
     -EnableVariableLibraries     @("Bronze", "Gold") `
-    -VariableLibraryNameTemplate "{project}_{type}_Config"   # optional; e.g. salesanalytics_Bronze_Config
+    -VariableLibraryName         "Config"   # optional; defaults to VariableLibrary
 ```
 
 > **Note:** This step provisions an **empty** Variable Library — no variables or value sets are populated. If a library with the same name already exists in the workspace it is left **completely untouched** (never overwritten or modified), so variables and value sets added after provisioning are safe across re-runs.
@@ -513,7 +513,7 @@ $result.Failures        # Array of per-workspace failure details
 @{
     WorkspaceName       = "salesanalytics-Bronze [DEV]"
     WorkspaceId         = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-    VariableLibraryName = "salesanalytics-Bronze Variables"
+    VariableLibraryName = "VariableLibrary"
     VariableLibraryId   = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
 }
 ```
@@ -692,7 +692,7 @@ $env = New-FabricEnvironment -WorkspaceId $ws.id -DisplayName "salesanalytics-Br
 Creates an empty Fabric Variable Library in a workspace (`POST /workspaces/{id}/variableLibraries`, no definition — so no variables or value sets are populated). If a variable library with the same display name already exists it is returned **unchanged** — it is never overwritten or modified. An `ItemDisplayNameAlreadyInUse` (HTTP 409) conflict is treated idempotently by resolving and returning the existing library, and a long-running (HTTP 202) creation resolves the created library by name. Normally called by `Invoke-FabricSetup`; can also be used directly.
 
 ```powershell
-$library = New-FabricVariableLibrary -WorkspaceId $ws.id -DisplayName "salesanalytics-Bronze Variables" -Token $token
+$library = New-FabricVariableLibrary -WorkspaceId $ws.id -DisplayName "VariableLibrary" -Token $token
 ```
 
 #### `Set-FabricWorkspaceDefaultEnvironment`
@@ -905,7 +905,7 @@ Invoke-FabricSetup
     │           ├── already default → skip
     │           └── else → PATCH /spark/settings  → append to $result.Environments
     ├── New-FabricVariableLibrary  (unless -SkipVariableLibrary or variableLibrary.enabled=false)
-    │   ├── _Resolve-VariableLibraryName → "{project}-{type} Variables" (same in every environment)
+    │   ├── _Resolve-VariableLibraryName → variableLibrary.name, or "VariableLibrary" (same in every environment)
     │   ├── _Resolve-FabricVariableLibrary → GET /variableLibraries (paginated, by displayName)
     │   ├── exists  → leave untouched
     │   └── missing → POST /variableLibraries (empty; 409 → resolve existing)
@@ -1008,14 +1008,14 @@ Invoke-Pester ./module -Output Detailed
 
 The test suite covers:
 - `_Resolve-WorkspaceName` — correct name generation, lowercasing, truncation, error cases
-- `New-FabricTopologyConfig` — environment count, workspace count, capacity assignment, Git opt-in per workspace type (`-GitWorkspaceConfig`), single Git environment (`-GitEnvironment`), identity filtering, monitoring filtering, pipeline opt-in (`-EnablePipelines`), Spark Environment opt-in (`-EnableEnvironments`, `-SetEnvironmentAsDefault`, `-EnvironmentRuntimeVersion`), per-type Spark Environment stage scoping (`-EnvironmentStages`, defaulting, validation errors), Variable Library opt-in (`-EnableVariableLibraries`, `-VariableLibraryNameTemplate`, token and naming-rule validation), RBAC role assignment rules (`-RoleAssignments`), pipeline role assignment rules (`-PipelineRoleAssignments`), `-OutputPath` JSON output, GitHub provider, validation errors
+- `New-FabricTopologyConfig` — environment count, workspace count, capacity assignment, Git opt-in per workspace type (`-GitWorkspaceConfig`), single Git environment (`-GitEnvironment`), identity filtering, monitoring filtering, pipeline opt-in (`-EnablePipelines`), Spark Environment opt-in (`-EnableEnvironments`, `-SetEnvironmentAsDefault`, `-EnvironmentRuntimeVersion`), per-type Spark Environment stage scoping (`-EnvironmentStages`, defaulting, validation errors), Variable Library opt-in (`-EnableVariableLibraries`, `-VariableLibraryName` default/custom name and naming-rule validation), RBAC role assignment rules (`-RoleAssignments`), pipeline role assignment rules (`-PipelineRoleAssignments`), `-OutputPath` JSON output, GitHub provider, validation errors
 - `New-FabricEnvironment` — WhatIf, idempotent skip when present, create via POST, description in body, 409 conflict resolution, non-conflict error propagation
 - `New-FabricVariableLibrary` — existing library returned with no create/update calls, WhatIf, empty create via POST (no definition), description in body, LRO resolution by name, 409 conflict resolution, non-conflict error propagation
-- `_Resolve-VariableLibraryName` / `_Resolve-FabricVariableLibrary` — stage-independent naming, default/custom templates, stage-token and naming-rule rejection; lookup by name with pagination
+- `_Resolve-VariableLibraryName` / `_Resolve-FabricVariableLibrary` — configured name or `VariableLibrary` default, naming-rule rejection; lookup by name with pagination
 - `Set-FabricWorkspaceDefaultEnvironment` — WhatIf, PATCH body shape, custom runtime version, skip when default already matches
 - `Set-FabricDeploymentPipeline` — WhatIf, create+assign all stages, skip when fully assigned, update vacant stages, throw without touching the pipeline when a workspace is missing, pagination across continuation tokens, API error propagation, report field correctness
 - `Set-FabricDeploymentPipelineRoleAssignment` — WhatIf, Admin default, non-Admin role rejection, skip when principal already present, create via POST, principal type acceptance, API error propagation, report field correctness
-- `Invoke-FabricSetup` — deploying identity Admin and workspace identity Contributor grants, single-environment targeting, deployment pipelines not configured, environment provisioning + set-as-default, `-SkipEnvironment`, non-fatal environment failures, variable library provisioning per environment, `-SkipVariableLibrary`, older configs without a `variableLibrary` block, non-fatal variable library failures
+- `Invoke-FabricSetup` — deploying identity Admin and workspace identity Contributor grants, single-environment targeting, deployment pipelines not configured, environment provisioning + set-as-default, `-SkipEnvironment`, non-fatal environment failures, variable library provisioning per environment, `-SkipVariableLibrary`, older configs without a `variableLibrary` block, default name when none configured, non-fatal variable library failures
 - `Invoke-FabricDeploymentPipelineSetup` — pipeline-enabled types only, summary by action (WhatIf not counted), pipeline role assignment application, `-SkipPipelineRbac`, failed pipeline recorded without an RBAC attempt while other types continue, non-fatal pipeline RBAC failures, no-op warning when no pipelines are enabled, token refresh, `-ConfigPath`
 - `_Invoke-FabricFileUpload` — multipart upload URL/headers, no manual Content-Type, missing-file guard, API error unwrap
 - `Add-FabricEnvironmentLibrary` — staging-libraries endpoint, WhatIf no-op
@@ -1053,7 +1053,7 @@ ZeroFailed.Deploy.Fabric/
     │   ├── _Invoke-PipDownload.ps1                # Private: mockable pip download shim
     │   ├── _Resolve-FabricEnvironment.ps1         # Private: resolve Spark Environment by name
     │   ├── _Resolve-FabricVariableLibrary.ps1     # Private: resolve Variable Library by name
-    │   ├── _Resolve-VariableLibraryName.ps1       # Private: Variable Library naming convention
+    │   ├── _Resolve-VariableLibraryName.ps1       # Private: Variable Library name default + validation
     │   ├── _Resolve-WorkspaceName.ps1             # Private: naming convention engine
     │   ├── Add-FabricEnvironmentLibrary.ps1       # Python library deploy: upload library to staging
     │   ├── Add-FabricEnvironmentLibrary.Tests.ps1

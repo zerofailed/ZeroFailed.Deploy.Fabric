@@ -72,9 +72,9 @@ function New-FabricTopologyConfig {
     .PARAMETER EnableVariableLibraries
         Array of workspace type names that should have a Fabric Variable Library provisioned
         (one empty library per workspace, in every environment). Defaults to no workspace types (opt-in).
-    .PARAMETER VariableLibraryNameTemplate
-        Template for the variable library display name. The name is the same in every environment, so
-        only the {project} and {type} tokens are supported. Default: '{project}-{type} Variables'.
+    .PARAMETER VariableLibraryName
+        Display name for the provisioned variable libraries. The name is used as-is, and is the same in
+        every workspace and environment. Default: 'VariableLibrary'.
     .PARAMETER RoleAssignments
         Array of role assignment rules to apply to workspaces. Each rule is a hashtable with:
           PrincipalId    (required) — Entra object ID of the group, user, or service principal
@@ -168,7 +168,7 @@ function New-FabricTopologyConfig {
         [string[]]$EnableVariableLibraries,
 
         [ValidateNotNullOrEmpty()]
-        [string]$VariableLibraryNameTemplate = '{project}-{type} Variables',
+        [string]$VariableLibraryName = 'VariableLibrary',
 
         [hashtable]$TypeShortCodes,
 
@@ -304,13 +304,9 @@ function New-FabricTopologyConfig {
     # Resolve EnableVariableLibraries — default to no workspace types (opt-in)
     $variableLibraryTypes = if ($EnableVariableLibraries) { $EnableVariableLibraries } else { @() }
 
-    # Validate VariableLibraryNameTemplate — the library name is the same in every environment, so only
-    # the stage-independent {project} and {type} tokens are supported.
-    $unsupportedTokens = @([regex]::Matches($VariableLibraryNameTemplate, '\{[^}]+\}').Value |
-        Where-Object { $_ -notin @('{project}', '{type}') })
-    if ($unsupportedTokens.Count -gt 0) {
-        throw "-VariableLibraryNameTemplate '$VariableLibraryNameTemplate' contains unsupported token(s): $($unsupportedTokens -join ', '). Only {project} and {type} are supported — the variable library name is the same in every environment."
-    }
+    # Validate VariableLibraryName up front, so a name that breaks Fabric's naming rules fails here
+    # rather than part-way through provisioning.
+    $resolvedVariableLibraryName = _Resolve-VariableLibraryName -Name $VariableLibraryName
 
     # Validate EnvironmentStages — keys must be environment-enabled types, values must be known environments
     if ($EnvironmentStages) {
@@ -449,7 +445,10 @@ function New-FabricTopologyConfig {
                 setAsWorkspaceDefault = $environmentEnabled -and $SetEnvironmentAsDefault.IsPresent
                 runtimeVersion        = $EnvironmentRuntimeVersion
             }
-            variableLibrary = [pscustomobject]@{ enabled = $wsType -in $variableLibraryTypes }
+            variableLibrary = [pscustomobject]@{
+                enabled = $wsType -in $variableLibraryTypes
+                name    = $resolvedVariableLibraryName
+            }
             rbac       = $rbacByEnv
         }
     }
@@ -463,19 +462,12 @@ function New-FabricTopologyConfig {
         namingConvention  = [pscustomobject]@{
             template                = '{project}-{type} [{env}]'
             environmentNameTemplate = '{project}-{type} Env'
-            variableLibraryNameTemplate = $VariableLibraryNameTemplate
             maxLength               = 64
             typeShortCodes          = [pscustomobject]$resolvedTypeShortCodes
             envShortCodes           = [pscustomobject]$resolvedEnvShortCodes
         }
         environments      = @($envList)
         workspaces        = @($workspaceList)
-    }
-
-    # Resolve variable library names up front, so a name that breaks Fabric's naming rules fails here
-    # rather than part-way through provisioning.
-    foreach ($ws in @($config.workspaces | Where-Object { $_.variableLibrary.enabled })) {
-        _Resolve-VariableLibraryName -Config $config -WorkspaceId $ws.id | Out-Null
     }
 
     # Optionally write to file

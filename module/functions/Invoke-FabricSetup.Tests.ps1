@@ -31,7 +31,7 @@ BeforeAll {
                     rbac       = [pscustomobject]@{ Dev = @([pscustomobject]@{ principalId = 'g1'; principalType = 'Group'; role = 'Member' }) }
                     pipeline   = [pscustomobject]@{ enabled = $true; roleAssignments = @([pscustomobject]@{ principalId = 'pg1'; principalType = 'Group'; role = 'Admin' }) }
                     environment = [pscustomobject]@{ enabled = $true; setAsWorkspaceDefault = $true; runtimeVersion = '1.3' }
-                    variableLibrary = [pscustomobject]@{ enabled = $true }
+                    variableLibrary = [pscustomobject]@{ enabled = $true; name = 'Bronze Variables' }
                 }
             )
         }
@@ -67,8 +67,7 @@ Describe 'Invoke-FabricSetup' {
             Mock Enable-FabricWorkspaceMonitoring { @{ Enabled = $true } } -ModuleName ZeroFailed.Deploy.Fabric
             Mock New-FabricEnvironment { [pscustomobject]@{ id = 'env-1'; displayName = 'bronze Env' } } -ModuleName ZeroFailed.Deploy.Fabric
             Mock Set-FabricWorkspaceDefaultEnvironment { @{ EnvironmentName = 'bronze Env'; Action = 'Set' } } -ModuleName ZeroFailed.Deploy.Fabric
-            Mock _Resolve-VariableLibraryName { 'bronze Variables' } -ModuleName ZeroFailed.Deploy.Fabric
-            Mock New-FabricVariableLibrary { [pscustomobject]@{ id = 'vl-1'; displayName = 'bronze Variables' } } -ModuleName ZeroFailed.Deploy.Fabric
+            Mock New-FabricVariableLibrary { [pscustomobject]@{ id = 'vl-1'; displayName = $DisplayName } } -ModuleName ZeroFailed.Deploy.Fabric
             Mock Set-FabricWorkspaceRoleAssignment { @{ Action = 'Created' } } -ModuleName ZeroFailed.Deploy.Fabric
             Mock Set-FabricDeploymentPipeline { @{ Action = 'Created'; PipelineId = 'pipe-1'; PipelineName = 'bronze-pipeline' } } -ModuleName ZeroFailed.Deploy.Fabric
             Mock Set-FabricDeploymentPipelineRoleAssignment { @{ Action = 'Created' } } -ModuleName ZeroFailed.Deploy.Fabric
@@ -231,10 +230,20 @@ Describe 'Invoke-FabricSetup' {
             $r = Invoke-FabricSetup -Config (New-TestConfig)
 
             $r.VariableLibraries.Count | Should -Be 2     # 1 workspace x 2 environments
-            ($r.VariableLibraries.VariableLibraryName | Sort-Object -Unique) | Should -Be 'bronze Variables'
+            ($r.VariableLibraries.VariableLibraryName | Sort-Object -Unique) | Should -Be 'Bronze Variables'
             $r.VariableLibraries[0].VariableLibraryId | Should -Be 'vl-1'
             Should -Invoke New-FabricVariableLibrary -Times 2 -Exactly -ModuleName ZeroFailed.Deploy.Fabric `
-                -ParameterFilter { $WorkspaceId -eq 'ws-1' -and $DisplayName -eq 'bronze Variables' }
+                -ParameterFilter { $WorkspaceId -eq 'ws-1' -and $DisplayName -eq 'Bronze Variables' }
+        }
+
+        It 'uses the default variable library name when the variableLibrary block has no name' {
+            $config = New-TestConfig
+            $config.workspaces[0].variableLibrary.PSObject.Properties.Remove('name')
+            $r = Invoke-FabricSetup -Config $config -Environment 'Dev'
+
+            $r.VariableLibraries[0].VariableLibraryName | Should -Be 'VariableLibrary'
+            Should -Invoke New-FabricVariableLibrary -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric `
+                -ParameterFilter { $DisplayName -eq 'VariableLibrary' }
         }
 
         It 'skips variable library provisioning when the workspace has it disabled' {
