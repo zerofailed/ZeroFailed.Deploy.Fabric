@@ -4,7 +4,7 @@ external help file: ZeroFailed.Deploy.Fabric-Help.xml
 HelpUri: https://learn.microsoft.com/rest/api/fabric/core/workspaces/create-workspace
 Locale: en-US
 Module Name: ZeroFailed.Deploy.Fabric
-ms.date: 08/18/2026
+ms.date: 09/10/2026
 PlatyPS schema version: 2024-05-01
 title: New-FabricWorkspace
 ---
@@ -29,9 +29,13 @@ New-FabricWorkspace [-DisplayName] <string> [-CapacityName] <string> [-Token] <s
 ## DESCRIPTION
 
 Checks whether a workspace with the given display name already exists and returns it if so.
-Otherwise creates a new workspace on the specified capacity and returns the created object.
-Tolerates a WorkspaceNameAlreadyExists (HTTP 409) conflict by resolving and returning the
-existing workspace, so creation is idempotent.
+Otherwise resolves the capacity by name and creates the workspace via the Fabric REST API
+(POST /workspaces), returning the created object.
+
+Uses the module's own bearer-token REST path (not MicrosoftFabricMgmt) for a consistent
+identity, clean error propagation, and StrictMode safety.
+A WorkspaceNameAlreadyExists
+(HTTP 409) conflict is treated idempotently: the existing workspace is resolved and returned.
 
 ## EXAMPLES
 
@@ -109,7 +113,6 @@ HelpMessage: ''
 
 ### -Token
 
-Bearer token string for the Fabric REST API, used for the idempotency lookup.
 Bearer token string for the Fabric REST API.
 
 ```yaml

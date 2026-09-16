@@ -27,7 +27,8 @@ function Set-FabricDeploymentPipelineRoleAssignment {
 
         Ensures the given Entra group holds the Admin role on the deployment pipeline, applying the change idempotently.
     #>
-    [CmdletBinding(SupportsShouldProcess)]
+    [CmdletBinding(SupportsShouldProcess,
+        HelpUri = 'https://learn.microsoft.com/rest/api/fabric/core/deployment-pipelines/add-deployment-pipeline-role-assignment')]
     [OutputType([hashtable])]
     param(
         [Parameter(Mandatory)]

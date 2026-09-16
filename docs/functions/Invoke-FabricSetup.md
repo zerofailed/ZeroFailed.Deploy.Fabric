@@ -50,10 +50,14 @@ Provisions Workspace Identity and grants it Contributor on the workspace (if ena
 Enables workspace monitoring (if enabled)
   7.
 Provisions a Spark Environment and (optionally) sets it as workspace default (if enabled)
+     for the type and the current environment is in the type's configured stages)
   8.
 Applies RBAC role assignments (if configured)
-Returns a structured results object with a summary, identity report, monitoring report,
-environment report, role assignment report, and failure details.
+Returns a structured results object with a summary; a per-workspace model (a flat
+'Workspaces' list and a nested 'WorkspacesByType.<type>.<environment>' index, each record
+carrying the workspace id, identity principal/application ids, Spark environment id and
+status); and the identity, monitoring, environment, role assignment, pipeline and pipeline
+role assignment reports.
 
 Deployment pipelines span every environment, so they are not configured here: run
 Invoke-FabricDeploymentPipelineSetup once each environment's workspaces have been provisioned.

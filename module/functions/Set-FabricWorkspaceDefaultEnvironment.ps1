@@ -27,7 +27,8 @@ function Set-FabricWorkspaceDefaultEnvironment {
 
         Sets the environment as the workspace default, or reports Skipped if already set.
     #>
-    [CmdletBinding(SupportsShouldProcess)]
+    [CmdletBinding(SupportsShouldProcess,
+        HelpUri = 'https://learn.microsoft.com/rest/api/fabric/spark/workspace-settings/update-spark-settings')]
     [OutputType([hashtable])]
     param(
         [Parameter(Mandatory)]

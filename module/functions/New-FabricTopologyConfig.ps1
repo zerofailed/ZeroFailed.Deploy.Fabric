@@ -113,7 +113,7 @@ function New-FabricTopologyConfig {
           -OutputPath          "./topology.json"
         # Produces workspace names like: SalesAnalytics-ETL [DEV], SalesAnalytics-Report [PROD]
     #>
-    [CmdletBinding()]
+    [CmdletBinding(HelpUri = 'https://learn.microsoft.com/rest/api/fabric/')]
     [OutputType([pscustomobject])]
     param(
         [Parameter(Mandatory)]

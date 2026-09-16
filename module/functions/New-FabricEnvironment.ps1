@@ -26,7 +26,8 @@ function New-FabricEnvironment {
 
         Creates the environment in the workspace, or returns it if it already exists.
     #>
-    [CmdletBinding(SupportsShouldProcess)]
+    [CmdletBinding(SupportsShouldProcess,
+        HelpUri = 'https://learn.microsoft.com/rest/api/fabric/environment/items/create-environment')]
     [OutputType([pscustomobject])]
     param(
         [Parameter(Mandatory)]
