@@ -15,9 +15,12 @@ task ensureFabricModules -Before setupModules {
     }
 }
 
-# Provisions Fabric workspaces after the core deploy tasks complete.
+# Provisions Fabric workspaces after the core deploy tasks complete. Set $FabricEnvironment (e.g.
+# per ADO pipeline stage) to provision a single environment; leave it unset to provision all of
+# them in one run.
 task provisionFabricWorkspaces -After DeployCore {
-    Write-Build Cyan "Provisioning Fabric workspaces from: $FabricTopologyConfigPath"
+    $envMessage = if ([string]::IsNullOrWhiteSpace($FabricEnvironment)) { 'all environments' } else { "environment '$FabricEnvironment'" }
+    Write-Build Cyan "Provisioning Fabric workspaces ($envMessage) from: $FabricTopologyConfigPath"
 
     if (-not (Test-Path $FabricTopologyConfigPath)) {
         throw "Fabric topology config not found: $FabricTopologyConfigPath"
@@ -30,13 +33,11 @@ task provisionFabricWorkspaces -After DeployCore {
         SkipMonitoring = $FabricSkipMonitoring
         SkipEnvironment = $FabricSkipEnvironment
         SkipRbac      = $FabricSkipRbac
-        SkipPipeline  = $FabricSkipPipeline
-        SkipPipelineRbac = $FabricSkipPipelineRbac
         WhatIf        = $FabricWhatIf
     }
 
-    if ($FabricEnvironmentFilter -and $FabricEnvironmentFilter.Count -gt 0) {
-        $setupParams.Environments = $FabricEnvironmentFilter
+    if (-not [string]::IsNullOrWhiteSpace($FabricEnvironment)) {
+        $setupParams.Environment = $FabricEnvironment
     }
 
     $result = Invoke-FabricSetup @setupParams
@@ -63,6 +64,42 @@ task provisionFabricWorkspaces -After DeployCore {
             Write-Build Red "  $($_.WorkspaceName) [$($_.Environment)]: $($_.Error)"
         }
         throw "Fabric provisioning completed with $($result.Failures.Count) failure(s)."
+    }
+}
+
+# Creates or updates Fabric deployment pipelines (one per pipeline-enabled workspace type, spanning
+# every environment) and applies their role assignments. Standalone (not chained after provisioning):
+# pipelines need every environment's workspaces to exist, so invoke this from a dedicated stage that
+# runs after each environment has been provisioned, under an identity with Admin on those workspaces.
+task provisionFabricDeploymentPipelines {
+    if ($FabricSkipPipeline) {
+        Write-Build Yellow 'Skipping Fabric deployment pipeline setup (FabricSkipPipeline is set).'
+        return
+    }
+
+    Write-Build Cyan "Configuring Fabric deployment pipelines from: $FabricTopologyConfigPath"
+
+    if (-not (Test-Path $FabricTopologyConfigPath)) {
+        throw "Fabric topology config not found: $FabricTopologyConfigPath"
+    }
+
+    $pipelineParams = @{
+        ConfigPath       = $FabricTopologyConfigPath
+        SkipPipelineRbac = $FabricSkipPipelineRbac
+        WhatIf           = $FabricWhatIf
+    }
+
+    $result = Invoke-FabricDeploymentPipelineSetup @pipelineParams
+
+    $s = $result.Summary
+    Write-Build Green "Deployment pipeline setup complete — Created: $($s.Created)  Updated: $($s.Updated)  Skipped: $($s.Skipped)  Failed: $($s.Failed)"
+
+    if ($result.Failures.Count -gt 0) {
+        Write-Build Red "$($result.Failures.Count) deployment pipeline step(s) failed:"
+        $result.Failures | ForEach-Object {
+            Write-Build Red "  $($_.WorkspaceType) pipeline [$($_.Step)]: $($_.Error)"
+        }
+        throw "Fabric deployment pipeline setup completed with $($result.Failures.Count) failure(s)."
     }
 }
 

@@ -20,17 +20,15 @@ Orchestrates the full Fabric workspace provisioning pipeline from a topology con
 ### Object (Default)
 
 ```
-Invoke-FabricSetup [-Config] <psobject> [-Environments <string[]>] [-SkipGit] [-SkipIdentity]
- [-SkipMonitoring] [-SkipEnvironment] [-SkipRbac] [-SkipPipeline] [-SkipPipelineRbac] [-WhatIf]
- [-Confirm] [<CommonParameters>]
+Invoke-FabricSetup [-Config] <psobject> [-Environment <string>] [-SkipGit] [-SkipIdentity]
+ [-SkipMonitoring] [-SkipEnvironment] [-SkipRbac] [-WhatIf] [-Confirm]
 ```
 
 ### File
 
 ```
-Invoke-FabricSetup -ConfigPath <string> [-Environments <string[]>] [-SkipGit] [-SkipIdentity]
- [-SkipMonitoring] [-SkipEnvironment] [-SkipRbac] [-SkipPipeline] [-SkipPipelineRbac] [-WhatIf]
- [-Confirm] [<CommonParameters>]
+Invoke-FabricSetup -ConfigPath <string> [-Environment <string>] [-SkipGit] [-SkipIdentity]
+ [-SkipMonitoring] [-SkipEnvironment] [-SkipRbac] [-WhatIf] [-Confirm]
 ```
 
 ## ALIASES
@@ -51,25 +49,24 @@ Provisions Workspace Identity and grants it Contributor on the workspace (if ena
   6.
 Enables workspace monitoring (if enabled)
   7.
-Provisions a Spark Environment and (optionally) sets it as workspace default (if enabled
+Provisions a Spark Environment and (optionally) sets it as workspace default (if enabled)
      for the type and the current environment is in the type's configured stages)
   8.
 Applies RBAC role assignments (if configured)
-  9.
-Then, for each workspace type with pipelines enabled:
-     - Creates or updates the deployment pipeline across all environments
-     - Applies deployment pipeline role assignments (if configured)
 Returns a structured results object with a summary; a per-workspace model (a flat
 'Workspaces' list and a nested 'WorkspacesByType.<type>.<environment>' index, each record
 carrying the workspace id, identity principal/application ids, Spark environment id and
 status); and the identity, monitoring, environment, role assignment, pipeline and pipeline
 role assignment reports.
 
+Deployment pipelines span every environment, so they are not configured here: run
+Invoke-FabricDeploymentPipelineSetup once each environment's workspaces have been provisioned.
+
 ## EXAMPLES
 
 ### EXAMPLE 1
 
-Invoke-FabricSetup -Config $topology -Environments @("Dev") -WhatIf
+Invoke-FabricSetup -Config $topology -Environment "Dev" -WhatIf
 
 Runs the provisioning pipeline for the Dev environment in WhatIf mode.
 
@@ -145,13 +142,13 @@ AcceptedValues: []
 HelpMessage: ''
 ```
 
-### -Environments
+### -Environment
 
-Subset of environment names to process.
+Single environment name to process.
 Defaults to all environments in config.
 
 ```yaml
-Type: System.String[]
+Type: System.String
 DefaultValue: ''
 SupportsWildcards: false
 Aliases: []
@@ -251,48 +248,6 @@ AcceptedValues: []
 HelpMessage: ''
 ```
 
-### -SkipPipeline
-
-Skip deployment pipeline setup for all workspace types.
-
-```yaml
-Type: System.Management.Automation.SwitchParameter
-DefaultValue: False
-SupportsWildcards: false
-Aliases: []
-ParameterSets:
-- Name: (All)
-  Position: Named
-  IsRequired: false
-  ValueFromPipeline: false
-  ValueFromPipelineByPropertyName: false
-  ValueFromRemainingArguments: false
-DontShow: false
-AcceptedValues: []
-HelpMessage: ''
-```
-
-### -SkipPipelineRbac
-
-Skip deployment pipeline role assignment application for all workspace types.
-
-```yaml
-Type: System.Management.Automation.SwitchParameter
-DefaultValue: False
-SupportsWildcards: false
-Aliases: []
-ParameterSets:
-- Name: (All)
-  Position: Named
-  IsRequired: false
-  ValueFromPipeline: false
-  ValueFromPipelineByPropertyName: false
-  ValueFromRemainingArguments: false
-DontShow: false
-AcceptedValues: []
-HelpMessage: ''
-```
-
 ### -SkipRbac
 
 Skip role assignment application for all workspaces.
@@ -349,7 +304,7 @@ This cmdlet supports the common parameters: -Debug, -ErrorAction, -ErrorVariable
 
 ### System.Management.Automation.PSObject
 
-A results object with a summary and the identity, monitoring, environment, role assignment, pipeline, and failure reports for the provisioning run.
+A results object with a summary and the identity, monitoring, environment, role assignment, and failure reports for the provisioning run.
 
 ## NOTES
 

@@ -86,20 +86,25 @@ Describe 'Invoke-FabricSetup' {
             $r.Identities.Count     | Should -Be 2
             $r.Monitoring.Count     | Should -Be 2
             $r.RoleAssignments.Count | Should -Be 3     # rbac only configured for Dev (1) + identity Contributor grant in Dev + Test (2)
-            $r.Pipelines.Count      | Should -Be 1
-            $r.PipelineRoleAssignments.Count | Should -Be 1
             $r.Failures.Count       | Should -Be 0
 
             Should -Invoke New-FabricWorkspace      -Times 2 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
             Should -Invoke Set-FabricGitIntegration -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric  # only the git environment
-            Should -Invoke Set-FabricDeploymentPipeline -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
-            Should -Invoke Set-FabricDeploymentPipelineRoleAssignment -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
+        }
+
+        It 'does not configure deployment pipelines, even when they are enabled in the config' {
+            # Pipelines span every environment, so they are configured by Invoke-FabricDeploymentPipelineSetup.
+            $r = Invoke-FabricSetup -Config (New-TestConfig)
+
+            $r.PSObject.Properties.Name | Should -Not -Contain 'Pipelines'
+            Should -Invoke Set-FabricDeploymentPipeline               -Times 0 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
+            Should -Invoke Set-FabricDeploymentPipelineRoleAssignment -Times 0 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
         }
 
         It 'grants the deploying identity Admin on each workspace when it can be resolved' {
             Mock _Get-FabricDeploymentIdentity { @{ Id = 'deployer-oid'; Type = 'ServicePrincipal' } } -ModuleName ZeroFailed.Deploy.Fabric
 
-            $r = Invoke-FabricSetup -Config (New-TestConfig) -Environments @('Dev')
+            $r = Invoke-FabricSetup -Config (New-TestConfig) -Environment 'Dev'
 
             # Configured rbac for Dev (1) + deployer Admin (1) + identity Contributor grant (1)
             $r.RoleAssignments.Count | Should -Be 3
@@ -110,7 +115,7 @@ Describe 'Invoke-FabricSetup' {
         It 'still grants the deploying identity Admin when -SkipRbac is set' {
             Mock _Get-FabricDeploymentIdentity { @{ Id = 'deployer-oid'; Type = 'ServicePrincipal' } } -ModuleName ZeroFailed.Deploy.Fabric
 
-            $r = Invoke-FabricSetup -Config (New-TestConfig) -Environments @('Dev') -SkipRbac
+            $r = Invoke-FabricSetup -Config (New-TestConfig) -Environment 'Dev' -SkipRbac
 
             # Configured rbac skipped, but the deployer Admin grant and identity Contributor grant still happen
             $r.RoleAssignments.Count | Should -Be 2
@@ -119,7 +124,7 @@ Describe 'Invoke-FabricSetup' {
         }
 
         It 'grants the workspace identity Contributor on its own workspace after provisioning' {
-            $r = Invoke-FabricSetup -Config (New-TestConfig) -Environments @('Dev')
+            $r = Invoke-FabricSetup -Config (New-TestConfig) -Environment 'Dev'
 
             Should -Invoke Set-FabricWorkspaceRoleAssignment -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric `
                 -ParameterFilter { $PrincipalId -eq 'sp-oid' -and $Role -eq 'Contributor' -and $PrincipalType -eq 'ServicePrincipal' }
@@ -129,7 +134,7 @@ Describe 'Invoke-FabricSetup' {
         It 'does not grant the workspace identity a role when the workspace has no identity' {
             Mock Enable-FabricWorkspaceIdentity { $null } -ModuleName ZeroFailed.Deploy.Fabric
 
-            $r = Invoke-FabricSetup -Config (New-TestConfig) -Environments @('Dev')
+            $r = Invoke-FabricSetup -Config (New-TestConfig) -Environment 'Dev'
 
             Should -Invoke Set-FabricWorkspaceRoleAssignment -Times 0 -Exactly -ModuleName ZeroFailed.Deploy.Fabric `
                 -ParameterFilter { $Role -eq 'Contributor' }
@@ -141,7 +146,7 @@ Describe 'Invoke-FabricSetup' {
                 @{ Action = 'Created' }
             } -ModuleName ZeroFailed.Deploy.Fabric
 
-            $r = Invoke-FabricSetup -Config (New-TestConfig) -Environments @('Dev')
+            $r = Invoke-FabricSetup -Config (New-TestConfig) -Environment 'Dev'
 
             ($r.Failures.Step) | Should -Contain 'IdentityRoleAssignment'
             $r.Identities.Count | Should -Be 1     # identity provisioning itself still succeeded
@@ -156,29 +161,25 @@ Describe 'Invoke-FabricSetup' {
             Should -Invoke New-FabricWorkspace -Times 0 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
         }
 
-        It 'processes only the environments named in -Environments' {
-            $r = Invoke-FabricSetup -Config (New-TestConfig) -Environments @('Dev')
+        It 'processes only the environment named in -Environment' {
+            $r = Invoke-FabricSetup -Config (New-TestConfig) -Environment 'Dev'
             $r.Summary.Created | Should -Be 1
             Should -Invoke New-FabricWorkspace -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
         }
 
-        It 'throws when -Environments matches no environment in the config' {
-            { Invoke-FabricSetup -Config (New-TestConfig) -Environments @('Nope') } | Should -Throw
+        It 'throws when -Environment matches no environment in the config' {
+            { Invoke-FabricSetup -Config (New-TestConfig) -Environment 'Nope' } | Should -Throw
         }
 
         It 'honours the Skip switches' {
-            $r = Invoke-FabricSetup -Config (New-TestConfig) -SkipGit -SkipIdentity -SkipMonitoring -SkipEnvironment -SkipRbac -SkipPipeline
+            $r = Invoke-FabricSetup -Config (New-TestConfig) -SkipGit -SkipIdentity -SkipMonitoring -SkipEnvironment -SkipRbac
             $r.Identities.Count      | Should -Be 0
             $r.Monitoring.Count      | Should -Be 0
             $r.Environments.Count    | Should -Be 0
             $r.RoleAssignments.Count | Should -Be 0
-            $r.Pipelines.Count       | Should -Be 0
-            $r.PipelineRoleAssignments.Count | Should -Be 0
             Should -Invoke Set-FabricGitIntegration     -Times 0 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
             Should -Invoke Enable-FabricWorkspaceIdentity -Times 0 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
             Should -Invoke New-FabricEnvironment         -Times 0 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
-            Should -Invoke Set-FabricDeploymentPipeline  -Times 0 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
-            Should -Invoke Set-FabricDeploymentPipelineRoleAssignment -Times 0 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
         }
 
         It 'provisions an environment and sets it as workspace default for each environment' {
@@ -193,7 +194,7 @@ Describe 'Invoke-FabricSetup' {
         It 'does not set a workspace default when setAsWorkspaceDefault is false' {
             $config = New-TestConfig
             $config.workspaces[0].environment.setAsWorkspaceDefault = $false
-            $r = Invoke-FabricSetup -Config $config -Environments @('Dev')
+            $r = Invoke-FabricSetup -Config $config -Environment 'Dev'
 
             $r.Environments.Count | Should -Be 1
             Should -Invoke New-FabricEnvironment                -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
@@ -203,7 +204,7 @@ Describe 'Invoke-FabricSetup' {
         It 'skips environment provisioning when the workspace has it disabled' {
             $config = New-TestConfig
             $config.workspaces[0].environment.enabled = $false
-            $r = Invoke-FabricSetup -Config $config -Environments @('Dev')
+            $r = Invoke-FabricSetup -Config $config -Environment 'Dev'
 
             $r.Environments.Count | Should -Be 0
             Should -Invoke New-FabricEnvironment -Times 0 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
@@ -223,37 +224,15 @@ Describe 'Invoke-FabricSetup' {
 
         It 'records a non-fatal failure when environment provisioning throws' {
             Mock New-FabricEnvironment { throw 'env boom' } -ModuleName ZeroFailed.Deploy.Fabric
-            $r = Invoke-FabricSetup -Config (New-TestConfig) -Environments @('Dev')
+            $r = Invoke-FabricSetup -Config (New-TestConfig) -Environment 'Dev'
 
             $r.Environments.Count | Should -Be 0
             ($r.Failures.Step) | Should -Contain 'Environment'
         }
 
-        It 'configures the pipeline but skips pipeline role assignments with -SkipPipelineRbac' {
-            $r = Invoke-FabricSetup -Config (New-TestConfig) -SkipPipelineRbac
-            $r.Pipelines.Count               | Should -Be 1
-            $r.PipelineRoleAssignments.Count | Should -Be 0
-            Should -Invoke Set-FabricDeploymentPipeline               -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
-            Should -Invoke Set-FabricDeploymentPipelineRoleAssignment  -Times 0 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
-        }
-
-        It 'records a non-fatal failure when a pipeline role assignment throws' {
-            Mock Set-FabricDeploymentPipelineRoleAssignment { throw 'pipeline rbac boom' } -ModuleName ZeroFailed.Deploy.Fabric
-            $r = Invoke-FabricSetup -Config (New-TestConfig) -Environments @('Dev')
-            $r.PipelineRoleAssignments.Count | Should -Be 0
-            ($r.Failures.Step) | Should -Contain 'PipelineRoleAssignment'
-        }
-
-        It 'does not attempt pipeline role assignments when the pipeline setup fails' {
-            Mock Set-FabricDeploymentPipeline { throw 'pipeline boom' } -ModuleName ZeroFailed.Deploy.Fabric
-            $r = Invoke-FabricSetup -Config (New-TestConfig) -Environments @('Dev')
-            $r.PipelineRoleAssignments.Count | Should -Be 0
-            Should -Invoke Set-FabricDeploymentPipelineRoleAssignment -Times 0 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
-        }
-
         It 'refreshes the token when it is near expiry' {
             Mock _Test-FabricTokenExpiry { $true } -ModuleName ZeroFailed.Deploy.Fabric
-            $r = Invoke-FabricSetup -Config (New-TestConfig) -Environments @('Dev')
+            $r = Invoke-FabricSetup -Config (New-TestConfig) -Environment 'Dev'
             $r.Summary.Created | Should -Be 1
             # initial acquisition + at least one refresh
             Should -Invoke _Get-FabricAuthToken -Times 2 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
@@ -261,7 +240,7 @@ Describe 'Invoke-FabricSetup' {
 
         It 'records a fatal failure and continues when workspace creation throws' {
             Mock New-FabricWorkspace { throw 'capacity not found' } -ModuleName ZeroFailed.Deploy.Fabric
-            $r = Invoke-FabricSetup -Config (New-TestConfig) -Environments @('Dev')
+            $r = Invoke-FabricSetup -Config (New-TestConfig) -Environment 'Dev'
             $r.Summary.Failed | Should -Be 1
             $r.Failures[0].Step | Should -Be 'Workspace'
         }
@@ -271,17 +250,16 @@ Describe 'Invoke-FabricSetup' {
             Mock Enable-FabricWorkspaceIdentity    { throw 'identity boom' }   -ModuleName ZeroFailed.Deploy.Fabric
             Mock Enable-FabricWorkspaceMonitoring  { throw 'monitoring boom' } -ModuleName ZeroFailed.Deploy.Fabric
             Mock Set-FabricWorkspaceRoleAssignment { throw 'rbac boom' }       -ModuleName ZeroFailed.Deploy.Fabric
-            Mock Set-FabricDeploymentPipeline      { throw 'pipeline boom' }   -ModuleName ZeroFailed.Deploy.Fabric
 
-            $r = Invoke-FabricSetup -Config (New-TestConfig) -Environments @('Dev')
-            ($r.Failures.Step | Sort-Object -Unique) | Should -Be @('Git', 'Identity', 'Monitoring', 'Pipeline', 'RoleAssignment')
+            $r = Invoke-FabricSetup -Config (New-TestConfig) -Environment 'Dev'
+            ($r.Failures.Step | Sort-Object -Unique) | Should -Be @('Git', 'Identity', 'Monitoring', 'RoleAssignment')
         }
 
         It 'loads the topology config from a JSON file via -ConfigPath' {
             $tmp = Join-Path ([IO.Path]::GetTempPath()) "topology-$([guid]::NewGuid()).json"
             (New-TestConfig) | ConvertTo-Json -Depth 20 | Set-Content -Path $tmp
             try {
-                $r = Invoke-FabricSetup -ConfigPath $tmp -Environments @('Dev')
+                $r = Invoke-FabricSetup -ConfigPath $tmp -Environment 'Dev'
                 $r.Summary.Created | Should -Be 1
             }
             finally {

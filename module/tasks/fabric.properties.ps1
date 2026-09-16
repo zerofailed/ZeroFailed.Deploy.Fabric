@@ -3,26 +3,26 @@
 $FabricTopologyConfigPath = property FabricTopologyConfigPath './fabric/topology.json'
 
 # Behaviour flags
-# $FabricEnvironmentFilter stays on ??=, not property: InvokeBuild's 'property' collapses an empty
-# array default (@()) to $null, and a single env var has no clean way to represent an array anyway.
-$FabricEnvironmentFilter ??= @()
+# Single environment name to provision. Defaults to all environments in the topology config.
+$FabricEnvironment       = property FabricEnvironment ''
 $FabricSkipGit           = [Convert]::ToBoolean((property FabricSkipGit $false))
 $FabricSkipIdentity      = [Convert]::ToBoolean((property FabricSkipIdentity $false))
 $FabricSkipMonitoring    = [Convert]::ToBoolean((property FabricSkipMonitoring $false))
 $FabricSkipEnvironment   = [Convert]::ToBoolean((property FabricSkipEnvironment $false))
 $FabricSkipRbac          = [Convert]::ToBoolean((property FabricSkipRbac $false))
-$FabricSkipPipeline      = [Convert]::ToBoolean((property FabricSkipPipeline $false))
-$FabricSkipPipelineRbac  = [Convert]::ToBoolean((property FabricSkipPipelineRbac $false))
 $FabricSkipEntra         = [Convert]::ToBoolean((property FabricSkipEntra $false))
 $FabricWhatIf            = [Convert]::ToBoolean((property FabricWhatIf $false))
 
+# Deployment pipeline setup (Invoke-FabricDeploymentPipelineSetup) — pipelines span every environment,
+# so this runs as its own stage once each environment's workspaces have been provisioned.
+$FabricSkipPipeline      = [Convert]::ToBoolean((property FabricSkipPipeline $false))
+$FabricSkipPipelineRbac  = [Convert]::ToBoolean((property FabricSkipPipelineRbac $false))
+
 # Provisioning run report, published by the 'provisionFabricWorkspaces' or 'resolveFabricTopologyState'
-# task for later Invoke-Build tasks (and a consuming repo's PostDeploy hooks) — mirrors
-# ZeroFailed.Deploy.Azure's $script:ZF_ArmDeploymentOutputs. Read the workspace / identity /
-# environment / pipeline IDs from $FabricProvisioningResult.WorkspacesByType.<type>.<env> instead of
-# re-querying Fabric. Not a 'property' — it is a task output, not a tunable — and InvokeBuild's
-# 'property' rejects a $null default anyway (same reason $FabricEnvironmentFilter stays on ??= above).
-# $null until a provisioning/discovery task has run; '??=' keeps a value a consuming repo pre-set.
+# task for later use by other tasks (and a consuming repo's PostDeploy hooks).
+# Read the workspace / identity / environment / pipeline IDs from
+# $FabricProvisioningResult.WorkspacesByType.<type>.<env> instead of re-querying Fabric.
+# Not a 'property' — it is a task output, not a tunable.
 $FabricProvisioningResult ??= $null
 
 # Optional path to also persist that report as JSON (a publishable build artifact a separate

@@ -19,6 +19,7 @@ Describe 'ZeroFailed.Deploy.Fabric module' {
             'Enable-FabricWorkspaceIdentity'
             'Get-FabricTopologyState'
             'Invoke-FabricSetup'
+            'Invoke-FabricDeploymentPipelineSetup'
             'New-FabricTopologyConfig'
             'New-FabricWorkspace'
             'Set-FabricGitIntegration'

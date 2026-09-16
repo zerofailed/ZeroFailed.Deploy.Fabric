@@ -4,9 +4,13 @@ function Set-FabricDeploymentPipeline {
         Creates or updates a Fabric deployment pipeline for a workspace type across all environments.
     .DESCRIPTION
         Provisions a deployment pipeline for a single workspace type. Each environment in the
-        topology config becomes a named stage in the pipeline. Workspaces are assigned to stages
-        where they exist; stages for environments whose workspaces have not yet been provisioned
-        are left unassigned and can be assigned on a subsequent run.
+        topology config becomes a named stage in the pipeline, and each environment's workspace is
+        assigned to its stage.
+
+        Every environment's workspace must already exist and be visible to the caller (assigning a
+        workspace to a stage requires workspace Admin). If any cannot be found, an error is thrown
+        before the pipeline is created or modified, so a partially-assigned pipeline is never left
+        behind.
 
         Idempotent: safe to call on an existing pipeline. Already-assigned stages are skipped.
         If a stage is already assigned to a different workspace, a warning is emitted.
@@ -52,7 +56,12 @@ function Set-FabricDeploymentPipeline {
         # 1. Resolve workspace IDs for every environment in the full config. Prefer an id the caller
         #    already resolved (Invoke-FabricSetup passes -KnownWorkspaceIds); only fall back to a live
         #    GET /workspaces lookup for environments it did not supply.
-        $stageMap = [ordered]@{}
+	#
+        #    Pipeline setup runs once every environment has been provisioned, so a missing workspace most
+        #    likely means the caller lacks access to it.
+
+        $stageMap          = [ordered]@{}
+        $missingWorkspaces = [System.Collections.Generic.List[string]]::new()
         foreach ($env in $Config.environments) {
             $knownId = if ($PSBoundParameters.ContainsKey('KnownWorkspaceIds') -and $KnownWorkspaceIds.ContainsKey($env.name)) {
                 $KnownWorkspaceIds[$env.name]
@@ -67,10 +76,16 @@ function Set-FabricDeploymentPipeline {
 
             $wsDisplayName = _Resolve-WorkspaceName -Config $Config -WorkspaceId $typeCode -EnvironmentName $env.name
             $wsObj         = Test-FabricWorkspaceExists -DisplayName $wsDisplayName -Token $Token
-            $stageMap[$env.name] = if ($wsObj) { $wsObj.id } else { $null }
-            if (-not $wsObj) {
-                Write-Verbose "Workspace '$wsDisplayName' not found — stage '$($env.name)' will not be assigned."
+            if ($wsObj) {
+                $stageMap[$env.name] = $wsObj.id
             }
+            else {
+                $missingWorkspaces.Add($wsDisplayName)
+            }
+        }
+
+        if ($missingWorkspaces.Count -gt 0) {
+            throw "Cannot configure deployment pipeline '$pipelineName': workspace(s) not found — $($missingWorkspaces -join ', '). Ensure every environment has been provisioned and that the identity running pipeline setup has Admin access to each workspace."
         }
 
         # 2. Find an existing pipeline by name (paginated)
@@ -130,7 +145,7 @@ function Set-FabricDeploymentPipeline {
             $workspaceId = $stageMap[$stage.displayName]
 
             if (-not $workspaceId) {
-                Write-Verbose "No workspace available for stage '$($stage.displayName)'. Skipping."
+                Write-Verbose "Stage '$($stage.displayName)' does not match an environment in the config. Skipping."
                 continue
             }
 
