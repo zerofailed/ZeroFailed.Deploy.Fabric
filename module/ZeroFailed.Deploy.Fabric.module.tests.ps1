@@ -18,6 +18,7 @@ Describe 'ZeroFailed.Deploy.Fabric module' {
         $expectedFunctions = @(
             'Enable-FabricWorkspaceIdentity'
             'Invoke-FabricSetup'
+            'Invoke-FabricDeploymentPipelineSetup'
             'New-FabricTopologyConfig'
             'New-FabricWorkspace'
             'Set-FabricGitIntegration'

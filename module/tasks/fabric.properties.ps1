@@ -3,18 +3,20 @@
 $FabricTopologyConfigPath = property FabricTopologyConfigPath './fabric/topology.json'
 
 # Behaviour flags
-# $FabricEnvironmentFilter stays on ??=, not property: InvokeBuild's 'property' collapses an empty
-# array default (@()) to $null, and a single env var has no clean way to represent an array anyway.
-$FabricEnvironmentFilter ??= @()
+# Single environment name to provision. Defaults to all environments in the topology config.
+$FabricEnvironment       = property FabricEnvironment ''
 $FabricSkipGit           = [Convert]::ToBoolean((property FabricSkipGit $false))
 $FabricSkipIdentity      = [Convert]::ToBoolean((property FabricSkipIdentity $false))
 $FabricSkipMonitoring    = [Convert]::ToBoolean((property FabricSkipMonitoring $false))
 $FabricSkipEnvironment   = [Convert]::ToBoolean((property FabricSkipEnvironment $false))
 $FabricSkipVariableLibrary = [Convert]::ToBoolean((property FabricSkipVariableLibrary $false))
 $FabricSkipRbac          = [Convert]::ToBoolean((property FabricSkipRbac $false))
+$FabricWhatIf            = [Convert]::ToBoolean((property FabricWhatIf $false))
+
+# Deployment pipeline setup (Invoke-FabricDeploymentPipelineSetup) — pipelines span every environment,
+# so this runs as its own stage once each environment's workspaces have been provisioned.
 $FabricSkipPipeline      = [Convert]::ToBoolean((property FabricSkipPipeline $false))
 $FabricSkipPipelineRbac  = [Convert]::ToBoolean((property FabricSkipPipelineRbac $false))
-$FabricWhatIf            = [Convert]::ToBoolean((property FabricWhatIf $false))
 
 # Python library deployment (Invoke-FabricPythonLibraryDeploy) — runs after provisioning, typically
 # as a separate pipeline. Stage/package coordinates flow from the calling pipeline's build/stage context.
