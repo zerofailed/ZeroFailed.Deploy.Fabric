@@ -256,7 +256,10 @@ task grantWorkspaceIdentitiesAzurePermissions `
     # Establish which environments we need to process
     $availableFabricEnvs = $FabricProvisioningResult.Workspaces | Select-Object -Unique -ExpandProperty Environment
     $targetFabricEnvs = if ($FabricEnvironment) {
-        $availableFabricEnvs | Where-Object { $_.name -in $FabricEnvironment }
+        $availableFabricEnvs | Where-Object { $_ -and $_.name -in $FabricEnvironment }
+        if (!$availableFabricEnvs) {
+            throw "Could not find the '$FabricEnvironment' Fabric environment. Has it been provisioned yet and do you have access? [RunningUser=$($currentIdentity.Id)]"
+        }
     }
     else {
         $availableFabricEnvs
