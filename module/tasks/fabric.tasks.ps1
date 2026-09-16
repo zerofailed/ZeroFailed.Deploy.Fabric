@@ -207,3 +207,50 @@ task resolveFabricTopologyState -If { $FabricProvisioningResult -eq $null } {
         }
     }
 }
+
+task grantWorkspaceIdentitiesAzurePermissions `
+        -If { !$FabricSkipEntra } `
+        -After provisionFabricWorkspaces `
+        -Jobs resolveFabricTopologyState,{
+
+    # If the group gets created below, we need to ensure that the
+    # deployment identity is set as a group owner, so it can manage
+    # the membership going forward.
+    $currentIdentity = _Get-FabricDeploymentIdentity
+
+    # Establish which environments we need to process
+    $availableEnvs = $FabricProvisioningResult.Workspaces | Select-Object -Unique -ExpandProperty Environment
+    $targetEnvs = if ($FabricEnvironmentFilter) {
+        $availableEnvs | Where-Object { $_.name -in $FabricEnvironmentFilter }
+    }
+    else {
+        $availableEnvs
+    }
+
+    # RBAC is managed on a per-environment basis
+    foreach ($fabricEnv in $targetEnvs) {
+        $azureEnv = $FabricAzureEnvironmentMapping[$fabricEnv]
+        Write-Verbose "Fabric -> Azure environment mapping: $fabricEnv -> $azureEnv"
+
+        $groupName = $FabricWorkspaceIdentitiesAzureAccessGroupName -f $azureEnv
+        $splat = @{
+            DisplayName = $groupName
+            MailNickname = $groupName
+            Description = "Used to grant Fabric Workspace Identities permissions to '$azureEnv' environment Azure resources"
+            OwnersToAssignOnCreation = @(
+                $currentIdentity.Id
+            )
+        }
+        # Ensure the central group for managing RBAC permissions for Fabric Workspace IDs is setup
+        Write-Build White "Ensuring Azure RBAC management group exists: $groupName"
+        $group = Assert-AzureAdSecurityGroup @splat
+        
+        # Ensure all the Workspace IDs associated with the current environment are group members
+        $workspaceIdentities = $FabricProvisioningResult.Workspaces |
+                                    Where-Object { $_.Environment -eq $fabricEnv } |
+                                    Select-Object -ExpandProperty Identity |
+                                    Select-Object -ExpandProperty PrincipalId
+        Write-Build White "Ensuring workspace identities are members: $($workspaceIdentities -join ',')"
+        Assert-AzureAdGroupMembership -ObjectId $group.Id -RequiredMembers $workspaceIdentities | Out-Null
+    }
+}

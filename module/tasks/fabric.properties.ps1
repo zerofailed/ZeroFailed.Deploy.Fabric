@@ -13,6 +13,7 @@ $FabricSkipEnvironment   = [Convert]::ToBoolean((property FabricSkipEnvironment 
 $FabricSkipRbac          = [Convert]::ToBoolean((property FabricSkipRbac $false))
 $FabricSkipPipeline      = [Convert]::ToBoolean((property FabricSkipPipeline $false))
 $FabricSkipPipelineRbac  = [Convert]::ToBoolean((property FabricSkipPipelineRbac $false))
+$FabricSkipEntra         = [Convert]::ToBoolean((property FabricSkipEntra $false))
 $FabricWhatIf            = [Convert]::ToBoolean((property FabricWhatIf $false))
 
 # Provisioning run report, published by the 'provisionFabricWorkspaces' or 'resolveFabricTopologyState'
@@ -49,3 +50,12 @@ $FabricPythonExecutable   = property FabricPythonExecutable 'python3'
 # Runtime 1.2 -> Python 3.10; runtime 1.3 -> Python 3.11 (matches the topology's default).
 $FabricTargetPythonVersion = property FabricTargetPythonVersion '3.11'
 $FabricTargetPlatform      = property FabricTargetPlatform 'manylinux2014_x86_64'
+
+# Used to handle the scenario where environment naming conventions differ between Fabric & Azure
+$FabricAzureEnvironmentMapping = @{
+    DEV = 'dev'
+    TEST = 'test'
+    PROD = 'prod'
+}
+
+$FabricWorkspaceIdentitiesAzureAccessGroupName = "fabric-workspace-identities-{0}"
