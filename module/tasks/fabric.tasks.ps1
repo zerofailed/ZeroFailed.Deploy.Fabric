@@ -255,21 +255,23 @@ task grantWorkspaceIdentitiesAzurePermissions `
 
     # Establish which environments we need to process
     $availableFabricEnvs = $FabricProvisioningResult.Workspaces | Select-Object -Unique -ExpandProperty Environment
-    Write-Verbose "availableFabricEnvs:`n$($availableFabricEnvs | ConvertTo-Json -Depth 20) -Verbose:$true
+    Write-Verbose "availableFabricEnvs: $($availableFabricEnvs | ConvertTo-Json -Depth 20)"
+
     $targetFabricEnvs = if ($FabricEnvironment) {
-        $availableFabricEnvs | Where-Object { $_ -and $_.name -in $FabricEnvironment }
-        if (!$availableFabricEnvs) {
-            throw "Could not find the '$FabricEnvironment' Fabric environment. Has it been provisioned yet and do you have access? [RunningUser=$($currentIdentity.Id)]"
-        }
+         $availableFabricEnvs | Where-Object { $_ -eq $FabricEnvironment }
     }
     else {
         $availableFabricEnvs
     }
 
+    if (!$targetFabricEnvs) {
+        Write-Warning "No matching target Fabric environment(s) found. Check your configured topology or the value of 'FabricEnvironment' if this is unexpected."
+    }
+
     # RBAC is managed on a per-environment basis
     foreach ($fabricEnv in $targetFabricEnvs) {
         $azureEnv = $FabricAzureEnvironmentMapping[$fabricEnv]
-        Write-Verbose "Fabric -> Azure environment mapping: $fabricEnv -> $azureEnv"
+        Write-Build White "Fabric -> Azure environment mapping: $fabricEnv -> $azureEnv"
 
         $groupName = $FabricWorkspaceIdentitiesAzureAccessGroupName -f $azureEnv
         $splat = @{
