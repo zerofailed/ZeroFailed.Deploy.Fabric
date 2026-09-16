@@ -255,6 +255,7 @@ task grantWorkspaceIdentitiesAzurePermissions `
 
     # Establish which environments we need to process
     $availableFabricEnvs = $FabricProvisioningResult.Workspaces | Select-Object -Unique -ExpandProperty Environment
+    Write-Verbose "availableFabricEnvs:`n$($availableFabricEnvs | ConvertTo-Json -Depth 20) -Verbose:$true
     $targetFabricEnvs = if ($FabricEnvironment) {
         $availableFabricEnvs | Where-Object { $_ -and $_.name -in $FabricEnvironment }
         if (!$availableFabricEnvs) {
