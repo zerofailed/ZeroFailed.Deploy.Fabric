@@ -592,10 +592,10 @@ Describe 'New-FabricTopologyConfig — Variable Library configuration' {
         $silverWs.variableLibrary.enabled | Should -Be $false
     }
 
-    It 'names every variable library VariableLibrary by default' {
+    It 'names every variable library DefaultVariableLibrary by default' {
         $config = New-FabricTopologyConfig @script:commonParams -EnableVariableLibraries @('Bronze')
         $config.workspaces | ForEach-Object {
-            $_.variableLibrary.name | Should -Be 'VariableLibrary'
+            $_.variableLibrary.name | Should -Be 'DefaultVariableLibrary'
         }
     }
 
@@ -613,6 +613,49 @@ Describe 'New-FabricTopologyConfig — Variable Library configuration' {
         $bronzeWs = $json.workspaces | Where-Object { $_.type -eq 'Bronze' }
         $bronzeWs.variableLibrary.enabled | Should -Be $true
         $bronzeWs.variableLibrary.name    | Should -Be 'Sales_Config'
+        $bronzeWs.variableLibrary.stages  | Should -Be $script:commonParams.Environments
+    }
+
+    It 'gives an enabled type a variable library in every environment by default' {
+        $config = New-FabricTopologyConfig @script:commonParams -EnableVariableLibraries @('Bronze')
+        $bronzeWs = $config.workspaces | Where-Object { $_.type -eq 'Bronze' }
+        $silverWs = $config.workspaces | Where-Object { $_.type -eq 'Silver' }
+        $bronzeWs.variableLibrary.stages | Should -Be $script:commonParams.Environments
+        $silverWs.variableLibrary.stages | Should -HaveCount 0
+    }
+
+    It 'restricts a type to the environments in -VariableLibraryStages' {
+        $config = New-FabricTopologyConfig @script:commonParams `
+            -EnableVariableLibraries @('Bronze', 'Gold') `
+            -VariableLibraryStages   @{ Bronze = @('Dev') }
+        ($config.workspaces | Where-Object { $_.type -eq 'Bronze' }).variableLibrary.stages | Should -Be @('Dev')
+        ($config.workspaces | Where-Object { $_.type -eq 'Gold' }).variableLibrary.stages   | Should -Be $script:commonParams.Environments
+    }
+
+    It 'throws when -VariableLibraryStages references a type without a variable library' {
+        { New-FabricTopologyConfig @script:commonParams -EnableVariableLibraries @('Bronze') -VariableLibraryStages @{ Gold = @('Dev') } } |
+            Should -Throw '*does not have a Variable Library enabled*'
+    }
+
+    It 'throws when -VariableLibraryStages references an unknown workspace type' {
+        { New-FabricTopologyConfig @script:commonParams -EnableVariableLibraries @('Bronze') -VariableLibraryStages @{ Nope = @('Dev') } } |
+            Should -Throw '*not in -WorkspaceTypes*'
+    }
+
+    It 'throws when -VariableLibraryStages references an unknown environment' {
+        { New-FabricTopologyConfig @script:commonParams -EnableVariableLibraries @('Bronze') -VariableLibraryStages @{ Bronze = @('Staging') } } |
+            Should -Throw '*not in -Environments*'
+    }
+
+    It 'disables default values unless -VariableLibraryDefaultValues is set' {
+        $config = New-FabricTopologyConfig @script:commonParams -EnableVariableLibraries @('Bronze')
+        $config.workspaces | ForEach-Object { $_.variableLibrary.defaultValues | Should -Be $false }
+    }
+
+    It 'enables default values only for variable-library-enabled types with -VariableLibraryDefaultValues' {
+        $config = New-FabricTopologyConfig @script:commonParams -EnableVariableLibraries @('Bronze') -VariableLibraryDefaultValues
+        ($config.workspaces | Where-Object { $_.type -eq 'Bronze' }).variableLibrary.defaultValues | Should -Be $true
+        ($config.workspaces | Where-Object { $_.type -eq 'Silver' }).variableLibrary.defaultValues | Should -Be $false
     }
 
     It 'throws when -VariableLibraryName breaks the Fabric naming rules' {

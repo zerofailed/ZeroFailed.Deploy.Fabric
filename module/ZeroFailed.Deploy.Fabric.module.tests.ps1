@@ -30,6 +30,7 @@ Describe 'ZeroFailed.Deploy.Fabric module' {
             'Get-FabricEnvironmentLibraries'
             'Save-FabricLibraryPackage'
             'New-FabricVariableLibrary'
+            'Set-FabricVariableLibraryValues'
         )
         foreach ($fn in $expectedFunctions) {
             $exported | Should -Contain $fn

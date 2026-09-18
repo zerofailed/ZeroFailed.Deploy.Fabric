@@ -12,7 +12,9 @@ function Invoke-FabricSetup {
           6. Enables workspace monitoring (if enabled)
           7. Provisions a Spark Environment and (optionally) sets it as workspace default (if enabled
              for the type and the current environment is in the type's configured stages)
-          8. Provisions an empty Variable Library, leaving any existing library untouched (if enabled)
+          8. Provisions a Variable Library (if enabled for the type and the current environment is in the
+             type's configured stages) and, if default values are enabled, populates the default variables
+             in a value set for the current stage and activates it
           9. Applies RBAC role assignments (if configured)
         Returns a structured results object with a summary, identity report, monitoring report,
         environment report, variable library report, role assignment report, and failure details.
@@ -358,12 +360,18 @@ function Invoke-FabricSetup {
             }
 
             # g. Variable Library — non-fatal, log and continue.
-            # The name is the same in every environment. An existing library is returned unchanged, so
-            # variables and value sets populated after provisioning are never overwritten. A config
+            # The name is the same in every environment. Scoped to the environments (stages) configured
+            # for this workspace type; a block without 'stages' applies to every environment. A config
             # without a 'variableLibrary' block (older config) provisions none; a block without a name
-            # uses the default name.
+            # uses the default name. An existing library is never recreated. Without 'defaultValues' it
+            # is left untouched; with it, only the default variables and this stage's value set change.
             $wsVariableLibrary = if ($ws.PSObject.Properties.Name -contains 'variableLibrary') { $ws.variableLibrary } else { $null }
-            if (-not $SkipVariableLibrary -and $wsVariableLibrary -and $wsVariableLibrary.enabled) {
+            $libraryInStage = $wsVariableLibrary -and (
+                -not ($wsVariableLibrary.PSObject.Properties.Name -contains 'stages') -or
+                -not $wsVariableLibrary.stages -or
+                $env.name -in @($wsVariableLibrary.stages)
+            )
+            if (-not $SkipVariableLibrary -and $wsVariableLibrary -and $wsVariableLibrary.enabled -and $libraryInStage) {
                 try {
                     $configuredName = if ($wsVariableLibrary.PSObject.Properties.Name -contains 'name') { $wsVariableLibrary.name } else { $null }
                     $libraryName = _Resolve-VariableLibraryName -Name $configuredName
@@ -372,12 +380,59 @@ function Invoke-FabricSetup {
                         -WorkspaceId $workspaceId `
                         -DisplayName $libraryName `
                         -Token       $token
-                    $results.VariableLibraries.Add(@{
+                    $libraryEntry = @{
                         WorkspaceName       = $resolvedName
                         WorkspaceId         = $workspaceId
                         VariableLibraryName = $libraryName
                         VariableLibraryId   = $libraryObj.id
-                    })
+                        DefaultValues       = $null
+                    }
+                    $results.VariableLibraries.Add($libraryEntry)
+
+                    # g2. Default variables — populate this stage's value set from the deployment and
+                    # activate it. The default value set only ever holds a placeholder. Non-fatal: the
+                    # library itself has been provisioned.
+                    $defaultValuesEnabled = $wsVariableLibrary.PSObject.Properties.Name -contains 'defaultValues' -and $wsVariableLibrary.defaultValues
+                    if ($defaultValuesEnabled) {
+                        try {
+                            # Prefer this run's identity report; otherwise read the identity off the
+                            # workspace (e.g. with -SkipIdentity). Not looked up under -WhatIf.
+                            $identity = $results.Identities | Where-Object { $_.WorkspaceId -eq $workspaceId } | Select-Object -Last 1
+                            if (-not $identity -and -not $WhatIfPreference) {
+                                $identity = _Get-FabricWorkspaceIdentity -WorkspaceId $workspaceId -Token $token
+                            }
+
+                            # The workspace identity's Entra name is the workspace name.
+                            $values = [ordered]@{
+                                workspace_name          = $resolvedName
+                                workspace_id            = $workspaceId
+                                workspace_identity_name = if ($identity) { $resolvedName } else { '' }
+                                workspace_identity_id   = if ($identity) { $identity.ApplicationId } else { '' }
+                            }
+
+                            # Value sets are named by stage short code (e.g. DEV), falling back to the
+                            # environment name for configs without short codes.
+                            $valueSetName = if ($env.PSObject.Properties.Name -contains 'shortCode' -and $env.shortCode) { $env.shortCode } else { $env.name }
+
+                            $libraryEntry.DefaultValues = Set-FabricVariableLibraryValues `
+                                -WorkspaceId         $workspaceId `
+                                -WorkspaceName       $resolvedName `
+                                -VariableLibraryId   $libraryObj.id `
+                                -VariableLibraryName $libraryName `
+                                -ValueSetName        $valueSetName `
+                                -Values              $values `
+                                -Token               $token
+                        }
+                        catch {
+                            Write-Warning "Variable library default values failed for '$resolvedName' — $_"
+                            $results.Failures.Add(@{
+                                WorkspaceName = $resolvedName
+                                Environment   = $env.name
+                                Step          = 'VariableLibraryValues'
+                                Error         = $_.ToString()
+                            })
+                        }
+                    }
                 }
                 catch {
                     Write-Warning "Variable library provisioning failed for '$resolvedName' — $_"

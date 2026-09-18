@@ -20,12 +20,12 @@ Describe '_Resolve-VariableLibraryName' {
         Resolve-Name '  Sales_Config ' | Should -Be 'Sales_Config'
     }
 
-    It 'defaults to VariableLibrary when no name is configured' -TestCases @(
+    It 'defaults to DefaultVariableLibrary when no name is configured' -TestCases @(
         @{ Name = $null }
         @{ Name = '' }
         @{ Name = '   ' }
     ) {
-        Resolve-Name $Name | Should -Be 'VariableLibrary'
+        Resolve-Name $Name | Should -Be 'DefaultVariableLibrary'
     }
 
     It 'throws when the name does not start with a letter' {

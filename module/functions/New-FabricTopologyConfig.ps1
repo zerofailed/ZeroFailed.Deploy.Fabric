@@ -74,7 +74,18 @@ function New-FabricTopologyConfig {
         (one empty library per workspace, in every environment). Defaults to no workspace types (opt-in).
     .PARAMETER VariableLibraryName
         Display name for the provisioned variable libraries. The name is used as-is, and is the same in
-        every workspace and environment. Default: 'VariableLibrary'.
+        every workspace and environment. Default: 'DefaultVariableLibrary'.
+    .PARAMETER VariableLibraryStages
+        Optional hashtable keyed by workspace type name, restricting which environments (stages)
+        get a Variable Library for that type. Each value is an array of environment names.
+        Only meaningful for types listed in -EnableVariableLibraries. A type that is enabled but absent
+        from this hashtable gets a Variable Library in every environment (the default).
+        E.g. @{ ETL = @('Dev','Production') }
+    .PARAMETER VariableLibraryDefaultValues
+        When set, variable libraries are populated with default variables (workspace_name, workspace_id,
+        workspace_identity_name, workspace_identity_id). Their default value set holds only a
+        placeholder; the real values go in a value set per stage (named by the environment short code,
+        e.g. DEV), which is activated.
     .PARAMETER RoleAssignments
         Array of role assignment rules to apply to workspaces. Each rule is a hashtable with:
           PrincipalId    (required) — Entra object ID of the group, user, or service principal
@@ -168,7 +179,11 @@ function New-FabricTopologyConfig {
         [string[]]$EnableVariableLibraries,
 
         [ValidateNotNullOrEmpty()]
-        [string]$VariableLibraryName = 'VariableLibrary',
+        [string]$VariableLibraryName = 'DefaultVariableLibrary',
+
+        [hashtable]$VariableLibraryStages,
+
+        [switch]$VariableLibraryDefaultValues,
 
         [hashtable]$TypeShortCodes,
 
@@ -325,6 +340,23 @@ function New-FabricTopologyConfig {
         }
     }
 
+    # Validate VariableLibraryStages — keys must be variable-library-enabled types, values must be known environments
+    if ($VariableLibraryStages) {
+        foreach ($wsType in $VariableLibraryStages.Keys) {
+            if ($wsType -notin $WorkspaceTypes) {
+                throw "-VariableLibraryStages contains workspace type '$wsType' which is not in -WorkspaceTypes."
+            }
+            if ($wsType -notin $variableLibraryTypes) {
+                throw "-VariableLibraryStages contains workspace type '$wsType' which does not have a Variable Library enabled (see -EnableVariableLibraries)."
+            }
+            foreach ($envName in @($VariableLibraryStages[$wsType])) {
+                if ($envName -notin $Environments) {
+                    throw "-VariableLibraryStages entry for '$wsType' references environment '$envName' which is not in -Environments."
+                }
+            }
+        }
+    }
+
     # Build environments list
     $envList = foreach ($envName in $Environments) {
         $shortCode    = $resolvedEnvShortCodes[$envName]
@@ -394,6 +426,18 @@ function New-FabricTopologyConfig {
             }
         )
 
+        # Resolve the environments (stages) that get a Variable Library for this type.
+        # Absent from -VariableLibraryStages => all environments.
+        $variableLibraryEnabled = $wsType -in $variableLibraryTypes
+        $wsVariableLibraryStages = @(
+            if ($variableLibraryEnabled) {
+                if ($VariableLibraryStages -and $VariableLibraryStages.ContainsKey($wsType)) {
+                    $VariableLibraryStages[$wsType]
+                }
+                else { $Environments }
+            }
+        )
+
         # Resolve role assignments per environment for this workspace type
         $rbacByEnv = [ordered]@{}
         foreach ($envName in $Environments) {
@@ -446,8 +490,10 @@ function New-FabricTopologyConfig {
                 runtimeVersion        = $EnvironmentRuntimeVersion
             }
             variableLibrary = [pscustomobject]@{
-                enabled = $wsType -in $variableLibraryTypes
-                name    = $resolvedVariableLibraryName
+                enabled       = $variableLibraryEnabled
+                name          = $resolvedVariableLibraryName
+                stages        = $wsVariableLibraryStages
+                defaultValues = $variableLibraryEnabled -and $VariableLibraryDefaultValues.IsPresent
             }
             rbac       = $rbacByEnv
         }

@@ -4,7 +4,7 @@ external help file: ZeroFailed.Deploy.Fabric-Help.xml
 HelpUri: https://learn.microsoft.com/rest/api/fabric/
 Locale: en-US
 Module Name: ZeroFailed.Deploy.Fabric
-ms.date: 09/15/2026
+ms.date: 09/18/2026
 PlatyPS schema version: 2024-05-01
 title: Invoke-FabricSetup
 ---
@@ -49,9 +49,12 @@ Provisions Workspace Identity and grants it Contributor on the workspace (if ena
   6.
 Enables workspace monitoring (if enabled)
   7.
-Provisions a Spark Environment and (optionally) sets it as workspace default (if enabled)
+Provisions a Spark Environment and (optionally) sets it as workspace default (if enabled
+     for the type and the current environment is in the type's configured stages)
   8.
-Provisions an empty Variable Library, leaving any existing library untouched (if enabled)
+Provisions a Variable Library (if enabled for the type and the current environment is in the
+     type's configured stages) and, if default values are enabled, populates the default variables
+     in a value set for the current stage and activates it
   9.
 Applies RBAC role assignments (if configured)
 Returns a structured results object with a summary, identity report, monitoring report,
@@ -323,7 +326,7 @@ This cmdlet supports the common parameters: -Debug, -ErrorAction, -ErrorVariable
 
 ### System.Management.Automation.PSObject
 
-A results object with a summary and the identity, monitoring, environment, role assignment, and failure reports for the provisioning run.
+A results object with a summary and the identity, monitoring, environment, variable library, role assignment, and failure reports for the provisioning run.
 
 ## NOTES
 
