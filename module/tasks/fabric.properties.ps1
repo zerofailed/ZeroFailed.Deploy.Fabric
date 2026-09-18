@@ -9,6 +9,7 @@ $FabricSkipGit           = [Convert]::ToBoolean((property FabricSkipGit $false))
 $FabricSkipIdentity      = [Convert]::ToBoolean((property FabricSkipIdentity $false))
 $FabricSkipMonitoring    = [Convert]::ToBoolean((property FabricSkipMonitoring $false))
 $FabricSkipEnvironment   = [Convert]::ToBoolean((property FabricSkipEnvironment $false))
+$FabricSkipVariableLibrary = [Convert]::ToBoolean((property FabricSkipVariableLibrary $false))
 $FabricSkipRbac          = [Convert]::ToBoolean((property FabricSkipRbac $false))
 $FabricWhatIf            = [Convert]::ToBoolean((property FabricWhatIf $false))
 

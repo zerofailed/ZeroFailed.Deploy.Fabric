@@ -29,6 +29,9 @@ function _Invoke-FabricRestMethod {
         Seconds between LRO poll attempts. Default: 5.
     .PARAMETER TimeoutSeconds
         Maximum seconds to wait for LRO completion. Default: 300.
+    .PARAMETER ReturnLroResult
+        When the request runs as an LRO, return the operation's result (GET {Location}/result) rather
+        than the final operation state. Use for operations that return data, e.g. getDefinition.
     #>
     [CmdletBinding()]
     param(
@@ -45,7 +48,9 @@ function _Invoke-FabricRestMethod {
         [string]$Token,
 
         [int]$PollingIntervalSeconds = 5,
-        [int]$TimeoutSeconds         = 300
+        [int]$TimeoutSeconds         = 300,
+
+        [switch]$ReturnLroResult
     )
 
     $baseUrl = 'https://api.fabric.microsoft.com/v1'
@@ -125,6 +130,15 @@ function _Invoke-FabricRestMethod {
             Write-Debug "LRO status: $opStatus"
 
             if ($opStatus -in @('Succeeded', 'Completed')) {
+                if ($ReturnLroResult) {
+                    $resultUrl = "$($locationUrl.TrimEnd('/'))/result"
+                    try {
+                        return Invoke-RestMethod -Method GET -Uri $resultUrl -Headers $headers -ErrorAction Stop
+                    }
+                    catch [Microsoft.PowerShell.Commands.HttpResponseException] {
+                        throw "LRO result retrieval failed on $resultUrl : $($_.ErrorDetails.Message)"
+                    }
+                }
                 return $pollResponse
             }
             elseif ($opStatus -in @('Failed', 'Canceled')) {
