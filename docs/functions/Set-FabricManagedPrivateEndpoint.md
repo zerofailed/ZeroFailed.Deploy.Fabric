@@ -54,7 +54,7 @@ private endpoints.
 
 ### EXAMPLE 1
 
-Set-FabricManagedPrivateEndpoint -WorkspaceId $ws.id -WorkspaceName 'SalesAnalytics-ETL [DEV]' -Token $token -Name 'SalesAnalytics-ETL-KeyVault-DEV' -TargetPrivateLinkResourceId '/subscriptions/{id}/resourceGroups/rg-sales-dev/providers/Microsoft.KeyVault/vaults/kv-sales-dev' -TargetSubresourceType 'vault'
+Set-FabricManagedPrivateEndpoint -WorkspaceId $ws.id -WorkspaceName 'SalesAnalytics-ETL [DEV]' -Token $token -Name 'kv-sales-dev.vault' -TargetPrivateLinkResourceId '/subscriptions/{id}/resourceGroups/rg-sales-dev/providers/Microsoft.KeyVault/vaults/kv-sales-dev' -TargetSubresourceType 'vault'
 
 Ensures the workspace has a managed private endpoint to the Dev Key Vault, creating it if it is absent.
 
@@ -85,8 +85,8 @@ HelpMessage: ''
 ### -Name
 
 The managed private endpoint name (at most 64 characters).
-Invoke-FabricSetup resolves this
-from the topology's naming convention.
+Invoke-FabricSetup names the
+endpoint after its target resource.
 
 ```yaml
 Type: System.String

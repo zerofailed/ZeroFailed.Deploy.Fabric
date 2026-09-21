@@ -479,54 +479,50 @@ function Invoke-FabricSetup {
                 }
             }
 
-            # h. Managed Private Endpoints — non-fatal, log and continue.
+            # i. Managed Private Endpoints — non-fatal, log and continue.
             # Configs generated before managed private endpoints were supported have no block, so guard
             # the access (a bare one would throw under Set-StrictMode). The block is an ordered
             # dictionary when the config comes straight from New-FabricTopologyConfig, and an object
             # when it has been loaded from JSON.
             if (-not $SkipManagedPrivateEndpoints -and $ws.PSObject.Properties.Name -contains 'managedPrivateEndpoints') {
-                $mpeByEnv   = $ws.managedPrivateEndpoints
-                $mpeEntries = @(
-                    if ($mpeByEnv -is [System.Collections.IDictionary]) {
-                        if ($mpeByEnv.Contains($env.name)) { $mpeByEnv[$env.name] }
-                    }
-                    elseif ($mpeByEnv -and $mpeByEnv.PSObject.Properties.Name -contains $env.name) {
-                        $mpeByEnv.$($env.name)
-                    }
-                )
+                $mpeByEnv = $ws.managedPrivateEndpoints
+                $mpeBlock = if ($mpeByEnv -is [System.Collections.IDictionary]) {
+                    if ($mpeByEnv.Contains($env.name)) { $mpeByEnv[$env.name] }
+                }
+                elseif ($mpeByEnv -and $mpeByEnv.PSObject.Properties.Name -contains $env.name) {
+                    $mpeByEnv.$($env.name)
+                }
+                $mpeBlockProps  = if ($mpeBlock) { $mpeBlock.PSObject.Properties.Name } else { @() }
+                $subscriptionId = if ($mpeBlockProps -contains 'subscriptionId') { $mpeBlock.subscriptionId } else { $null }
+                $mpeResources   = @(if ($mpeBlockProps -contains 'resources') { $mpeBlock.resources | Where-Object { $_ } })
 
-                foreach ($entry in $mpeEntries) {
+                foreach ($resource in $mpeResources) {
+                    $resourceProps = $resource.PSObject.Properties.Name
+                    $resourceName  = if ($resourceProps -contains 'resourceName') { $resource.resourceName } else { $null }
                     try {
-                        $mpeName = _Resolve-ManagedPrivateEndpointName `
-                            -Config          $Config `
-                            -WorkspaceId     $ws.id `
-                            -EnvironmentName $env.name `
-                            -EndpointName    $entry.name
+                        $mpe = _Resolve-ManagedPrivateEndpoint `
+                            -SubscriptionId  $subscriptionId `
+                            -ResourceGroup   $(if ($resourceProps -contains 'resourceGroup') { $resource.resourceGroup }) `
+                            -ResourceName    $resourceName `
+                            -ResourceType    $(if ($resourceProps -contains 'resourceType') { $resource.resourceType }) `
+                            -SubResourceType $(if ($resourceProps -contains 'subResourceType') { $resource.subResourceType })
 
                         $mpeParams = @{
                             WorkspaceId                 = $workspaceId
                             WorkspaceName               = $resolvedName
                             Token                       = $token
-                            Name                        = $mpeName
-                            TargetPrivateLinkResourceId = $entry.targetPrivateLinkResourceId
+                            Name                        = $mpe.Name
+                            TargetPrivateLinkResourceId = $mpe.TargetPrivateLinkResourceId
+                            # Workspace names are at most 64 characters, well within the 140-character limit.
+                            RequestMessage              = "Fabric access from $resolvedName"
                         }
-                        $entryProps = $entry.PSObject.Properties.Name
-                        if ($entryProps -contains 'targetSubresourceType' -and $entry.targetSubresourceType) {
-                            $mpeParams.TargetSubresourceType = $entry.targetSubresourceType
-                        }
-                        if ($entryProps -contains 'requestMessage' -and $entry.requestMessage) {
-                            $mpeParams.RequestMessage = $entry.requestMessage
-                        }
-                        if ($entryProps -contains 'targetFQDNs') {
-                            $fqdns = @($entry.targetFQDNs | Where-Object { $_ })
-                            if ($fqdns.Count -gt 0) { $mpeParams.TargetFQDNs = $fqdns }
-                        }
+                        if ($mpe.TargetSubresourceType) { $mpeParams.TargetSubresourceType = $mpe.TargetSubresourceType }
 
                         $mpeResult = Set-FabricManagedPrivateEndpoint @mpeParams
                         $results.ManagedPrivateEndpoints.Add($mpeResult)
                     }
                     catch {
-                        Write-Warning "Managed private endpoint '$($entry.name)' failed for '$resolvedName' — $_"
+                        Write-Warning "Managed private endpoint to '$resourceName' failed for '$resolvedName' — $_"
                         $results.Failures.Add(@{
                             WorkspaceName = $resolvedName
                             Environment   = $env.name

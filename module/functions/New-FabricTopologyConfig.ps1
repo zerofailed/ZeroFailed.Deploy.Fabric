@@ -104,20 +104,27 @@ function New-FabricTopologyConfig {
         resolved per workspace type and stored on the workspace's pipeline block in the topology config.
     .PARAMETER ManagedPrivateEndpoints
         Array of managed private endpoint rules to create in workspaces. Each rule is a hashtable with:
-          Name                  (required) — logical endpoint name, used as the {name} token in the endpoint
-                                             naming convention; letters, digits, hyphens and underscores only
-          TargetResourceIds     (one of)   — hashtable mapping environment name to the Azure resource ID of
-                                             the private link resource for that stage; a stage left out of
-                                             the map gets no endpoint
-          TargetResourceId      (one of)   — a single Azure resource ID, used for every stage
-          TargetSubresourceType (optional) — private link sub-resource, e.g. 'vault' for Key Vault, or 'blob'
-                                             or 'dfs' for Storage (one endpoint per storage sub-resource)
-          RequestMessage        (optional) — message sent with the approval request; at most 140 characters
-          TargetFQDNs           (optional) — FQDNs to associate with the endpoint; at most 20
+          ResourceType          (required) — the target resource type: one of KeyVault, Storage, SqlServer,
+                                             CosmosDb, EventHubs or DataExplorer, or any provider path such as
+                                             'Microsoft.KeyVault/vaults'
+          Targets               (required) — hashtable mapping environment name to
+                                             @{ ResourceGroup = '...'; ResourceName = '...' } for that stage;
+                                             a stage left out of the map gets no endpoint
+          SubResourceType       (optional) — private link sub-resource; defaults from ResourceType (e.g. 'vault'
+                                             for KeyVault). Required for Storage ('blob', 'dfs', ...); pass it
+                                             explicitly with a provider path when the type needs one
           WorkspaceTypes        (optional) — array of workspace type names this rule applies to; omit for all types
-        Each rule is resolved per workspace type and environment and stored in the topology config.
-        Endpoint names follow the '{project}-{type}-{name}-{env}' template (e.g.
-        'SalesAnalytics-ETL-KeyVault-DEV') and must fit Fabric's 64-character limit.
+        Rules are resolved per workspace type and environment and stored in the topology config as
+        managedPrivateEndpoints.<env> = { subscriptionId, resources = [{ resourceName, resourceGroup,
+        resourceType, subResourceType }] }. At provisioning time the target resource ID is built as
+        /subscriptions/{subscriptionId}/resourceGroups/{resourceGroup}/providers/{provider path}/{resourceName},
+        the endpoint is named '{resourceName}.{subResourceType}' in lower case (e.g. 'kv-sales-dev.vault'),
+        and the approval request message is 'Fabric access from {workspace name}'. Endpoint names must fit
+        Fabric's 64-character limit.
+    .PARAMETER AzureSubscriptionIds
+        Hashtable mapping environment name to the Azure subscription ID that holds that stage's resources,
+        e.g. @{ Dev = '...'; Production = '...' }. Required for every environment a
+        -ManagedPrivateEndpoints rule targets.
     .PARAMETER TypeShortCodes
         Optional hashtable mapping workspace type names to the display short code used in workspace names.
         Overrides built-in defaults and the generated fallback. E.g. @{ Lakehouse = 'LH' }.
@@ -207,6 +214,8 @@ function New-FabricTopologyConfig {
 
         [hashtable[]]$ManagedPrivateEndpoints,
 
+        [hashtable]$AzureSubscriptionIds,
+
         [string]$OutputPath
     )
 
@@ -284,64 +293,71 @@ function New-FabricTopologyConfig {
         }
     }
 
-    # Validate ManagedPrivateEndpoints rules. Resolved endpoint name lengths depend on the short
-    # codes, so they are checked once the config has been assembled (below).
+    # Validate ManagedPrivateEndpoints rules. Each target is checked by resolving it exactly as
+    # Invoke-FabricSetup will (resource type, sub-resource, subscription ID, endpoint name length), so
+    # a bad rule fails here rather than part-way through provisioning.
     if ($ManagedPrivateEndpoints) {
+        foreach ($envName in @(if ($AzureSubscriptionIds) { $AzureSubscriptionIds.Keys })) {
+            if ($envName -notin $Environments) {
+                throw "-AzureSubscriptionIds references environment '$envName' which is not in -Environments."
+            }
+        }
+
+        $ruleIndex = 0
         foreach ($rule in $ManagedPrivateEndpoints) {
-            if (-not $rule.Name) {
-                throw "Each -ManagedPrivateEndpoints entry must include 'Name'."
-            }
-            if ($rule.Name -notmatch '^[A-Za-z0-9_-]+$') {
-                throw "-ManagedPrivateEndpoints entry '$($rule.Name)' has an invalid Name. Use only letters, digits, hyphens and underscores."
-            }
+            $ruleIndex++
+            $ruleLabel = "-ManagedPrivateEndpoints entry $ruleIndex ($($rule.ResourceType))"
 
-            $hasSingleTarget = $rule.ContainsKey('TargetResourceId') -and [bool]$rule.TargetResourceId
-            $hasTargetMap    = $rule.ContainsKey('TargetResourceIds') -and $null -ne $rule.TargetResourceIds
-            if ($hasSingleTarget -eq $hasTargetMap) {
-                throw "-ManagedPrivateEndpoints entry '$($rule.Name)' must include exactly one of 'TargetResourceId' or 'TargetResourceIds'."
+            if (-not $rule.Targets -or $rule.Targets -isnot [System.Collections.IDictionary] -or $rule.Targets.Count -eq 0) {
+                throw "$ruleLabel must include 'Targets': a hashtable mapping environment names to @{ ResourceGroup = '...'; ResourceName = '...' }."
             }
-
-            if ($hasTargetMap) {
-                if ($rule.TargetResourceIds -isnot [System.Collections.IDictionary] -or $rule.TargetResourceIds.Count -eq 0) {
-                    throw "-ManagedPrivateEndpoints entry '$($rule.Name)' has an invalid 'TargetResourceIds'. Supply a hashtable mapping environment names to Azure resource IDs."
+            foreach ($envName in $rule.Targets.Keys) {
+                if ($envName -notin $Environments) {
+                    throw "$ruleLabel references environment '$envName' which is not in -Environments."
                 }
-                foreach ($envName in $rule.TargetResourceIds.Keys) {
-                    if ($envName -notin $Environments) {
-                        throw "-ManagedPrivateEndpoints entry '$($rule.Name)' references environment '$envName' which is not in -Environments."
-                    }
+                if (-not $AzureSubscriptionIds -or -not $AzureSubscriptionIds.ContainsKey($envName)) {
+                    throw "$ruleLabel targets environment '$envName', which has no subscription in -AzureSubscriptionIds."
                 }
-            }
-
-            $resourceIds = if ($hasTargetMap) { @($rule.TargetResourceIds.Values) } else { @($rule.TargetResourceId) }
-            foreach ($resourceId in $resourceIds) {
-                if ("$resourceId" -notmatch '^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/[^/]+/.+') {
-                    throw "-ManagedPrivateEndpoints entry '$($rule.Name)' has an invalid resource ID '$resourceId'. Expected an Azure resource ID, e.g. '/subscriptions/{id}/resourceGroups/{group}/providers/Microsoft.KeyVault/vaults/{name}'."
+                $target = $rule.Targets[$envName]
+                if ($target -isnot [System.Collections.IDictionary]) {
+                    throw "$ruleLabel has an invalid target for environment '$envName'. Supply @{ ResourceGroup = '...'; ResourceName = '...' }."
                 }
-            }
-
-            if ($rule.ContainsKey('RequestMessage') -and "$($rule.RequestMessage)".Length -gt 140) {
-                throw "-ManagedPrivateEndpoints entry '$($rule.Name)' has a RequestMessage longer than Fabric's 140-character limit."
-            }
-            if ($rule.ContainsKey('TargetFQDNs') -and @($rule.TargetFQDNs).Count -gt 20) {
-                throw "-ManagedPrivateEndpoints entry '$($rule.Name)' has more than Fabric's limit of 20 TargetFQDNs."
+                try {
+                    _Resolve-ManagedPrivateEndpoint `
+                        -SubscriptionId  $AzureSubscriptionIds[$envName] `
+                        -ResourceGroup   $target.ResourceGroup `
+                        -ResourceName    $target.ResourceName `
+                        -ResourceType    $rule.ResourceType `
+                        -SubResourceType $rule.SubResourceType | Out-Null
+                }
+                catch {
+                    throw "$ruleLabel is invalid for environment '$envName': $($_.Exception.Message)"
+                }
             }
             foreach ($wsType in @($rule.WorkspaceTypes)) {
                 if ($wsType -and $wsType -notin $WorkspaceTypes) {
-                    throw "-ManagedPrivateEndpoints entry '$($rule.Name)' references workspace type '$wsType' which is not in -WorkspaceTypes."
+                    throw "$ruleLabel references workspace type '$wsType' which is not in -WorkspaceTypes."
                 }
             }
         }
 
-        # Two rules giving one workspace type the same name would resolve to the same endpoint, and
-        # the second would be reported as drift of the first on every run.
+        # Fabric requires endpoint names to be unique in a workspace. Two rules resolving to the same
+        # name (the same resource and sub-resource) would be the same endpoint, and the second would
+        # be reported as drift of the first on every run.
         foreach ($wsType in $WorkspaceTypes) {
-            $duplicate = $ManagedPrivateEndpoints |
-                Where-Object { -not $_.WorkspaceTypes -or $wsType -in $_.WorkspaceTypes } |
-                Group-Object -Property { $_.Name } |
-                Where-Object { $_.Count -gt 1 } |
-                Select-Object -First 1
-            if ($duplicate) {
-                throw "-ManagedPrivateEndpoints defines the endpoint name '$($duplicate.Name)' more than once for workspace type '$wsType'."
+            foreach ($envName in $Environments) {
+                $duplicate = $ManagedPrivateEndpoints |
+                    Where-Object { (-not $_.WorkspaceTypes -or $wsType -in $_.WorkspaceTypes) -and $_.Targets.Contains($envName) } |
+                    Group-Object -Property {
+                        (_Resolve-ManagedPrivateEndpoint -SubscriptionId $AzureSubscriptionIds[$envName] `
+                            -ResourceGroup $_.Targets[$envName].ResourceGroup -ResourceName $_.Targets[$envName].ResourceName `
+                            -ResourceType $_.ResourceType -SubResourceType $_.SubResourceType).Name
+                    } |
+                    Where-Object { $_.Count -gt 1 } |
+                    Select-Object -First 1
+                if ($duplicate) {
+                    throw "-ManagedPrivateEndpoints defines endpoint '$($duplicate.Name)' more than once for workspace type '$wsType' in environment '$envName'."
+                }
             }
         }
     }
@@ -556,34 +572,38 @@ function New-FabricTopologyConfig {
             }
         )
 
-        # Resolve managed private endpoints per environment for this workspace type. The target
-        # resource is resolved for each stage here, so a rule whose TargetResourceIds leaves a stage
-        # out produces no endpoint there. The endpoint name is resolved from the naming convention at
-        # provisioning time, like the workspace name.
+        # Managed private endpoints per environment for this workspace type: the environment's
+        # subscription and the resources its workspace connects to. The endpoint name and full resource
+        # ID are resolved from these at provisioning time. The sub-resource is stored with its default
+        # applied, so the config shows exactly what will be requested.
         $mpeByEnv = [ordered]@{}
         foreach ($envName in $Environments) {
-            $mpeByEnv[$envName] = @(
+            $resources = @(
                 if ($ManagedPrivateEndpoints) {
                     $ManagedPrivateEndpoints |
-                        Where-Object { -not $_.WorkspaceTypes -or $wsType -in $_.WorkspaceTypes } |
+                        Where-Object { (-not $_.WorkspaceTypes -or $wsType -in $_.WorkspaceTypes) -and $_.Targets.Contains($envName) } |
                         ForEach-Object {
-                            $resourceId = if ($_.ContainsKey('TargetResourceIds') -and $null -ne $_.TargetResourceIds) {
-                                $_.TargetResourceIds[$envName]
-                            }
-                            else { $_.TargetResourceId }
+                            $target   = $_.Targets[$envName]
+                            $resolved = _Resolve-ManagedPrivateEndpoint `
+                                -SubscriptionId  $AzureSubscriptionIds[$envName] `
+                                -ResourceGroup   $target.ResourceGroup `
+                                -ResourceName    $target.ResourceName `
+                                -ResourceType    $_.ResourceType `
+                                -SubResourceType $_.SubResourceType
 
-                            if ($resourceId) {
-                                [pscustomobject]@{
-                                    name                        = $_.Name
-                                    targetPrivateLinkResourceId = $resourceId
-                                    targetSubresourceType       = if ($_.ContainsKey('TargetSubresourceType')) { $_.TargetSubresourceType } else { $null }
-                                    requestMessage              = if ($_.ContainsKey('RequestMessage')) { $_.RequestMessage } else { $null }
-                                    targetFQDNs                 = @(if ($_.ContainsKey('TargetFQDNs')) { $_.TargetFQDNs })
-                                }
+                            [pscustomobject]@{
+                                resourceName    = $target.ResourceName
+                                resourceGroup   = $target.ResourceGroup
+                                resourceType    = $_.ResourceType
+                                subResourceType = $resolved.TargetSubresourceType
                             }
                         }
                 }
             )
+            $mpeByEnv[$envName] = [pscustomobject]@{
+                subscriptionId = if ($AzureSubscriptionIds -and $AzureSubscriptionIds.ContainsKey($envName)) { $AzureSubscriptionIds[$envName] } else { $null }
+                resources      = $resources
+            }
         }
 
         [pscustomobject]@{
@@ -619,23 +639,12 @@ function New-FabricTopologyConfig {
         namingConvention  = [pscustomobject]@{
             template                = '{project}-{type} [{env}]'
             environmentNameTemplate = '{project}-{type} Env'
-            managedPrivateEndpointNameTemplate = '{project}-{type}-{name}-{env}'
             maxLength               = 64
             typeShortCodes          = [pscustomobject]$resolvedTypeShortCodes
             envShortCodes           = [pscustomobject]$resolvedEnvShortCodes
         }
         environments      = @($envList)
         workspaces        = @($workspaceList)
-    }
-
-    # Resolve every endpoint name now, so a name over Fabric's 64-character limit fails here rather
-    # than part-way through provisioning.
-    foreach ($workspace in $config.workspaces) {
-        foreach ($envName in $workspace.managedPrivateEndpoints.Keys) {
-            foreach ($entry in $workspace.managedPrivateEndpoints[$envName]) {
-                _Resolve-ManagedPrivateEndpointName -Config $config -WorkspaceId $workspace.id -EnvironmentName $envName -EndpointName $entry.name | Out-Null
-            }
-        }
     }
 
     # Optionally write to file

@@ -36,6 +36,7 @@ $FabricSkipMonitoring     = $false
 $FabricSkipEnvironment    = $false
 $FabricSkipVariableLibrary = $false
 $FabricSkipRbac           = $false
+$FabricSkipManagedPrivateEndpoints = $false
 $FabricSkipPipeline       = $false    # provisionFabricDeploymentPipelines task only
 $FabricSkipPipelineRbac   = $false    # provisionFabricDeploymentPipelines task only
 $FabricWhatIf             = $false
@@ -117,12 +118,17 @@ $topology = New-FabricTopologyConfig `
         # Platform team administers every deployment pipeline (Admin is the only pipeline role)
         @{ PrincipalId = "dddddddd-0000-0000-0000-000000000004"; PrincipalType = "Group" }
     ) `
+    -AzureSubscriptionIds @{
+        Dev        = "11111111-1111-1111-1111-111111111111"
+        Test       = "11111111-1111-1111-1111-111111111111"
+        Production = "22222222-2222-2222-2222-222222222222"
+    } `
     -ManagedPrivateEndpoints @(
         # Every workspace type connects to its own stage's Key Vault (stages left out get no endpoint)
-        @{ Name = "KeyVault"; TargetSubresourceType = "vault"
-           TargetResourceIds = @{
-               Dev        = "/subscriptions/{dev-sub-id}/resourceGroups/rg-sales-dev/providers/Microsoft.KeyVault/vaults/kv-sales-dev"
-               Production = "/subscriptions/{prod-sub-id}/resourceGroups/rg-sales-prod/providers/Microsoft.KeyVault/vaults/kv-sales-prod"
+        @{ ResourceType = "KeyVault"
+           Targets = @{
+               Dev        = @{ ResourceGroup = "rg-sales-dev";  ResourceName = "kv-sales-dev" }
+               Production = @{ ResourceGroup = "rg-sales-prod"; ResourceName = "kv-sales-prod" }
            } }
     )
 
@@ -146,6 +152,9 @@ $result.VariableLibraries | Format-Table WorkspaceName, VariableLibraryName, Var
 
 # 7. Inspect the role assignment report
 $result.RoleAssignments | Format-Table WorkspaceName, PrincipalId, Role, Action
+
+# 7b. Inspect the managed private endpoint report (ConnectionStatus shows which still need approving)
+$result.ManagedPrivateEndpoints | Format-Table WorkspaceName, Name, ConnectionStatus, Action
 
 # 8. Once every environment's workspaces exist, set up the deployment pipelines
 $pipelineResult = Invoke-FabricDeploymentPipelineSetup -Config $topology
@@ -172,7 +181,7 @@ Workspace names follow the template `{project}-{type} [{env}]`, with casing cont
 
 **Examples:** `salesanalytics-Bronze [DEV]`, `salesanalytics-Report [PROD]`, `salesanalytics-ETL [ACC]`
 
-Managed private endpoint names follow `{project}-{type}-{name}-{env}` with the same short codes, where `{name}` is the endpoint's logical name from `-ManagedPrivateEndpoints` — e.g. `salesanalytics-Bronze-KeyVault-DEV`. Characters other than letters, digits, hyphens and underscores become hyphens. A name over Fabric's 64-character limit is rejected rather than truncated, because the name is how an existing endpoint is found on re-runs.
+Managed private endpoints are named after the Azure resource and sub-resource they target (e.g. `kv-sales-dev.vault`) rather than following this template — see [`-ManagedPrivateEndpoints`](#-managedprivateendpoints--managed-private-endpoints).
 
 ---
 
@@ -247,6 +256,7 @@ New-FabricTopologyConfig `
 | `-RoleAssignments` | `hashtable[]` | No | None | Role assignment rules applied by workspace type and environment (see below) |
 | `-PipelineRoleAssignments` | `hashtable[]` | No | None | Deployment pipeline role assignment rules applied by workspace type (see below) |
 | `-ManagedPrivateEndpoints` | `hashtable[]` | No | None | Managed private endpoints to create per workspace type, with a target resource per environment (see below) |
+| `-AzureSubscriptionIds` | `hashtable` | With `-ManagedPrivateEndpoints` | None | Environment name → Azure subscription ID holding that stage's resources |
 | `-OutputPath` | `string` | No | — | Write the generated config as JSON to this path |
 
 **Returns:** A `pscustomobject` topology config. Also writes JSON to `-OutputPath` if specified.
@@ -379,43 +389,78 @@ Deployment pipelines have their own access control, separate from the workspaces
 
 **`-ManagedPrivateEndpoints` — managed private endpoints:**
 
-Managed private endpoints let a Fabric workspace's Spark workloads reach Azure resources that are closed to public network access, such as a Key Vault or storage account. Each rule in `-ManagedPrivateEndpoints` declares an endpoint for one or more workspace types, and — because each stage normally has its own copy of the resource — which resource it targets in each environment. Rules are resolved and stored per workspace type and environment; `Invoke-FabricSetup` then creates them idempotently in each workspace.
+Managed private endpoints let a Fabric workspace's Spark workloads reach Azure resources that are closed to public network access, such as a Key Vault or storage account. Each rule in `-ManagedPrivateEndpoints` declares an endpoint for one or more workspace types, and — because each stage normally has its own copy of the resource — which resource it targets in each environment. The subscription is set once per environment with `-AzureSubscriptionIds`, since every resource in a stage shares it; the resource group and resource name are given on each rule, per environment. Rules are resolved and stored per workspace type and environment; `Invoke-FabricSetup` then creates them idempotently in each workspace.
 
 | Key | Required | Description |
 |---|---|---|
-| `Name` | Yes | Logical endpoint name, used as `{name}` in the endpoint naming convention (letters, digits, hyphens and underscores) |
-| `TargetResourceIds` | One of | Hashtable mapping environment name → Azure resource ID for that stage. An environment left out gets no endpoint |
-| `TargetResourceId` | One of | A single Azure resource ID used in every environment (for a resource shared across stages) |
-| `TargetSubresourceType` | No | Private link sub-resource, e.g. `vault` for Key Vault; `blob` or `dfs` for Storage |
-| `RequestMessage` | No | Message shown to the resource owner with the approval request (at most 140 characters) |
-| `TargetFQDNs` | No | FQDNs to associate with the endpoint (at most 20), for resource types that need them such as API Management |
+| `ResourceType` | Yes | The target resource type — see the table below — or any provider path such as `Microsoft.Search/searchServices` |
+| `Targets` | Yes | Hashtable mapping environment name → `@{ ResourceGroup = "..."; ResourceName = "..." }`. An environment left out gets no endpoint |
+| `SubResourceType` | Depends | Private link sub-resource. Defaults from `ResourceType`; required for `Storage` (`blob`, `dfs`, …). Pass it with a provider path when the type needs one |
 | `WorkspaceTypes` | No | Array of workspace type names to apply this rule to; omit for all types |
 
+| `ResourceType` | Provider path | Default sub-resource |
+|---|---|---|
+| `KeyVault` | `Microsoft.KeyVault/vaults` | `vault` |
+| `Storage` | `Microsoft.Storage/storageAccounts` | — (required) |
+| `SqlServer` | `Microsoft.Sql/servers` | `sqlServer` |
+| `CosmosDb` | `Microsoft.DocumentDB/databaseAccounts` | `Sql` |
+| `EventHubs` | `Microsoft.EventHub/namespaces` | `namespace` |
+| `DataExplorer` | `Microsoft.Kusto/clusters` | `cluster` |
+
 ```powershell
+-AzureSubscriptionIds @{
+    Dev        = "11111111-1111-1111-1111-111111111111"
+    Test       = "11111111-1111-1111-1111-111111111111"
+    Production = "22222222-2222-2222-2222-222222222222"
+} `
 -ManagedPrivateEndpoints @(
     # Every workspace type reaches its own stage's Key Vault
-    @{ Name = "KeyVault"; TargetSubresourceType = "vault"
-       TargetResourceIds = @{
-           Dev        = "/subscriptions/{dev-sub-id}/resourceGroups/rg-sales-dev/providers/Microsoft.KeyVault/vaults/kv-sales-dev"
-           Test       = "/subscriptions/{test-sub-id}/resourceGroups/rg-sales-test/providers/Microsoft.KeyVault/vaults/kv-sales-test"
-           Production = "/subscriptions/{prod-sub-id}/resourceGroups/rg-sales-prod/providers/Microsoft.KeyVault/vaults/kv-sales-prod"
+    @{ ResourceType = "KeyVault"
+       Targets = @{
+           Dev        = @{ ResourceGroup = "rg-sales-dev";  ResourceName = "kv-sales-dev" }
+           Test       = @{ ResourceGroup = "rg-sales-test"; ResourceName = "kv-sales-test" }
+           Production = @{ ResourceGroup = "rg-sales-prod"; ResourceName = "kv-sales-prod" }
        } }
 
-    # ETL reads the data lake — one endpoint per storage sub-resource it uses
-    @{ Name = "Lake-Dfs"; TargetSubresourceType = "dfs"; WorkspaceTypes = @("ETL")
-       TargetResourceIds = @{
-           Dev        = "/subscriptions/{dev-sub-id}/resourceGroups/rg-sales-dev/providers/Microsoft.Storage/storageAccounts/stsalesdev"
-           Production = "/subscriptions/{prod-sub-id}/resourceGroups/rg-sales-prod/providers/Microsoft.Storage/storageAccounts/stsalesprod"
+    # ETL reads the data lake over its dfs endpoint
+    @{ ResourceType = "Storage"; SubResourceType = "dfs"; WorkspaceTypes = @("ETL")
+       Targets = @{
+           Dev        = @{ ResourceGroup = "rg-data-dev";  ResourceName = "stsalesdev" }
+           Production = @{ ResourceGroup = "rg-data-prod"; ResourceName = "stsalesprod" }
        } }
 )
-# ETL in Dev gets: salesanalytics-ETL-KeyVault-DEV and salesanalytics-ETL-Lake-Dfs-DEV
+# ETL in Dev gets two endpoints: kv-sales-dev.vault and stsalesdev.dfs
 ```
 
-Any resource type Fabric supports for managed private endpoints can be used — the resource ID and sub-resource are passed through as given. Storage needs a **separate endpoint per sub-resource** (`blob`, `dfs`, …) that workloads use. Endpoint names follow `{project}-{type}-{name}-{env}` (see [Naming convention](#naming-convention)); `New-FabricTopologyConfig` rejects any rule whose resolved name would exceed Fabric's 64-character limit, as well as duplicate names for a workspace type, unknown environments or workspace types, and values that aren't Azure resource IDs.
+Each workspace's endpoints are stored in the topology config per environment — the environment's subscription and the resources it connects to, with the resource type's default sub-resource filled in:
+
+```json
+"managedPrivateEndpoints": {
+  "Dev": {
+    "subscriptionId": "11111111-1111-1111-1111-111111111111",
+    "resources": [
+      { "resourceName": "kv-sales-dev", "resourceGroup": "rg-sales-dev", "resourceType": "KeyVault", "subResourceType": "vault" },
+      { "resourceName": "stsalesdev",   "resourceGroup": "rg-data-dev",  "resourceType": "Storage",  "subResourceType": "dfs" }
+    ]
+  },
+  "Production": {
+    "subscriptionId": "22222222-2222-2222-2222-222222222222",
+    "resources": [ ... ]
+  }
+}
+```
+
+At provisioning time, `Invoke-FabricSetup` turns each resource into the managed private endpoint API call:
+
+- **Target resource ID:** `/subscriptions/{subscriptionId}/resourceGroups/{resourceGroup}/providers/{resourceType's provider path}/{resourceName}`
+- **Endpoint name:** `{resourceName}.{subResourceType}` in lower case — e.g. `kv-sales-dev.vault`, `stsalesdev.dfs` — or just the resource name for a type with no sub-resource (such as a Private Link Service given as a provider path). Fabric appends the workspace ID to the name when it creates the endpoint. Including the sub-resource lets one resource have an endpoint per sub-resource in the same workspace, such as a storage account's `blob` and `dfs`.
+- **Approval request message:** `Fabric access from {workspace name}`, so the resource owner can see which workspace is asking.
+
+`New-FabricTopologyConfig` resolves every target the same way when it builds the config, so it rejects unknown resource types, targets missing a resource group or name, environments with no subscription in `-AzureSubscriptionIds`, subscription IDs that aren't GUIDs, endpoint names over Fabric's 64-character limit, two rules resolving to the same endpoint in a workspace, and unknown environments or workspace types — before any API call is made.
 
 > **Approval is a manual step.** Creating an endpoint only *requests* a private link connection. The owner of each target resource must approve it (Azure portal → the resource → **Networking** → **Private endpoint connections**) before it can be used. `Invoke-FabricSetup` reports each endpoint's `ConnectionStatus` and writes a warning on every run until it is `Approved`.
 
-> **Endpoints can't be updated in place.** Fabric has no API to change an endpoint's target. If a rule's resource ID or sub-resource changes, `Invoke-FabricSetup` reports a `ManagedPrivateEndpoint` failure rather than deleting the existing endpoint — deleting it would drop an approved connection. Delete the endpoint in the workspace's **Network security** settings and re-run to create it with the new target. Endpoints removed from the topology are likewise left in place.
+> **Endpoints can't be updated in place.** Fabric has no API to change an endpoint's target. If a rule's target or sub-resource changes, `Invoke-FabricSetup` reports a `ManagedPrivateEndpoint` failure rather than deleting the existing endpoint — deleting it would drop an approved connection. Delete the endpoint in the workspace's **Network security** settings and re-run to create it with the new target. Endpoints removed from the topology are likewise left in place.
 
 > **Requirements:** the deploying identity needs the workspace **Admin** role (already granted by `Invoke-FabricSetup`), the workspace must be on a Fabric capacity that supports managed private endpoints, and the `Microsoft.Network` resource provider must be registered in the target resource's subscription.
 
@@ -499,7 +544,7 @@ Without `-VariableLibraryDefaultValues`, an **empty** Variable Library is provis
 
 #### `Invoke-FabricSetup`
 
-Orchestrates the full provisioning pipeline. For each environment × workspace combination: resolves the name, creates the workspace (idempotent), grants the deploying identity Admin on the workspace, connects Git (in the designated Git environment only, for configured workspace types), provisions identity, enables monitoring, provisions a Spark Environment (and optionally sets it as the workspace default), provisions a Variable Library (with `defaultValues`, populating the default variables in the stage's value set and activating it), and applies RBAC role assignments. Returns a structured results object. Deployment pipelines are not configured here — they span every environment, so they are set up separately by [`Invoke-FabricDeploymentPipelineSetup`](#invoke-fabricdeploymentpipelinesetup).
+Orchestrates the full provisioning pipeline. For each environment × workspace combination: resolves the name, creates the workspace (idempotent), grants the deploying identity Admin on the workspace, connects Git (in the designated Git environment only, for configured workspace types), provisions identity, enables monitoring, provisions a Spark Environment (and optionally sets it as the workspace default), provisions a Variable Library (with `defaultValues`, populating the default variables in the stage's value set and activating it), applies RBAC role assignments, and creates managed private endpoints. Returns a structured results object. Deployment pipelines are not configured here — they span every environment, so they are set up separately by [`Invoke-FabricDeploymentPipelineSetup`](#invoke-fabricdeploymentpipelinesetup).
 
 > **Deploying identity auto-grant:** every workspace is granted the identity running the deployment the **Admin** role — idempotently, and independently of `-SkipRbac`. The identity (and its Entra **object id**, which Fabric role assignments require) is resolved with `Get-AzContext` plus `Get-AzADServicePrincipal`/`Get-AzADUser` (implemented directly in this module rather than depending on ZeroFailed.Deploy.Azure, to avoid pulling in a full deploy extension for a single identity lookup), so it works both as the Azure DevOps service principal and as a locally signed-in user. This guarantees the deployer can always see and re-manage the workspace on later runs — without it, a re-run hits `WorkspaceNameAlreadyExists` (names are unique tenant-wide) but cannot resolve the workspace via `GET /workspaces`. No topology config required.
 
@@ -523,7 +568,8 @@ $result = Invoke-FabricSetup -Config $topology -SkipMonitoring
 $result = Invoke-FabricSetup -Config $topology -SkipEnvironment
 $result = Invoke-FabricSetup -Config $topology -SkipVariableLibrary
 $result = Invoke-FabricSetup -Config $topology -SkipRbac
-$result = Invoke-FabricSetup -Config $topology -SkipGit -SkipIdentity -SkipMonitoring -SkipEnvironment -SkipVariableLibrary -SkipRbac
+$result = Invoke-FabricSetup -Config $topology -SkipManagedPrivateEndpoints
+$result = Invoke-FabricSetup -Config $topology -SkipGit -SkipIdentity -SkipMonitoring -SkipEnvironment -SkipVariableLibrary -SkipRbac -SkipManagedPrivateEndpoints
 ```
 
 **Parameters:**
@@ -539,6 +585,7 @@ $result = Invoke-FabricSetup -Config $topology -SkipGit -SkipIdentity -SkipMonit
 | `-SkipEnvironment` | `switch` | Skip Spark Environment provisioning for all workspaces |
 | `-SkipVariableLibrary` | `switch` | Skip Variable Library provisioning for all workspaces |
 | `-SkipRbac` | `switch` | Skip role assignment application for all workspaces |
+| `-SkipManagedPrivateEndpoints` | `switch` | Skip managed private endpoint creation for all workspaces |
 | `-WhatIf` | `switch` | Simulate all operations; no API calls are made |
 
 **Return value:**
@@ -550,6 +597,7 @@ $result.Monitoring      # Array of monitoring report entries
 $result.Environments    # Array of environment provisioning report entries
 $result.VariableLibraries # Array of variable library provisioning report entries
 $result.RoleAssignments # Array of role assignment report entries
+$result.ManagedPrivateEndpoints # Array of managed private endpoint report entries
 $result.Failures        # Array of per-workspace failure details
 ```
 
@@ -621,6 +669,22 @@ $result.Failures        # Array of per-workspace failure details
 }
 ```
 
+**Managed private endpoint report structure** (one entry per configured endpoint):
+
+```powershell
+@{
+    WorkspaceName               = "salesanalytics-Bronze [DEV]"
+    WorkspaceId                 = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+    Name                        = "kv-sales-dev.vault"
+    EndpointId                  = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+    TargetPrivateLinkResourceId = "/subscriptions/{sub-id}/resourceGroups/rg-sales-dev/providers/Microsoft.KeyVault/vaults/kv-sales-dev"
+    TargetSubresourceType       = "vault"
+    ProvisioningState           = "Succeeded"   # Provisioning | Succeeded | Updating | Deleting | Failed
+    ConnectionStatus            = "Pending"     # Pending | Approved | Rejected | Disconnected ($null straight after creation)
+    Action                      = "Created"     # Created | Skipped | WhatIf
+}
+```
+
 **Working with results:**
 
 ```powershell
@@ -645,6 +709,11 @@ $result.VariableLibraries | ForEach-Object { [pscustomobject]$_ } | Format-Table
 # View role assignment report
 $result.RoleAssignments | ForEach-Object { [pscustomobject]$_ } |
     Format-Table WorkspaceName, PrincipalId, Role, Action
+
+# List managed private endpoints still awaiting approval on their target resource
+$result.ManagedPrivateEndpoints | ForEach-Object { [pscustomobject]$_ } |
+    Where-Object ConnectionStatus -ne 'Approved' |
+    Format-Table WorkspaceName, Name, TargetPrivateLinkResourceId, ConnectionStatus
 
 # Check for failures
 if ($result.Failures.Count -gt 0) {
@@ -813,7 +882,7 @@ Ensures a managed private endpoint exists in a workspace using the managed priva
 
 ```powershell
 $mpe = Set-FabricManagedPrivateEndpoint -WorkspaceId $ws.id -WorkspaceName "salesanalytics-Bronze [DEV]" -Token $token `
-    -Name "salesanalytics-Bronze-KeyVault-DEV" `
+    -Name "kv-sales-dev.vault" `
     -TargetPrivateLinkResourceId "/subscriptions/{sub-id}/resourceGroups/rg-sales-dev/providers/Microsoft.KeyVault/vaults/kv-sales-dev" `
     -TargetSubresourceType "vault"
 ```
@@ -1028,12 +1097,20 @@ Invoke-FabricSetup
     │           ├── merge default variables (placeholder defaults) + stage value set overrides
     │           ├── changed → POST /variableLibraries/{id}/updateDefinition (full definition)
     │           └── active value set differs → PATCH /variableLibraries/{id} (activeValueSetName)
-    └── For each role assignment in ws.rbac[env]:  (unless -SkipRbac or no assignments)
-        └── Set-FabricWorkspaceRoleAssignment
-            ├── GET workspaces/{id}/roleAssignments  (idempotency check)
-            ├── same role → skip
-            ├── different role → PATCH /roleAssignments/{id}
-            └── not found → POST /roleAssignments  → append to $result.RoleAssignments
+    ├── For each role assignment in ws.rbac[env]:  (unless -SkipRbac or no assignments)
+    │   └── Set-FabricWorkspaceRoleAssignment
+    │       ├── GET workspaces/{id}/roleAssignments  (idempotency check)
+    │       ├── same role → skip
+    │       ├── different role → PATCH /roleAssignments/{id}
+    │       └── not found → POST /roleAssignments  → append to $result.RoleAssignments
+    └── For each resource in ws.managedPrivateEndpoints[env].resources:  (unless -SkipManagedPrivateEndpoints or none configured)
+        ├── _Resolve-ManagedPrivateEndpoint  → resource ID, name (e.g. "kv-sales-dev.vault") and sub-resource
+        └── Set-FabricManagedPrivateEndpoint  (request message "Fabric access from {workspace name}")
+            ├── GET workspaces/{id}/managedPrivateEndpoints  (paginated, find by name)
+            ├── same target → skip
+            ├── different target → throw (endpoints can't be updated in place)
+            └── not found → POST /managedPrivateEndpoints  → append to $result.ManagedPrivateEndpoints
+                (the connection then awaits approval on the target resource)
 
 Invoke-FabricDeploymentPipelineSetup
 ├── _Get-FabricAuthToken        (Get-AzAccessToken for Fabric API)
@@ -1093,7 +1170,7 @@ $pipelineResult = Invoke-FabricDeploymentPipelineSetup -Config $topology
 **Skip individual steps:**
 
 ```powershell
-$result = Invoke-FabricSetup -Config $topology -SkipGit -SkipIdentity -SkipMonitoring -SkipEnvironment -SkipVariableLibrary -SkipRbac
+$result = Invoke-FabricSetup -Config $topology -SkipGit -SkipIdentity -SkipMonitoring -SkipEnvironment -SkipVariableLibrary -SkipRbac -SkipManagedPrivateEndpoints
 ```
 
 **Provision each environment, then wire up pipelines:**
@@ -1126,8 +1203,8 @@ Invoke-Pester ./module -Output Detailed
 
 The test suite covers:
 - `_Resolve-WorkspaceName` — correct name generation, lowercasing, truncation, error cases
-- `_Resolve-ManagedPrivateEndpointName` — default and custom templates, stage in the name, short codes, invalid-character replacement, 64-character limit (rejected, not truncated), unresolved tokens, unknown workspace/environment
-- `New-FabricTopologyConfig` — environment count, workspace count, capacity assignment, Git opt-in per workspace type (`-GitWorkspaceConfig`), single Git environment (`-GitEnvironment`), identity filtering, monitoring filtering, pipeline opt-in (`-EnablePipelines`), Spark Environment opt-in (`-EnableEnvironments`, `-SetEnvironmentAsDefault`, `-EnvironmentRuntimeVersion`), per-type Spark Environment stage scoping (`-EnvironmentStages`, defaulting, validation errors), Variable Library opt-in (`-EnableVariableLibraries`, `-VariableLibraryName` default/custom name and naming-rule validation, `-VariableLibraryStages` defaulting and validation errors, `-VariableLibraryDefaultValues`), RBAC role assignment rules (`-RoleAssignments`), pipeline role assignment rules (`-PipelineRoleAssignments`), managed private endpoint rules (`-ManagedPrivateEndpoints`), `-OutputPath` JSON output, GitHub provider, validation errors
+- `_Resolve-ManagedPrivateEndpoint` — resource ID from its parts, known types and their default sub-resources, provider paths, lower-case `{resource}.{sub-resource}` names, validation errors (unknown type, missing values, subscription GUID, Storage sub-resource, 64-character limit)
+- `New-FabricTopologyConfig` — environment count, workspace count, capacity assignment, Git opt-in per workspace type (`-GitWorkspaceConfig`), single Git environment (`-GitEnvironment`), identity filtering, monitoring filtering, pipeline opt-in (`-EnablePipelines`), Spark Environment opt-in (`-EnableEnvironments`, `-SetEnvironmentAsDefault`, `-EnvironmentRuntimeVersion`), per-type Spark Environment stage scoping (`-EnvironmentStages`, defaulting, validation errors), Variable Library opt-in (`-EnableVariableLibraries`, `-VariableLibraryName` default/custom name and naming-rule validation, `-VariableLibraryStages` defaulting and validation errors, `-VariableLibraryDefaultValues`), RBAC role assignment rules (`-RoleAssignments`), pipeline role assignment rules (`-PipelineRoleAssignments`), managed private endpoint rules (`-ManagedPrivateEndpoints`, `-AzureSubscriptionIds`: per-environment subscription and resource entries, sub-resource defaults filled in, type scoping, JSON round trip, validation errors including duplicate endpoints in a workspace), `-OutputPath` JSON output, GitHub provider, validation errors
 - `New-FabricEnvironment` — WhatIf, idempotent skip when present, create via POST, description in body, 409 conflict resolution, non-conflict error propagation
 - `New-FabricVariableLibrary` — existing library returned with no create/update calls, WhatIf, empty create via POST (no definition), description in body, LRO resolution by name, 409 conflict resolution, non-conflict error propagation
 - `_Resolve-VariableLibraryName` / `_Resolve-FabricVariableLibrary` — configured name or `DefaultVariableLibrary` default, naming-rule rejection; lookup by name with pagination
@@ -1136,7 +1213,8 @@ The test suite covers:
 - `Set-FabricWorkspaceDefaultEnvironment` — WhatIf, PATCH body shape, custom runtime version, skip when default already matches
 - `Set-FabricDeploymentPipeline` — WhatIf, create+assign all stages, skip when fully assigned, update vacant stages, throw without touching the pipeline when a workspace is missing, pagination across continuation tokens, API error propagation, report field correctness
 - `Set-FabricDeploymentPipelineRoleAssignment` — WhatIf, Admin default, non-Admin role rejection, skip when principal already present, create via POST, principal type acceptance, API error propagation, report field correctness
-- `Invoke-FabricSetup` — deploying identity Admin and workspace identity Contributor grants, single-environment targeting, deployment pipelines not configured, environment provisioning + set-as-default, `-SkipEnvironment`, non-fatal environment failures, variable library provisioning per environment, stage scoping, `-SkipVariableLibrary`, older configs without a `variableLibrary` block, default name when none configured, default values off unless enabled, default values in a value set named by stage short code (environment name fallback), identity from this run or read off the workspace, empty identity values without an identity, non-fatal default values failures, non-fatal variable library failures
+- `Invoke-FabricSetup` — deploying identity Admin and workspace identity Contributor grants, single-environment targeting, deployment pipelines not configured, environment provisioning + set-as-default, `-SkipEnvironment`, non-fatal environment failures, variable library provisioning per environment, stage scoping, `-SkipVariableLibrary`, older configs without a `variableLibrary` block, default name when none configured, default values off unless enabled, default values in a value set named by stage short code (environment name fallback), identity from this run or read off the workspace, empty identity values without an identity, non-fatal default values failures, non-fatal variable library failures, managed private endpoints (per-environment subscription and resources, request message naming the workspace, default sub-resource, `-SkipManagedPrivateEndpoints`, configs predating the block, in-memory dictionary shape, missing subscription, non-fatal failures)
+- `Set-FabricManagedPrivateEndpoint` — WhatIf, create via POST (optional fields omitted or included), skip when the target matches (case-insensitive), drifted target or sub-resource rejected without a POST, approval and failed-provisioning warnings, pagination, StrictMode safety, API error propagation, name and request message length limits
 - `Invoke-FabricDeploymentPipelineSetup` — pipeline-enabled types only, summary by action (WhatIf not counted), pipeline role assignment application, `-SkipPipelineRbac`, failed pipeline recorded without an RBAC attempt while other types continue, non-fatal pipeline RBAC failures, no-op warning when no pipelines are enabled, token refresh, `-ConfigPath`
 - `_Invoke-FabricFileUpload` — multipart upload URL/headers, no manual Content-Type, missing-file guard, API error unwrap
 - `Add-FabricEnvironmentLibrary` — staging-libraries endpoint, WhatIf no-op
@@ -1175,8 +1253,8 @@ ZeroFailed.Deploy.Fabric/
     │   ├── _Invoke-PipDownload.ps1                # Private: mockable pip download shim
     │   ├── _Resolve-FabricEnvironment.ps1         # Private: resolve Spark Environment by name
     │   ├── _Resolve-FabricVariableLibrary.ps1     # Private: resolve Variable Library by name
+    │   ├── _Resolve-ManagedPrivateEndpoint.ps1    # Private: managed private endpoint resource ID, name and sub-resource
     │   ├── _Resolve-VariableLibraryName.ps1       # Private: Variable Library name default + validation
-    │   ├── _Resolve-ManagedPrivateEndpointName.ps1  # Private: managed private endpoint naming convention
     │   ├── _Resolve-WorkspaceName.ps1             # Private: naming convention engine
     │   ├── Add-FabricEnvironmentLibrary.ps1       # Python library deploy: upload library to staging
     │   ├── Add-FabricEnvironmentLibrary.Tests.ps1

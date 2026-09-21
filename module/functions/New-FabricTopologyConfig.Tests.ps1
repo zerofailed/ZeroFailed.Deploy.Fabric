@@ -445,169 +445,201 @@ Describe 'New-FabricTopologyConfig — RBAC configuration' {
 Describe 'New-FabricTopologyConfig — Managed private endpoints' {
 
     BeforeAll {
-        $script:kvDev    = '/subscriptions/sub-dev/resourceGroups/rg-dev/providers/Microsoft.KeyVault/vaults/kv-dev'
-        $script:kvProd   = '/subscriptions/sub-prod/resourceGroups/rg-prod/providers/Microsoft.KeyVault/vaults/kv-prod'
-        $script:stShared = '/subscriptions/sub-shared/resourceGroups/rg-shared/providers/Microsoft.Storage/storageAccounts/stshared'
+        $script:subDev  = '11111111-1111-1111-1111-111111111111'
+        $script:subProd = '22222222-2222-2222-2222-222222222222'
+        $script:mpeParams = $script:commonParams + @{
+            AzureSubscriptionIds = @{ Dev = $script:subDev; Test = $script:subDev; Acceptance = $script:subProd; Production = $script:subProd }
+        }
+        $script:kvTargets = @{
+            Dev        = @{ ResourceGroup = 'rg-sales-dev';  ResourceName = 'kv-sales-dev' }
+            Production = @{ ResourceGroup = 'rg-sales-prod'; ResourceName = 'kv-sales-prod' }
+        }
     }
 
-    It 'produces an empty endpoint list per environment when none are specified' {
+    It 'produces an empty resource list per environment when none are specified' {
         $config = New-FabricTopologyConfig @script:commonParams
         foreach ($ws in $config.workspaces) {
-            $ws.managedPrivateEndpoints     | Should -Not -BeNullOrEmpty
-            $ws.managedPrivateEndpoints.Dev | Should -BeNullOrEmpty
+            $ws.managedPrivateEndpoints.Dev.subscriptionId | Should -BeNullOrEmpty
+            $ws.managedPrivateEndpoints.Dev.resources      | Should -HaveCount 0
         }
     }
 
-    It 'uses a single TargetResourceId for every environment and workspace type' {
-        $config = New-FabricTopologyConfig @script:commonParams -ManagedPrivateEndpoints @(
-            @{ Name = 'Storage-Blob'; TargetResourceId = $script:stShared; TargetSubresourceType = 'blob' }
-        )
-        foreach ($ws in $config.workspaces) {
-            foreach ($envName in @('Dev', 'Test', 'Acceptance', 'Production')) {
-                $ws.managedPrivateEndpoints.$envName | Should -HaveCount 1
-                $ws.managedPrivateEndpoints.$envName[0].targetPrivateLinkResourceId | Should -Be $script:stShared
-            }
-        }
-    }
-
-    It 'resolves the target resource for each environment from TargetResourceIds' {
-        $config = New-FabricTopologyConfig @script:commonParams -ManagedPrivateEndpoints @(
-            @{ Name = 'KeyVault'; TargetSubresourceType = 'vault'; TargetResourceIds = @{ Dev = $script:kvDev; Production = $script:kvProd } }
+    It 'stores each environment''s subscription and resources' {
+        $config = New-FabricTopologyConfig @script:mpeParams -ManagedPrivateEndpoints @(
+            @{ ResourceType = 'KeyVault'; Targets = $script:kvTargets }
+            @{ ResourceType = 'Storage';  SubResourceType = 'dfs'
+               Targets = @{ Dev = @{ ResourceGroup = 'rg-data-dev'; ResourceName = 'stsalesdev' } } }
         )
         $bronzeWs = $config.workspaces | Where-Object { $_.type -eq 'Bronze' }
-        $bronzeWs.managedPrivateEndpoints.Dev[0].targetPrivateLinkResourceId        | Should -Be $script:kvDev
-        $bronzeWs.managedPrivateEndpoints.Production[0].targetPrivateLinkResourceId | Should -Be $script:kvProd
+        $dev      = $bronzeWs.managedPrivateEndpoints.Dev
+
+        $dev.subscriptionId | Should -Be $script:subDev
+        $dev.resources      | Should -HaveCount 2
+        $dev.resources[0].resourceName    | Should -Be 'kv-sales-dev'
+        $dev.resources[0].resourceGroup   | Should -Be 'rg-sales-dev'
+        $dev.resources[0].resourceType    | Should -Be 'KeyVault'
+        $dev.resources[0].subResourceType | Should -Be 'vault'
+        $dev.resources[1].resourceName    | Should -Be 'stsalesdev'
+        $dev.resources[1].resourceType    | Should -Be 'Storage'
+        $dev.resources[1].subResourceType | Should -Be 'dfs'
+
+        $bronzeWs.managedPrivateEndpoints.Production.subscriptionId            | Should -Be $script:subProd
+        $bronzeWs.managedPrivateEndpoints.Production.resources.resourceName    | Should -Be 'kv-sales-prod'
     }
 
-    It 'creates no endpoint in an environment left out of TargetResourceIds' {
-        $config = New-FabricTopologyConfig @script:commonParams -ManagedPrivateEndpoints @(
-            @{ Name = 'KeyVault'; TargetResourceIds = @{ Dev = $script:kvDev; Production = $script:kvProd } }
+    It 'stores only the documented keys on each resource' {
+        $config = New-FabricTopologyConfig @script:mpeParams -ManagedPrivateEndpoints @(
+            @{ ResourceType = 'KeyVault'; Targets = $script:kvTargets }
         )
         $bronzeWs = $config.workspaces | Where-Object { $_.type -eq 'Bronze' }
-        $bronzeWs.managedPrivateEndpoints.Test       | Should -HaveCount 0
-        $bronzeWs.managedPrivateEndpoints.Acceptance | Should -HaveCount 0
+        $bronzeWs.managedPrivateEndpoints.Dev.resources[0].PSObject.Properties.Name |
+            Should -Be @('resourceName', 'resourceGroup', 'resourceType', 'subResourceType')
+    }
+
+    It 'fills in the resource type''s default sub-resource' {
+        $config = New-FabricTopologyConfig @script:mpeParams -ManagedPrivateEndpoints @(
+            @{ ResourceType = 'KeyVault'; Targets = $script:kvTargets }
+        )
+        $bronzeWs = $config.workspaces | Where-Object { $_.type -eq 'Bronze' }
+        $bronzeWs.managedPrivateEndpoints.Dev.resources[0].subResourceType | Should -Be 'vault'
+    }
+
+    It 'leaves the sub-resource empty for a provider path that has none' {
+        $config = New-FabricTopologyConfig @script:mpeParams -ManagedPrivateEndpoints @(
+            @{ ResourceType = 'Microsoft.Network/privateLinkServices'
+               Targets = @{ Dev = @{ ResourceGroup = 'rg-dev'; ResourceName = 'pls-sales-dev' } } }
+        )
+        $bronzeWs = $config.workspaces | Where-Object { $_.type -eq 'Bronze' }
+        $resource = $bronzeWs.managedPrivateEndpoints.Dev.resources[0]
+        $resource.resourceType    | Should -Be 'Microsoft.Network/privateLinkServices'
+        $resource.subResourceType | Should -BeNullOrEmpty
+    }
+
+    It 'lists no resources in an environment left out of Targets, but keeps its subscription' {
+        $config = New-FabricTopologyConfig @script:mpeParams -ManagedPrivateEndpoints @(
+            @{ ResourceType = 'KeyVault'; Targets = $script:kvTargets }
+        )
+        $bronzeWs = $config.workspaces | Where-Object { $_.type -eq 'Bronze' }
+        $bronzeWs.managedPrivateEndpoints.Test.subscriptionId | Should -Be $script:subDev
+        $bronzeWs.managedPrivateEndpoints.Test.resources      | Should -HaveCount 0
     }
 
     It 'applies a workspace-type-scoped rule only to the specified types' {
-        $config = New-FabricTopologyConfig @script:commonParams -ManagedPrivateEndpoints @(
-            @{ Name = 'KeyVault'; TargetResourceId = $script:kvDev; WorkspaceTypes = @('Bronze') }
+        $config = New-FabricTopologyConfig @script:mpeParams -ManagedPrivateEndpoints @(
+            @{ ResourceType = 'KeyVault'; Targets = $script:kvTargets; WorkspaceTypes = @('Bronze') }
         )
         $bronzeWs    = $config.workspaces | Where-Object { $_.type -eq 'Bronze' }
         $reportingWs = $config.workspaces | Where-Object { $_.type -eq 'Reporting' }
-        $bronzeWs.managedPrivateEndpoints.Dev    | Should -HaveCount 1
-        $reportingWs.managedPrivateEndpoints.Dev | Should -HaveCount 0
+        $bronzeWs.managedPrivateEndpoints.Dev.resources    | Should -HaveCount 1
+        $reportingWs.managedPrivateEndpoints.Dev.resources | Should -HaveCount 0
     }
 
-    It 'stores the name, sub-resource, request message and FQDNs on each resolved entry' {
-        $config = New-FabricTopologyConfig @script:commonParams -ManagedPrivateEndpoints @(
-            @{ Name = 'KeyVault'; TargetResourceId = $script:kvDev; TargetSubresourceType = 'vault'
-               RequestMessage = 'Fabric ETL access'; TargetFQDNs = @('kv-dev.vault.azure.net') }
-        )
-        $bronzeWs = $config.workspaces | Where-Object { $_.type -eq 'Bronze' }
-        $entry    = $bronzeWs.managedPrivateEndpoints.Dev[0]
-        $entry.name                  | Should -Be 'KeyVault'
-        $entry.targetSubresourceType | Should -Be 'vault'
-        $entry.requestMessage        | Should -Be 'Fabric ETL access'
-        $entry.targetFQDNs           | Should -HaveCount 1
-        $entry.targetFQDNs[0]        | Should -Be 'kv-dev.vault.azure.net'
-    }
-
-    It 'keeps a separate endpoint for each rule that applies' {
-        $config = New-FabricTopologyConfig @script:commonParams -ManagedPrivateEndpoints @(
-            @{ Name = 'KeyVault';    TargetResourceId = $script:kvDev;    TargetSubresourceType = 'vault' }
-            @{ Name = 'Storage-Dfs'; TargetResourceId = $script:stShared; TargetSubresourceType = 'dfs' }
-        )
-        $bronzeWs = $config.workspaces | Where-Object { $_.type -eq 'Bronze' }
-        $bronzeWs.managedPrivateEndpoints.Dev | Should -HaveCount 2
-    }
-
-    It 'exposes the endpoint name template on the naming convention' {
-        $config = New-FabricTopologyConfig @script:commonParams
-        $config.namingConvention.managedPrivateEndpointNameTemplate | Should -Be '{project}-{type}-{name}-{env}'
-    }
-
-    It 'survives a round trip through JSON' {
-        $config = New-FabricTopologyConfig @script:commonParams -ManagedPrivateEndpoints @(
-            @{ Name = 'KeyVault'; TargetResourceIds = @{ Dev = $script:kvDev } }
-        )
-        $reloaded = $config | ConvertTo-Json -Depth 20 | ConvertFrom-Json
-        $bronzeWs = $reloaded.workspaces | Where-Object { $_.type -eq 'Bronze' }
-        $bronzeWs.managedPrivateEndpoints.Dev | Should -HaveCount 1
-        $bronzeWs.managedPrivateEndpoints.Dev[0].targetPrivateLinkResourceId | Should -Be $script:kvDev
-    }
-
-    It 'allows the same endpoint name on different workspace types' {
-        { New-FabricTopologyConfig @script:commonParams -ManagedPrivateEndpoints @(
-            @{ Name = 'KeyVault'; TargetResourceId = $script:kvDev;  WorkspaceTypes = @('Bronze') }
-            @{ Name = 'KeyVault'; TargetResourceId = $script:kvProd; WorkspaceTypes = @('Gold') }
+    It 'allows an endpoint for each sub-resource of one resource in the same workspace' {
+        { New-FabricTopologyConfig @script:mpeParams -ManagedPrivateEndpoints @(
+            @{ ResourceType = 'Storage'; SubResourceType = 'blob'; Targets = @{ Dev = @{ ResourceGroup = 'rg-data-dev'; ResourceName = 'stsalesdev' } } }
+            @{ ResourceType = 'Storage'; SubResourceType = 'dfs';  Targets = @{ Dev = @{ ResourceGroup = 'rg-data-dev'; ResourceName = 'stsalesdev' } } }
         )} | Should -Not -Throw
     }
 
-    It 'throws when an entry is missing Name' {
-        { New-FabricTopologyConfig @script:commonParams -ManagedPrivateEndpoints @(
-            @{ TargetResourceId = $script:kvDev }
-        )} | Should -Throw "*must include 'Name'*"
+    It 'allows the same resource on different workspace types' {
+        { New-FabricTopologyConfig @script:mpeParams -ManagedPrivateEndpoints @(
+            @{ ResourceType = 'KeyVault'; Targets = $script:kvTargets; WorkspaceTypes = @('Bronze') }
+            @{ ResourceType = 'KeyVault'; Targets = $script:kvTargets; WorkspaceTypes = @('Gold') }
+        )} | Should -Not -Throw
     }
 
-    It 'throws when Name contains characters that are not valid in an endpoint name' {
-        { New-FabricTopologyConfig @script:commonParams -ManagedPrivateEndpoints @(
-            @{ Name = 'Key Vault'; TargetResourceId = $script:kvDev }
-        )} | Should -Throw '*invalid Name*'
+    It 'survives a round trip through JSON' {
+        $config = New-FabricTopologyConfig @script:mpeParams -ManagedPrivateEndpoints @(
+            @{ ResourceType = 'KeyVault'; Targets = $script:kvTargets }
+        )
+        $reloaded = $config | ConvertTo-Json -Depth 20 | ConvertFrom-Json
+        $bronzeWs = $reloaded.workspaces | Where-Object { $_.type -eq 'Bronze' }
+        $bronzeWs.managedPrivateEndpoints.Dev.subscriptionId            | Should -Be $script:subDev
+        $bronzeWs.managedPrivateEndpoints.Dev.resources                 | Should -HaveCount 1
+        $bronzeWs.managedPrivateEndpoints.Dev.resources[0].resourceName | Should -Be 'kv-sales-dev'
     }
 
-    It 'throws when an entry has neither TargetResourceId nor TargetResourceIds' {
-        { New-FabricTopologyConfig @script:commonParams -ManagedPrivateEndpoints @(
-            @{ Name = 'KeyVault' }
-        )} | Should -Throw '*exactly one of*'
+    It 'throws when an entry is missing ResourceType' {
+        { New-FabricTopologyConfig @script:mpeParams -ManagedPrivateEndpoints @(
+            @{ Targets = $script:kvTargets }
+        )} | Should -Throw '*must have a resourceType*'
     }
 
-    It 'throws when an entry has both TargetResourceId and TargetResourceIds' {
-        { New-FabricTopologyConfig @script:commonParams -ManagedPrivateEndpoints @(
-            @{ Name = 'KeyVault'; TargetResourceId = $script:kvDev; TargetResourceIds = @{ Dev = $script:kvDev } }
-        )} | Should -Throw '*exactly one of*'
+    It 'throws when ResourceType is neither a known type nor a provider path' {
+        { New-FabricTopologyConfig @script:mpeParams -ManagedPrivateEndpoints @(
+            @{ ResourceType = 'Vault'; Targets = $script:kvTargets }
+        )} | Should -Throw "*Unknown managed private endpoint resourceType 'Vault'*"
     }
 
-    It 'throws when TargetResourceIds references an environment not in the topology' {
-        { New-FabricTopologyConfig @script:commonParams -ManagedPrivateEndpoints @(
-            @{ Name = 'KeyVault'; TargetResourceIds = @{ Staging = $script:kvDev } }
+    It 'throws when a Storage rule has no SubResourceType' {
+        { New-FabricTopologyConfig @script:mpeParams -ManagedPrivateEndpoints @(
+            @{ ResourceType = 'Storage'; Targets = @{ Dev = @{ ResourceGroup = 'rg-data-dev'; ResourceName = 'stsalesdev' } } }
+        )} | Should -Throw '*must have a subResourceType*'
+    }
+
+    It 'throws when an entry is missing Targets' {
+        { New-FabricTopologyConfig @script:mpeParams -ManagedPrivateEndpoints @(
+            @{ ResourceType = 'KeyVault' }
+        )} | Should -Throw "*must include 'Targets'*"
+    }
+
+    It 'throws when Targets references an environment not in the topology' {
+        { New-FabricTopologyConfig @script:mpeParams -ManagedPrivateEndpoints @(
+            @{ ResourceType = 'KeyVault'; Targets = @{ Staging = @{ ResourceGroup = 'rg'; ResourceName = 'kv' } } }
         )} | Should -Throw "*environment 'Staging'*"
     }
 
-    It 'throws when a target resource ID is not an Azure resource ID' {
+    It 'throws when a target is missing its resource group or resource name' {
+        { New-FabricTopologyConfig @script:mpeParams -ManagedPrivateEndpoints @(
+            @{ ResourceType = 'KeyVault'; Targets = @{ Dev = @{ ResourceName = 'kv-sales-dev' } } }
+        )} | Should -Throw '*must have both a resourceGroup and a resourceName*'
+        { New-FabricTopologyConfig @script:mpeParams -ManagedPrivateEndpoints @(
+            @{ ResourceType = 'KeyVault'; Targets = @{ Dev = @{ ResourceGroup = 'rg-sales-dev' } } }
+        )} | Should -Throw '*must have both a resourceGroup and a resourceName*'
+    }
+
+    It 'throws when a targeted environment has no subscription' {
+        { New-FabricTopologyConfig @script:commonParams -AzureSubscriptionIds @{ Production = $script:subProd } -ManagedPrivateEndpoints @(
+            @{ ResourceType = 'KeyVault'; Targets = $script:kvTargets }
+        )} | Should -Throw "*environment 'Dev', which has no subscription*"
+    }
+
+    It 'throws when -AzureSubscriptionIds is missing' {
         { New-FabricTopologyConfig @script:commonParams -ManagedPrivateEndpoints @(
-            @{ Name = 'KeyVault'; TargetResourceId = 'kv-dev' }
-        )} | Should -Throw '*invalid resource ID*'
+            @{ ResourceType = 'KeyVault'; Targets = $script:kvTargets }
+        )} | Should -Throw '*no subscription*'
+    }
+
+    It 'throws when a subscription ID is not a GUID' {
+        { New-FabricTopologyConfig @script:commonParams -AzureSubscriptionIds @{ Dev = 'sub-dev' } -ManagedPrivateEndpoints @(
+            @{ ResourceType = 'KeyVault'; Targets = @{ Dev = @{ ResourceGroup = 'rg'; ResourceName = 'kv' } } }
+        )} | Should -Throw '*valid subscription ID*'
+    }
+
+    It 'throws when -AzureSubscriptionIds references an environment not in the topology' {
+        { New-FabricTopologyConfig @script:commonParams -AzureSubscriptionIds @{ Staging = $script:subDev } -ManagedPrivateEndpoints @(
+            @{ ResourceType = 'KeyVault'; Targets = @{ Staging = @{ ResourceGroup = 'rg'; ResourceName = 'kv' } } }
+        )} | Should -Throw "*-AzureSubscriptionIds references environment 'Staging'*"
     }
 
     It 'throws when WorkspaceTypes references a type not in the topology' {
-        { New-FabricTopologyConfig @script:commonParams -ManagedPrivateEndpoints @(
-            @{ Name = 'KeyVault'; TargetResourceId = $script:kvDev; WorkspaceTypes = @('DataScience') }
+        { New-FabricTopologyConfig @script:mpeParams -ManagedPrivateEndpoints @(
+            @{ ResourceType = 'KeyVault'; Targets = $script:kvTargets; WorkspaceTypes = @('DataScience') }
         )} | Should -Throw "*workspace type 'DataScience'*"
     }
 
-    It 'throws when RequestMessage is longer than 140 characters' {
-        { New-FabricTopologyConfig @script:commonParams -ManagedPrivateEndpoints @(
-            @{ Name = 'KeyVault'; TargetResourceId = $script:kvDev; RequestMessage = ('x' * 141) }
-        )} | Should -Throw '*140*'
+    It 'throws when the endpoint name would be longer than the 64-character limit' {
+        # 59 characters of resource name plus '.vault' is 65 characters.
+        { New-FabricTopologyConfig @script:mpeParams -ManagedPrivateEndpoints @(
+            @{ ResourceType = 'KeyVault'; Targets = @{ Dev = @{ ResourceGroup = 'rg'; ResourceName = ('x' * 59) } } }
+        )} | Should -Throw '*64-character*'
     }
 
-    It 'throws when more than 20 TargetFQDNs are given' {
-        { New-FabricTopologyConfig @script:commonParams -ManagedPrivateEndpoints @(
-            @{ Name = 'KeyVault'; TargetResourceId = $script:kvDev; TargetFQDNs = @(1..21 | ForEach-Object { "host$_.example.com" }) }
-        )} | Should -Throw '*20*'
-    }
-
-    It 'throws when two rules give one workspace type the same endpoint name' {
-        { New-FabricTopologyConfig @script:commonParams -ManagedPrivateEndpoints @(
-            @{ Name = 'KeyVault'; TargetResourceId = $script:kvDev }
-            @{ Name = 'KeyVault'; TargetResourceId = $script:kvProd; WorkspaceTypes = @('Bronze') }
-        )} | Should -Throw '*more than once*'
-    }
-
-    It 'throws when a resolved endpoint name exceeds 64 characters' {
-        { New-FabricTopologyConfig @script:commonParams -ManagedPrivateEndpoints @(
-            @{ Name = ('x' * 50); TargetResourceId = $script:kvDev }
-        )} | Should -Throw '*64-character limit*'
+    It 'throws when two rules target the same resource and sub-resource in one workspace' {
+        { New-FabricTopologyConfig @script:mpeParams -ManagedPrivateEndpoints @(
+            @{ ResourceType = 'Storage'; SubResourceType = 'dfs'; Targets = @{ Dev = @{ ResourceGroup = 'rg-data-dev'; ResourceName = 'stsalesdev' } } }
+            @{ ResourceType = 'Storage'; SubResourceType = 'dfs'; Targets = @{ Dev = @{ ResourceGroup = 'rg-data-dev'; ResourceName = 'stsalesdev' } }; WorkspaceTypes = @('Bronze') }
+        )} | Should -Throw "*endpoint 'stsalesdev.dfs' more than once*"
     }
 }
 

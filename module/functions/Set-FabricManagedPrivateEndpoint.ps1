@@ -27,8 +27,8 @@ function Set-FabricManagedPrivateEndpoint {
     .PARAMETER Token
         Bearer token string for the Fabric REST API.
     .PARAMETER Name
-        The managed private endpoint name (at most 64 characters). Invoke-FabricSetup resolves this
-        from the topology's naming convention.
+        The managed private endpoint name (at most 64 characters). Invoke-FabricSetup names the
+        endpoint after its target resource.
     .PARAMETER TargetPrivateLinkResourceId
         Azure resource ID of the private link resource to connect to, e.g. a Key Vault or storage account.
     .PARAMETER TargetSubresourceType
@@ -40,7 +40,7 @@ function Set-FabricManagedPrivateEndpoint {
         Fully qualified domain names to associate with the endpoint (at most 20), for resource types
         that need them, such as Azure API Management.
     .EXAMPLE
-        Set-FabricManagedPrivateEndpoint -WorkspaceId $ws.id -WorkspaceName 'SalesAnalytics-ETL [DEV]' -Token $token -Name 'SalesAnalytics-ETL-KeyVault-DEV' -TargetPrivateLinkResourceId '/subscriptions/{id}/resourceGroups/rg-sales-dev/providers/Microsoft.KeyVault/vaults/kv-sales-dev' -TargetSubresourceType 'vault'
+        Set-FabricManagedPrivateEndpoint -WorkspaceId $ws.id -WorkspaceName 'SalesAnalytics-ETL [DEV]' -Token $token -Name 'kv-sales-dev.vault' -TargetPrivateLinkResourceId '/subscriptions/{id}/resourceGroups/rg-sales-dev/providers/Microsoft.KeyVault/vaults/kv-sales-dev' -TargetSubresourceType 'vault'
 
         Ensures the workspace has a managed private endpoint to the Dev Key Vault, creating it if it is absent.
     #>

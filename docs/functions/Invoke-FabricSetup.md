@@ -21,14 +21,16 @@ Orchestrates the full Fabric workspace provisioning pipeline from a topology con
 
 ```
 Invoke-FabricSetup [-Config] <psobject> [-Environment <string>] [-SkipGit] [-SkipIdentity]
- [-SkipMonitoring] [-SkipEnvironment] [-SkipVariableLibrary] [-SkipRbac] [-WhatIf] [-Confirm]
+ [-SkipMonitoring] [-SkipEnvironment] [-SkipVariableLibrary] [-SkipRbac] [-SkipManagedPrivateEndpoints]
+ [-WhatIf] [-Confirm]
 ```
 
 ### File
 
 ```
 Invoke-FabricSetup -ConfigPath <string> [-Environment <string>] [-SkipGit] [-SkipIdentity]
- [-SkipMonitoring] [-SkipEnvironment] [-SkipVariableLibrary] [-SkipRbac] [-WhatIf] [-Confirm]
+ [-SkipMonitoring] [-SkipEnvironment] [-SkipVariableLibrary] [-SkipRbac] [-SkipManagedPrivateEndpoints]
+ [-WhatIf] [-Confirm]
 ```
 
 ## ALIASES
@@ -57,8 +59,11 @@ Provisions a Variable Library (if enabled for the type and the current environme
      in a value set for the current stage and activates it
   9.
 Applies RBAC role assignments (if configured)
+ 10.
+Creates the workspace type's managed private endpoints for the environment (if configured)
 Returns a structured results object with a summary, identity report, monitoring report,
-environment report, variable library report, role assignment report, and failure details.
+environment report, variable library report, role assignment report, managed private endpoint report,
+and failure details.
 
 Deployment pipelines span every environment, so they are not configured here: run
 Invoke-FabricDeploymentPipelineSetup once each environment's workspaces have been provisioned.

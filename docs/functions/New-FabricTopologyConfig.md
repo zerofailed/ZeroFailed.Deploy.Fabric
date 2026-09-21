@@ -29,8 +29,8 @@ New-FabricTopologyConfig [-Project] <string> [-WorkspaceTypes] <string[]> [-Envi
  [[-EnvironmentRuntimeVersion] <string>] [[-EnableVariableLibraries] <string[]>]
  [[-VariableLibraryName] <string>] [[-VariableLibraryStages] <hashtable>]
  [[-TypeShortCodes] <hashtable>] [[-EnvShortCodes] <hashtable>]
- [[-ManagedPrivateEndpoints] <hashtable[]>] [[-OutputPath] <string>]
- [-SetEnvironmentAsDefault] [-VariableLibraryDefaultValues]
+ [[-ManagedPrivateEndpoints] <hashtable[]>] [[-AzureSubscriptionIds] <hashtable>]
+ [[-OutputPath] <string>] [-SetEnvironmentAsDefault] [-VariableLibraryDefaultValues]
 ```
 
 ## ALIASES
@@ -430,21 +430,28 @@ HelpMessage: ''
 
 Array of managed private endpoint rules to create in workspaces.
 Each rule is a hashtable with:
-  Name                  (required) — logical endpoint name, used as the {name} token in the endpoint
-                                     naming convention; letters, digits, hyphens and underscores only
-  TargetResourceIds     (one of)   — hashtable mapping environment name to the Azure resource ID of
-                                     the private link resource for that stage; a stage left out of
-                                     the map gets no endpoint
-  TargetResourceId      (one of)   — a single Azure resource ID, used for every stage
-  TargetSubresourceType (optional) — private link sub-resource, e.g.
-'vault' for Key Vault, or 'blob'
-                                     or 'dfs' for Storage (one endpoint per storage sub-resource)
-  RequestMessage        (optional) — message sent with the approval request; at most 140 characters
-  TargetFQDNs           (optional) — FQDNs to associate with the endpoint; at most 20
+  ResourceType          (required) — the target resource type: one of KeyVault, Storage, SqlServer,
+                                     CosmosDb, EventHubs or DataExplorer, or any provider path such as
+                                     'Microsoft.KeyVault/vaults'
+  Targets               (required) — hashtable mapping environment name to
+                                     @{ ResourceGroup = '...'; ResourceName = '...' } for that stage;
+                                     a stage left out of the map gets no endpoint
+  SubResourceType       (optional) — private link sub-resource; defaults from ResourceType (e.g.
+'vault'
+                                     for KeyVault).
+Required for Storage ('blob', 'dfs', ...); pass it
+                                     explicitly with a provider path when the type needs one
   WorkspaceTypes        (optional) — array of workspace type names this rule applies to; omit for all types
-Each rule is resolved per workspace type and environment and stored in the topology config.
-Endpoint names follow the '{project}-{type}-{name}-{env}' template (e.g.
-'SalesAnalytics-ETL-KeyVault-DEV') and must fit Fabric's 64-character limit.
+Rules are resolved per workspace type and environment and stored in the topology config as
+managedPrivateEndpoints.<env> = { subscriptionId, resources = [{ resourceName, resourceGroup,
+resourceType, subResourceType }] }.
+At provisioning time the target resource ID is built as
+/subscriptions/{subscriptionId}/resourceGroups/{resourceGroup}/providers/{provider path}/{resourceName},
+the endpoint is named '{resourceName}.{subResourceType}' in lower case (e.g.
+'kv-sales-dev.vault'),
+and the approval request message is 'Fabric access from {workspace name}'.
+Endpoint names must fit
+Fabric's 64-character limit.
 
 ```yaml
 Type: System.Collections.Hashtable[]
@@ -454,6 +461,31 @@ Aliases: []
 ParameterSets:
 - Name: (All)
   Position: 22
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
+```
+
+### -AzureSubscriptionIds
+
+Hashtable mapping environment name to the Azure subscription ID that holds that stage's resources,
+e.g.
+@{ Dev = '...'; Production = '...' }.
+Required for every environment a
+-ManagedPrivateEndpoints rule targets.
+
+```yaml
+Type: System.Collections.Hashtable
+DefaultValue: ''
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: (All)
+  Position: 23
   IsRequired: false
   ValueFromPipeline: false
   ValueFromPipelineByPropertyName: false
@@ -475,7 +507,7 @@ SupportsWildcards: false
 Aliases: []
 ParameterSets:
 - Name: (All)
-  Position: 23
+  Position: 24
   IsRequired: false
   ValueFromPipeline: false
   ValueFromPipelineByPropertyName: false

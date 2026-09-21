@@ -10,7 +10,7 @@ BeforeAll {
         WorkspaceId                 = 'ws-001'
         WorkspaceName               = 'my-ws'
         Token                       = 'tok'
-        Name                        = 'sales-ETL-KeyVault-DEV'
+        Name                        = 'kv-dev'
         TargetPrivateLinkResourceId = '/subscriptions/sub-1/resourceGroups/rg-dev/providers/Microsoft.KeyVault/vaults/kv-dev'
         TargetSubresourceType       = 'vault'
     }
@@ -23,7 +23,7 @@ Describe 'Set-FabricManagedPrivateEndpoint' {
 
         $result = Set-FabricManagedPrivateEndpoint @script:baseParams -WhatIf
         $result.Action                      | Should -Be 'WhatIf'
-        $result.Name                        | Should -Be 'sales-ETL-KeyVault-DEV'
+        $result.Name                        | Should -Be 'kv-dev'
         $result.TargetPrivateLinkResourceId | Should -Be $script:baseParams.TargetPrivateLinkResourceId
         Should -Invoke _Invoke-FabricRestMethod -Times 0 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
     }
@@ -42,7 +42,7 @@ Describe 'Set-FabricManagedPrivateEndpoint' {
                         })
                     }
                 }
-                return [pscustomobject]@{ id = 'mpe-001'; name = 'sales-ETL-KeyVault-DEV'; provisioningState = 'Provisioning' }
+                return [pscustomobject]@{ id = 'mpe-001'; name = 'kv-dev'; provisioningState = 'Provisioning' }
             } -ModuleName ZeroFailed.Deploy.Fabric
         }
 
@@ -56,7 +56,7 @@ Describe 'Set-FabricManagedPrivateEndpoint' {
             Should -Invoke _Invoke-FabricRestMethod -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter {
                 $Method -eq 'POST' -and
                 $RelativeUri -eq 'workspaces/ws-001/managedPrivateEndpoints' -and
-                $Body.name -eq 'sales-ETL-KeyVault-DEV' -and
+                $Body.name -eq 'kv-dev' -and
                 $Body.targetPrivateLinkResourceId -like '*/vaults/kv-dev' -and
                 $Body.targetSubresourceType -eq 'vault'
             }
@@ -109,7 +109,7 @@ Describe 'Set-FabricManagedPrivateEndpoint' {
                 [pscustomobject]@{
                     value = @([pscustomobject]@{
                         id                          = 'mpe-003'
-                        name                        = 'sales-ETL-KeyVault-DEV'
+                        name                        = 'kv-dev'
                         targetPrivateLinkResourceId = '/subscriptions/sub-1/resourcegroups/RG-DEV/providers/Microsoft.KeyVault/vaults/kv-dev'
                         targetSubresourceType       = 'vault'
                         provisioningState           = 'Succeeded'
@@ -132,7 +132,7 @@ Describe 'Set-FabricManagedPrivateEndpoint' {
                 [pscustomobject]@{
                     value = @([pscustomobject]@{
                         id                          = 'mpe-004'
-                        name                        = 'sales-ETL-KeyVault-DEV'
+                        name                        = 'kv-dev'
                         targetPrivateLinkResourceId = '/subscriptions/sub-1/resourceGroups/rg-dev/providers/Microsoft.KeyVault/vaults/kv-dev'
                         targetSubresourceType       = 'vault'
                         provisioningState           = 'Succeeded'
@@ -152,7 +152,7 @@ Describe 'Set-FabricManagedPrivateEndpoint' {
                 [pscustomobject]@{
                     value = @([pscustomobject]@{
                         id                          = 'mpe-005'
-                        name                        = 'sales-ETL-KeyVault-DEV'
+                        name                        = 'kv-dev'
                         targetPrivateLinkResourceId = '/subscriptions/sub-1/resourceGroups/rg-dev/providers/Microsoft.KeyVault/vaults/kv-dev'
                         provisioningState           = 'Failed'
                     })
@@ -168,7 +168,7 @@ Describe 'Set-FabricManagedPrivateEndpoint' {
                 [pscustomobject]@{
                     value = @([pscustomobject]@{
                         id                          = 'mpe-006'
-                        name                        = 'sales-ETL-KeyVault-DEV'
+                        name                        = 'kv-dev'
                         targetPrivateLinkResourceId = '/subscriptions/sub-1/resourceGroups/rg-prod/providers/Microsoft.KeyVault/vaults/kv-prod'
                         targetSubresourceType       = 'vault'
                     })
@@ -184,7 +184,7 @@ Describe 'Set-FabricManagedPrivateEndpoint' {
                 [pscustomobject]@{
                     value = @([pscustomobject]@{
                         id                          = 'mpe-007'
-                        name                        = 'sales-ETL-KeyVault-DEV'
+                        name                        = 'kv-dev'
                         targetPrivateLinkResourceId = '/subscriptions/sub-1/resourceGroups/rg-dev/providers/Microsoft.KeyVault/vaults/kv-dev'
                         targetSubresourceType       = 'blob'
                     })
@@ -206,7 +206,7 @@ Describe 'Set-FabricManagedPrivateEndpoint' {
                 return [pscustomobject]@{
                     value = @([pscustomobject]@{
                         id                          = 'p2'
-                        name                        = 'sales-ETL-KeyVault-DEV'
+                        name                        = 'kv-dev'
                         targetPrivateLinkResourceId = '/subscriptions/sub-1/resourceGroups/rg-dev/providers/Microsoft.KeyVault/vaults/kv-dev'
                         targetSubresourceType       = 'vault'
                         provisioningState           = 'Succeeded'
