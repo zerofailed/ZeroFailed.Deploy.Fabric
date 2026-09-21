@@ -1,6 +1,6 @@
 # `ZeroFailed.Deploy.Fabric` — Microsoft Fabric Workspace Provisioner
 
-A ZeroFailed extension module for provisioning Microsoft Fabric workspaces across DTAP environments. Workspaces are named from a convention, connected to Git, optionally provisioned with Workspace Identities, optionally configured with workspace monitoring, optionally provisioned with a Fabric Spark Environment (set as the workspace default), optionally have Entra-based RBAC role assignments applied, and optionally have Fabric deployment pipelines set up across environments — with their own Entra-based role assignments. All provisioning steps are idempotent and safe to re-run.
+A ZeroFailed extension module for provisioning Microsoft Fabric workspaces across DTAP environments. Workspaces are named from a convention, connected to Git, optionally provisioned with Workspace Identities, optionally configured with workspace monitoring, optionally provisioned with a Fabric Spark Environment (set as the workspace default), optionally provisioned with an (empty) Fabric Variable Library, optionally have Entra-based RBAC role assignments applied, and optionally have Fabric deployment pipelines set up across environments — with their own Entra-based role assignments. All provisioning steps are idempotent and safe to re-run.
 
 The module also handles **Python library deployment**: once workspaces and their Spark Environments have been provisioned, `Invoke-FabricPythonLibraryDeploy` downloads a Python package (`.whl`) and its full dependency closure from an Azure Artifacts feed and uploads them into the Spark Environments' custom libraries for a given stage. Provisioning and Python library deployment are designed to run as **two separate pipelines** — see [Python library deployment](#python-library-deployment).
 
@@ -34,6 +34,7 @@ $FabricSkipGit            = $false
 $FabricSkipIdentity       = $false
 $FabricSkipMonitoring     = $false
 $FabricSkipEnvironment    = $false
+$FabricSkipVariableLibrary = $false
 $FabricSkipRbac           = $false
 $FabricSkipPipeline       = $false    # provisionFabricDeploymentPipelines task only
 $FabricSkipPipelineRbac   = $false    # provisionFabricDeploymentPipelines task only
@@ -103,6 +104,8 @@ $topology = New-FabricTopologyConfig `
         Gold   = @("Production")
     } `
     -SetEnvironmentAsDefault `
+    -EnableVariableLibraries @("Bronze", "Silver", "Gold") `
+    -VariableLibraryDefaultValues `
     -RoleAssignments     @(
         # All workspaces, all environments: read-only for the reporting group
         @{ PrincipalId = "aaaaaaaa-0000-0000-0000-000000000001"; PrincipalType = "Group"; Role = "Viewer" }
@@ -129,6 +132,9 @@ $result.Monitoring | Format-Table WorkspaceName, WorkspaceId, Enabled
 
 # 6b. Inspect the environment report
 $result.Environments | Format-Table WorkspaceName, EnvironmentName, EnvironmentId, Action
+
+# 6c. Inspect the variable library report
+$result.VariableLibraries | Format-Table WorkspaceName, VariableLibraryName, VariableLibraryId
 
 # 7. Inspect the role assignment report
 $result.RoleAssignments | Format-Table WorkspaceName, PrincipalId, Role, Action
@@ -190,6 +196,8 @@ New-FabricTopologyConfig `
         # Silver omitted -> Spark Environment in every environment
     } `
     -SetEnvironmentAsDefault `
+    -EnableVariableLibraries @("Bronze", "Silver", "Gold") `
+    -VariableLibraryDefaultValues `
     -RoleAssignments     @(
         @{ PrincipalId = "aaaaaaaa-..."; PrincipalType = "Group"; Role = "Viewer" }
         @{ PrincipalId = "bbbbbbbb-..."; PrincipalType = "Group"; Role = "Contributor";
@@ -222,6 +230,10 @@ New-FabricTopologyConfig `
 | `-EnvironmentStages` | `hashtable` | No | All environments | Per-workspace-type map restricting *which* environments get a Spark Environment (see below) |
 | `-SetEnvironmentAsDefault` | `switch` | No | Off | When set, environment-enabled workspaces have their environment registered as the workspace default |
 | `-EnvironmentRuntimeVersion` | `string` | No | `1.3` | Spark runtime version used for provisioned environments |
+| `-EnableVariableLibraries` | `string[]` | No | None | Workspace types that should have an empty Fabric Variable Library provisioned (one library per workspace, in every environment) |
+| `-VariableLibraryName` | `string` | No | `DefaultVariableLibrary` | Variable library display name, used as-is — the same in every workspace and environment |
+| `-VariableLibraryStages` | `hashtable` | No | All environments | Per-workspace-type map restricting *which* environments get a Variable Library (see below) |
+| `-VariableLibraryDefaultValues` | `switch` | No | Off | When set, variable libraries are populated with default variables and a value set per stage (see below) |
 | `-RoleAssignments` | `hashtable[]` | No | None | Role assignment rules applied by workspace type and environment (see below) |
 | `-PipelineRoleAssignments` | `hashtable[]` | No | None | Deployment pipeline role assignment rules applied by workspace type (see below) |
 | `-OutputPath` | `string` | No | — | Write the generated config as JSON to this path |
@@ -381,11 +393,60 @@ When `-SetEnvironmentAsDefault` is supplied, each enabled workspace's environmen
 
 > **Note:** This step provisions an **empty** environment and (optionally) sets it as the workspace default — it does not upload any libraries. Creating and referencing an empty environment does not require a publish. Uploading `.whl` packages (from Azure Artifacts) and publishing them is handled by `Invoke-FabricArtefactDeploy` as a separate step — see [Code-artefact deployment](#code-artefact-deployment).
 
+**`-EnableVariableLibraries` — Variable Libraries:**
+
+Fabric Variable Libraries hold configuration values (with a value set per stage) that other Fabric items reference. Variable Library provisioning is opt-in per workspace type via `-EnableVariableLibraries`; each enabled workspace gets one library named `-VariableLibraryName` (default `DefaultVariableLibrary`), in every environment unless restricted with `-VariableLibraryStages`.
+
+The name is used as-is and is deliberately **the same in every workspace and environment** — each library lives in its own workspace, so there is no clash, and a stable name keeps references consistent as items are promoted between stages. It is stored as `variableLibrary.name` on each workspace in the config (a hand-written config that omits it gets the default). The name must follow Fabric's variable library naming rules (starts with a letter; only letters, numbers, underscores, hyphens and spaces; at most 256 characters), which `New-FabricTopologyConfig` checks up front.
+
+```powershell
+New-FabricTopologyConfig `
+    -Project                     "salesanalytics" `
+    -WorkspaceTypes              @("Bronze", "Silver", "Gold") `
+    -Environments                @("Dev", "Test", "Production") `
+    -CapacityMap                 @{ Dev="cap-dev"; Test="cap-test"; Production="cap-prod" } `
+    -EnableVariableLibraries     @("Bronze", "Gold") `
+    -VariableLibraryName         "Config" `
+    -VariableLibraryStages       @{ Bronze = @("Dev") } `
+    -VariableLibraryDefaultValues
+```
+
+All three are optional: the name defaults to `DefaultVariableLibrary`, Gold (omitted from `-VariableLibraryStages`) gets a library in every environment, and default variables are only populated with `-VariableLibraryDefaultValues`.
+
+`-VariableLibraryStages` works like `-EnvironmentStages`: it is keyed by workspace type, each value is a list of environment names, keys must be listed in `-EnableVariableLibraries`, and a type that is omitted gets a library in every environment. It is stored as `variableLibrary.stages` on each workspace in the config.
+
+Without `-VariableLibraryDefaultValues`, an **empty** Variable Library is provisioned — no variables or value sets are populated — and a library that already exists is left **completely untouched**.
+
+**`-VariableLibraryDefaultValues` — default variables:** stored as `variableLibrary.defaultValues` on each workspace in the config. When enabled, each run also populates these String variables from the deployment:
+
+| Variable | Value |
+|---|---|
+| `workspace_name` | The workspace display name, e.g. `salesanalytics-Bronze [DEV]` |
+| `workspace_id` | The workspace ID |
+| `workspace_identity_name` | The workspace identity's name (the workspace name); empty if the workspace has no identity |
+| `workspace_identity_id` | The workspace identity's application (client) ID; empty if the workspace has no identity |
+
+- The library's **default value set** only ever holds the placeholder `PLACEHOLDER - NO VALUE SET ACTIVE` — never a real value. If you see it, no stage value set is active.
+- The real values go in a **value set for the stage being provisioned**, named by the environment short code (`DEV`, `TEST`, `PROD`, …). It is created if it does not exist, and made the library's **active** value set.
+- Everything else in the library — other variables, other value sets, and other overrides in the stage's value set — is left untouched. The definition is only written back when one of the default variables or their stage values has changed, so re-runs are idempotent.
+- The identity comes from this run's identity provisioning, or is read off the workspace (e.g. with `-SkipIdentity`).
+- Failures are non-fatal and recorded with the step `VariableLibraryValues`; the library itself is still reported.
+
+```json
+"variableLibrary": {
+  "enabled": true,
+  "name": "DefaultVariableLibrary",
+  "stages": ["Dev", "Test", "Production"],
+  "defaultValues": true
+}
+```
+
+
 ---
 
 #### `Invoke-FabricSetup`
 
-Orchestrates the full provisioning pipeline. For each environment × workspace combination: resolves the name, creates the workspace (idempotent), grants the deploying identity Admin on the workspace, connects Git (in the designated Git environment only, for configured workspace types), provisions identity, enables monitoring, provisions a Spark Environment (and optionally sets it as the workspace default), and applies RBAC role assignments. Returns a structured results object. Deployment pipelines are not configured here — they span every environment, so they are set up separately by [`Invoke-FabricDeploymentPipelineSetup`](#invoke-fabricdeploymentpipelinesetup).
+Orchestrates the full provisioning pipeline. For each environment × workspace combination: resolves the name, creates the workspace (idempotent), grants the deploying identity Admin on the workspace, connects Git (in the designated Git environment only, for configured workspace types), provisions identity, enables monitoring, provisions a Spark Environment (and optionally sets it as the workspace default), provisions a Variable Library (with `defaultValues`, populating the default variables in the stage's value set and activating it), and applies RBAC role assignments. Returns a structured results object. Deployment pipelines are not configured here — they span every environment, so they are set up separately by [`Invoke-FabricDeploymentPipelineSetup`](#invoke-fabricdeploymentpipelinesetup).
 
 > **Deploying identity auto-grant:** every workspace is granted the identity running the deployment the **Admin** role — idempotently, and independently of `-SkipRbac`. The identity (and its Entra **object id**, which Fabric role assignments require) is resolved with `Get-AzContext` plus `Get-AzADServicePrincipal`/`Get-AzADUser` (implemented directly in this module rather than depending on ZeroFailed.Deploy.Azure, to avoid pulling in a full deploy extension for a single identity lookup), so it works both as the Azure DevOps service principal and as a locally signed-in user. This guarantees the deployer can always see and re-manage the workspace on later runs — without it, a re-run hits `WorkspaceNameAlreadyExists` (names are unique tenant-wide) but cannot resolve the workspace via `GET /workspaces`. No topology config required.
 
@@ -407,8 +468,9 @@ $result = Invoke-FabricSetup -Config $topology -SkipGit
 $result = Invoke-FabricSetup -Config $topology -SkipIdentity
 $result = Invoke-FabricSetup -Config $topology -SkipMonitoring
 $result = Invoke-FabricSetup -Config $topology -SkipEnvironment
+$result = Invoke-FabricSetup -Config $topology -SkipVariableLibrary
 $result = Invoke-FabricSetup -Config $topology -SkipRbac
-$result = Invoke-FabricSetup -Config $topology -SkipGit -SkipIdentity -SkipMonitoring -SkipEnvironment -SkipRbac
+$result = Invoke-FabricSetup -Config $topology -SkipGit -SkipIdentity -SkipMonitoring -SkipEnvironment -SkipVariableLibrary -SkipRbac
 ```
 
 **Parameters:**
@@ -422,6 +484,7 @@ $result = Invoke-FabricSetup -Config $topology -SkipGit -SkipIdentity -SkipMonit
 | `-SkipIdentity` | `switch` | Skip identity provisioning for all workspaces |
 | `-SkipMonitoring` | `switch` | Skip monitoring enablement for all workspaces |
 | `-SkipEnvironment` | `switch` | Skip Spark Environment provisioning for all workspaces |
+| `-SkipVariableLibrary` | `switch` | Skip Variable Library provisioning for all workspaces |
 | `-SkipRbac` | `switch` | Skip role assignment application for all workspaces |
 | `-WhatIf` | `switch` | Simulate all operations; no API calls are made |
 
@@ -432,6 +495,7 @@ $result.Summary         # @{ Created=int; Skipped=int; Failed=int }
 $result.Identities      # Array of identity entries — handoff for downstream Azure RBAC
 $result.Monitoring      # Array of monitoring report entries
 $result.Environments    # Array of environment provisioning report entries
+$result.VariableLibraries # Array of variable library provisioning report entries
 $result.RoleAssignments # Array of role assignment report entries
 $result.Failures        # Array of per-workspace failure details
 ```
@@ -477,6 +541,20 @@ $result.Failures        # Array of per-workspace failure details
 }
 ```
 
+**Variable library report structure** (one entry per workspace with a variable library enabled — whether newly created or already present):
+
+```powershell
+@{
+    WorkspaceName       = "salesanalytics-Bronze [DEV]"
+    WorkspaceId         = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+    VariableLibraryName = "DefaultVariableLibrary"
+    VariableLibraryId   = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+    DefaultValues       = $null   # or, with variableLibrary.defaultValues, the Set-FabricVariableLibraryValues report:
+    # @{ ValueSetName = "DEV"; Variables = @("workspace_name", ...);
+    #    DefinitionAction = "Updated"; ActiveValueSetAction = "Set"; ... }   # Updated|Set / Skipped / WhatIf
+}
+```
+
 **Role assignment report structure** (one entry per applied assignment):
 
 ```powershell
@@ -507,6 +585,9 @@ $result.Monitoring | ForEach-Object { [pscustomobject]$_ } | Format-Table
 
 # View environment report
 $result.Environments | ForEach-Object { [pscustomobject]$_ } | Format-Table
+
+# View variable library report
+$result.VariableLibraries | ForEach-Object { [pscustomobject]$_ } | Format-Table
 
 # View role assignment report
 $result.RoleAssignments | ForEach-Object { [pscustomobject]$_ } |
@@ -641,6 +722,24 @@ Creates a Fabric Spark Environment in a workspace (`POST /workspaces/{id}/enviro
 
 ```powershell
 $env = New-FabricEnvironment -WorkspaceId $ws.id -DisplayName "salesanalytics-Bronze Env" -Token $token
+```
+
+#### `New-FabricVariableLibrary`
+
+Creates an empty Fabric Variable Library in a workspace (`POST /workspaces/{id}/variableLibraries`, no definition — so no variables or value sets are populated). If a variable library with the same display name already exists it is returned **unchanged** — it is never overwritten or modified. An `ItemDisplayNameAlreadyInUse` (HTTP 409) conflict is treated idempotently by resolving and returning the existing library, and a long-running (HTTP 202) creation resolves the created library by name. Normally called by `Invoke-FabricSetup`; can also be used directly.
+
+```powershell
+$library = New-FabricVariableLibrary -WorkspaceId $ws.id -DisplayName "DefaultVariableLibrary" -Token $token
+```
+
+#### `Set-FabricVariableLibraryValues`
+
+Sets variables and a value set on an existing Fabric Variable Library, preserving everything else. Each variable is added as a String variable if missing, with its default value (the default value set) set to a placeholder — `PLACEHOLDER - NO VALUE SET ACTIVE` unless `-DefaultValue` is given. The named value set is created if missing, its overrides for the variables are set to the supplied values, and it is made the library's active value set. The definition is read with `getDefinition` and written back in full with `updateDefinition` — only when something changed, and with unmodified parts passed through byte-for-byte. Normally called by `Invoke-FabricSetup` when `variableLibrary.defaultValues` is enabled; can also be used directly.
+
+```powershell
+Set-FabricVariableLibraryValues -WorkspaceId $ws.id -WorkspaceName "salesanalytics-Bronze [DEV]" `
+    -VariableLibraryId $library.id -VariableLibraryName "DefaultVariableLibrary" `
+    -ValueSetName "DEV" -Values ([ordered]@{ workspace_id = $ws.id }) -Token $token
 ```
 
 #### `Set-FabricWorkspaceDefaultEnvironment`
@@ -852,6 +951,19 @@ Invoke-FabricSetup
     │           ├── GET /spark/settings  (idempotency check)
     │           ├── already default → skip
     │           └── else → PATCH /spark/settings  → append to $result.Environments
+    ├── New-FabricVariableLibrary  (unless -SkipVariableLibrary, variableLibrary.enabled=false, or the environment is not in variableLibrary.stages)
+    │   ├── _Resolve-VariableLibraryName → variableLibrary.name, or "DefaultVariableLibrary" (same in every environment)
+    │   ├── _Resolve-FabricVariableLibrary → GET /variableLibraries (paginated, by displayName)
+    │   ├── exists  → leave as is
+    │   ├── missing → POST /variableLibraries (empty; 409 → resolve existing)
+    │   ├── append to $result.VariableLibraries
+    │   └── if variableLibrary.defaultValues:
+    │       └── Set-FabricVariableLibraryValues  (value set = environment short code, e.g. DEV)
+    │           ├── identity: this run's identity report, else GET /workspaces/{id} (workspaceIdentity)
+    │           ├── POST /variableLibraries/{id}/getDefinition
+    │           ├── merge default variables (placeholder defaults) + stage value set overrides
+    │           ├── changed → POST /variableLibraries/{id}/updateDefinition (full definition)
+    │           └── active value set differs → PATCH /variableLibraries/{id} (activeValueSetName)
     └── For each role assignment in ws.rbac[env]:  (unless -SkipRbac or no assignments)
         └── Set-FabricWorkspaceRoleAssignment
             ├── GET workspaces/{id}/roleAssignments  (idempotency check)
@@ -906,6 +1018,7 @@ $result = Invoke-FabricSetup -Config $topology
 # existing Git connections → logged as already connected (Dev only)
 # existing identities → skipped, SP details still returned
 # existing environments → skipped, workspace default only re-set if it has drifted
+# existing variable libraries → left untouched (variables and value sets never overwritten)
 # existing role assignments with correct role → Skipped
 $result = Invoke-FabricSetup -Config $topology
 
@@ -916,7 +1029,7 @@ $pipelineResult = Invoke-FabricDeploymentPipelineSetup -Config $topology
 **Skip individual steps:**
 
 ```powershell
-$result = Invoke-FabricSetup -Config $topology -SkipGit -SkipIdentity -SkipMonitoring -SkipEnvironment -SkipRbac
+$result = Invoke-FabricSetup -Config $topology -SkipGit -SkipIdentity -SkipMonitoring -SkipEnvironment -SkipVariableLibrary -SkipRbac
 ```
 
 **Provision each environment, then wire up pipelines:**
@@ -949,12 +1062,16 @@ Invoke-Pester ./module -Output Detailed
 
 The test suite covers:
 - `_Resolve-WorkspaceName` — correct name generation, lowercasing, truncation, error cases
-- `New-FabricTopologyConfig` — environment count, workspace count, capacity assignment, Git opt-in per workspace type (`-GitWorkspaceConfig`), single Git environment (`-GitEnvironment`), identity filtering, monitoring filtering, pipeline opt-in (`-EnablePipelines`), Spark Environment opt-in (`-EnableEnvironments`, `-SetEnvironmentAsDefault`, `-EnvironmentRuntimeVersion`), per-type Spark Environment stage scoping (`-EnvironmentStages`, defaulting, validation errors), RBAC role assignment rules (`-RoleAssignments`), pipeline role assignment rules (`-PipelineRoleAssignments`), `-OutputPath` JSON output, GitHub provider, validation errors
+- `New-FabricTopologyConfig` — environment count, workspace count, capacity assignment, Git opt-in per workspace type (`-GitWorkspaceConfig`), single Git environment (`-GitEnvironment`), identity filtering, monitoring filtering, pipeline opt-in (`-EnablePipelines`), Spark Environment opt-in (`-EnableEnvironments`, `-SetEnvironmentAsDefault`, `-EnvironmentRuntimeVersion`), per-type Spark Environment stage scoping (`-EnvironmentStages`, defaulting, validation errors), Variable Library opt-in (`-EnableVariableLibraries`, `-VariableLibraryName` default/custom name and naming-rule validation, `-VariableLibraryStages` defaulting and validation errors, `-VariableLibraryDefaultValues`), RBAC role assignment rules (`-RoleAssignments`), pipeline role assignment rules (`-PipelineRoleAssignments`), `-OutputPath` JSON output, GitHub provider, validation errors
 - `New-FabricEnvironment` — WhatIf, idempotent skip when present, create via POST, description in body, 409 conflict resolution, non-conflict error propagation
+- `New-FabricVariableLibrary` — existing library returned with no create/update calls, WhatIf, empty create via POST (no definition), description in body, LRO resolution by name, 409 conflict resolution, non-conflict error propagation
+- `_Resolve-VariableLibraryName` / `_Resolve-FabricVariableLibrary` — configured name or `DefaultVariableLibrary` default, naming-rule rejection; lookup by name with pagination
+- `Set-FabricVariableLibraryValues` — WhatIf, empty library populated (placeholder defaults, new stage value set, activation), other variables/value sets/overrides preserved and untouched parts passed through unchanged, date strings not reformatted, real default values reset to the placeholder, stale overrides updated, no update/activation when up to date, activation only, missing parts added, getDefinition LRO result, API error propagation
+- `_Get-FabricWorkspaceIdentity` — identity returned from the workspace, `$null` when there is none
 - `Set-FabricWorkspaceDefaultEnvironment` — WhatIf, PATCH body shape, custom runtime version, skip when default already matches
 - `Set-FabricDeploymentPipeline` — WhatIf, create+assign all stages, skip when fully assigned, update vacant stages, throw without touching the pipeline when a workspace is missing, pagination across continuation tokens, API error propagation, report field correctness
 - `Set-FabricDeploymentPipelineRoleAssignment` — WhatIf, Admin default, non-Admin role rejection, skip when principal already present, create via POST, principal type acceptance, API error propagation, report field correctness
-- `Invoke-FabricSetup` — deploying identity Admin and workspace identity Contributor grants, single-environment targeting, deployment pipelines not configured, environment provisioning + set-as-default, `-SkipEnvironment`, non-fatal environment failures
+- `Invoke-FabricSetup` — deploying identity Admin and workspace identity Contributor grants, single-environment targeting, deployment pipelines not configured, environment provisioning + set-as-default, `-SkipEnvironment`, non-fatal environment failures, variable library provisioning per environment, stage scoping, `-SkipVariableLibrary`, older configs without a `variableLibrary` block, default name when none configured, default values off unless enabled, default values in a value set named by stage short code (environment name fallback), identity from this run or read off the workspace, empty identity values without an identity, non-fatal default values failures, non-fatal variable library failures
 - `Invoke-FabricDeploymentPipelineSetup` — pipeline-enabled types only, summary by action (WhatIf not counted), pipeline role assignment application, `-SkipPipelineRbac`, failed pipeline recorded without an RBAC attempt while other types continue, non-fatal pipeline RBAC failures, no-op warning when no pipelines are enabled, token refresh, `-ConfigPath`
 - `_Invoke-FabricFileUpload` — multipart upload URL/headers, no manual Content-Type, missing-file guard, API error unwrap
 - `Add-FabricEnvironmentLibrary` — staging-libraries endpoint, WhatIf no-op
@@ -987,10 +1104,13 @@ ZeroFailed.Deploy.Fabric/
     ├── functions/
     │   ├── _Get-FabricAuthToken.ps1               # Private: auth token + expiry check
     │   ├── _Get-FabricDeploymentIdentity.ps1      # Private: resolve deploying identity object id
+    │   ├── _Get-FabricWorkspaceIdentity.ps1       # Private: read a workspace's identity
     │   ├── _Invoke-FabricFileUpload.ps1           # Private: multipart file upload
     │   ├── _Invoke-FabricRestMethod.ps1           # Private: REST wrapper with LRO
     │   ├── _Invoke-PipDownload.ps1                # Private: mockable pip download shim
     │   ├── _Resolve-FabricEnvironment.ps1         # Private: resolve Spark Environment by name
+    │   ├── _Resolve-FabricVariableLibrary.ps1     # Private: resolve Variable Library by name
+    │   ├── _Resolve-VariableLibraryName.ps1       # Private: Variable Library name default + validation
     │   ├── _Resolve-WorkspaceName.ps1             # Private: naming convention engine
     │   ├── Add-FabricEnvironmentLibrary.ps1       # Python library deploy: upload library to staging
     │   ├── Add-FabricEnvironmentLibrary.Tests.ps1
@@ -1010,6 +1130,8 @@ ZeroFailed.Deploy.Fabric/
     │   ├── New-FabricEnvironment.Tests.ps1
     │   ├── New-FabricTopologyConfig.ps1
     │   ├── New-FabricTopologyConfig.Tests.ps1
+    │   ├── New-FabricVariableLibrary.ps1
+    │   ├── New-FabricVariableLibrary.Tests.ps1
     │   ├── New-FabricWorkspace.ps1
     │   ├── New-FabricWorkspace.Tests.ps1
     │   ├── Remove-FabricEnvironmentLibrary.ps1    # Python library deploy: remove staged library
@@ -1024,6 +1146,8 @@ ZeroFailed.Deploy.Fabric/
     │   ├── Set-FabricDeploymentPipelineRoleAssignment.Tests.ps1
     │   ├── Set-FabricGitIntegration.ps1
     │   ├── Set-FabricGitIntegration.Tests.ps1
+    │   ├── Set-FabricVariableLibraryValues.ps1
+    │   ├── Set-FabricVariableLibraryValues.Tests.ps1
     │   ├── Set-FabricWorkspaceDefaultEnvironment.ps1
     │   ├── Set-FabricWorkspaceDefaultEnvironment.Tests.ps1
     │   ├── Set-FabricWorkspaceRoleAssignment.ps1
