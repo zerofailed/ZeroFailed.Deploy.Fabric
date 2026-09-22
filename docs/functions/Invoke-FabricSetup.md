@@ -4,7 +4,7 @@ external help file: ZeroFailed.Deploy.Fabric-Help.xml
 HelpUri: https://learn.microsoft.com/rest/api/fabric/
 Locale: en-US
 Module Name: ZeroFailed.Deploy.Fabric
-ms.date: 09/15/2026
+ms.date: 09/21/2026
 PlatyPS schema version: 2024-05-01
 title: Invoke-FabricSetup
 ---
@@ -21,14 +21,14 @@ Orchestrates the full Fabric workspace provisioning pipeline from a topology con
 
 ```
 Invoke-FabricSetup [-Config] <psobject> [-Environment <string>] [-SkipGit] [-SkipIdentity]
- [-SkipMonitoring] [-SkipEnvironment] [-SkipRbac] [-WhatIf] [-Confirm]
+ [-SkipMonitoring] [-SkipEnvironment] [-SkipRbac] [-WhatIf] [-Confirm] [<CommonParameters>]
 ```
 
 ### File
 
 ```
 Invoke-FabricSetup -ConfigPath <string> [-Environment <string>] [-SkipGit] [-SkipIdentity]
- [-SkipMonitoring] [-SkipEnvironment] [-SkipRbac] [-WhatIf] [-Confirm]
+ [-SkipMonitoring] [-SkipEnvironment] [-SkipRbac] [-WhatIf] [-Confirm] [<CommonParameters>]
 ```
 
 ## ALIASES
@@ -49,7 +49,7 @@ Provisions Workspace Identity and grants it Contributor on the workspace (if ena
   6.
 Enables workspace monitoring (if enabled)
   7.
-Provisions a Spark Environment and (optionally) sets it as workspace default (if enabled)
+Provisions a Spark Environment and (optionally) sets it as workspace default (if enabled
      for the type and the current environment is in the type's configured stages)
   8.
 Applies RBAC role assignments (if configured)
@@ -58,7 +58,6 @@ Returns a structured results object with a summary; a per-workspace model (a fla
 carrying the workspace id, identity principal/application ids, Spark environment id and
 status); and the identity, monitoring, environment, role assignment, pipeline and pipeline
 role assignment reports.
-
 Deployment pipelines span every environment, so they are not configured here: run
 Invoke-FabricDeploymentPipelineSetup once each environment's workspaces have been provisioned.
 

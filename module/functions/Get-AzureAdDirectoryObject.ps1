@@ -22,7 +22,7 @@ When true, no warnings will be logged if multiple matches are found.
 #>
 
 function Get-AzureAdDirectoryObject {
-    [CmdletBinding()]
+    [CmdletBinding(HelpUri='https://learn.microsoft.com/graph/api/resources/directoryobject')]
     param (
         [Parameter(Mandatory=$true)]
         [string] $Criterion,

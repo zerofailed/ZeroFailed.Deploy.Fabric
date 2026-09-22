@@ -15,15 +15,17 @@ The display name of the group.
 .PARAMETER ObjectId
 The objectId of the group.
 
-.PARAMETER Members
+.PARAMETER RequiredMembers
 The list of AzureAD objects that should be members of the group. These can be specified using
 'DisplayName', 'ObjectId', 'ApplicationId' or 'UserPrincipalName'.
 
+.PARAMETER GroupType
+The type of group to manage: 'Security' or 'Distribution'. Used to disambiguate when a group
+with a matching Name/ObjectId exists as both a security and a distribution group. Defaults to
+'Security'.
+
 .PARAMETER StrictMode
 When true, existing group members not specified in the 'RequiredMembers' parameters will be removed from the group.
-
-.OUTPUTS
-AzureAD group definition object
 
 .EXAMPLE
 
@@ -34,7 +36,7 @@ Assert-AzureAdGroupMembership -Name "MyGroup" -RequiredMembers @("f7f0545c-82b5-
 #>
 function Assert-AzureAdGroupMembership
 {
-    [CmdletBinding()]
+    [CmdletBinding(HelpUri='https://learn.microsoft.com/graph/api/group-list-members')]
     param (
         [Parameter(Mandatory=$true, ParameterSetName="ByName")]
         [string] $Name,

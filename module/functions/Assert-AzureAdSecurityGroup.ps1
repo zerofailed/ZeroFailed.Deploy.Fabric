@@ -35,7 +35,7 @@ AzureAD group definition object
 #>
 function Assert-AzureAdSecurityGroup
 {
-    [CmdletBinding()]
+    [CmdletBinding(HelpUri='https://learn.microsoft.com/graph/api/group-post-groups')]
     param (
         [Alias("Name")]
         [Parameter(Mandatory=$true)]
