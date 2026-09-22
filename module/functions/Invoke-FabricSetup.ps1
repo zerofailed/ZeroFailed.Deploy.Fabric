@@ -140,10 +140,6 @@ function Invoke-FabricSetup {
         Failures       = [System.Collections.Generic.List[hashtable]]::new()
     }
 
-    # type name -> @{ env name -> workspace GUID }; fed to Set-FabricDeploymentPipeline so the pipeline
-    # phase does not re-walk GET /workspaces for IDs this loop already resolved.
-    $knownWorkspaceIds = @{}
-
     foreach ($env in $targetEnvs) {
         Write-Verbose "=== Environment: $($env.name) ==="
 
@@ -221,12 +217,6 @@ function Invoke-FabricSetup {
             $wsRecord.Status      = if ($existed) { 'Existing' }
                                     elseif ($WhatIfPreference) { 'WhatIf' }
                                     else { 'Created' }
-
-            # Remember the resolved id for the deployment-pipeline phase (skip WhatIf placeholders).
-            if ($workspaceId -and -not $WhatIfPreference) {
-                if (-not $knownWorkspaceIds.ContainsKey($ws.type)) { $knownWorkspaceIds[$ws.type] = @{} }
-                $knownWorkspaceIds[$ws.type][$env.name] = $workspaceId
-            }
 
             # b2. Grant the deploying identity Admin on the workspace (idempotent, non-fatal).
             # Guarantees the deployer can resolve the workspace on future runs. Independent of

@@ -305,7 +305,7 @@ Describe 'Invoke-FabricSetup' {
         }
 
         It 'captures the identity principal / application id and the Spark environment id on the record' {
-            $r = Invoke-FabricSetup -Config (New-TestConfig) -Environments @('Dev')
+            $r = Invoke-FabricSetup -Config (New-TestConfig) -Environment 'Dev'
             $rec = $r.WorkspacesByType.Bronze.Dev
 
             $rec.Identity.PrincipalId              | Should -Be 'sp-oid'
@@ -318,7 +318,7 @@ Describe 'Invoke-FabricSetup' {
         It 'marks a pre-existing workspace as Existing and records its id' {
             Mock Test-FabricWorkspaceExists { [pscustomobject]@{ id = 'existing-ws' } } -ModuleName ZeroFailed.Deploy.Fabric
 
-            $r = Invoke-FabricSetup -Config (New-TestConfig) -Environments @('Dev')
+            $r = Invoke-FabricSetup -Config (New-TestConfig) -Environment 'Dev'
             $r.WorkspacesByType.Bronze.Dev.Status      | Should -Be 'Existing'
             $r.WorkspacesByType.Bronze.Dev.WorkspaceId | Should -Be 'existing-ws'
         }
@@ -326,40 +326,24 @@ Describe 'Invoke-FabricSetup' {
         It 'keeps a Failed record with a null WorkspaceId when workspace creation throws' {
             Mock New-FabricWorkspace { throw 'capacity not found' } -ModuleName ZeroFailed.Deploy.Fabric
 
-            $r = Invoke-FabricSetup -Config (New-TestConfig) -Environments @('Dev')
+            $r = Invoke-FabricSetup -Config (New-TestConfig) -Environment 'Dev'
             $r.Workspaces.Count                        | Should -Be 1
             $r.WorkspacesByType.Bronze.Dev.Status      | Should -Be 'Failed'
             $r.WorkspacesByType.Bronze.Dev.WorkspaceId | Should -BeNullOrEmpty
         }
 
         It 'marks records WhatIf under -WhatIf' {
-            $r = Invoke-FabricSetup -Config (New-TestConfig) -Environments @('Dev') -WhatIf
+            $r = Invoke-FabricSetup -Config (New-TestConfig) -Environment 'Dev' -WhatIf
             $r.WorkspacesByType.Bronze.Dev.Status | Should -Be 'WhatIf'
         }
 
         It 'leaves Identity and SparkEnvironment null when those steps are skipped, keeping the record' {
-            $r = Invoke-FabricSetup -Config (New-TestConfig) -Environments @('Dev') -SkipIdentity -SkipEnvironment
+            $r = Invoke-FabricSetup -Config (New-TestConfig) -Environment 'Dev' -SkipIdentity -SkipEnvironment
             $rec = $r.WorkspacesByType.Bronze.Dev
 
             $rec.Status           | Should -Be 'Created'
             $rec.Identity         | Should -BeNullOrEmpty
             $rec.SparkEnvironment | Should -BeNullOrEmpty
-        }
-
-        It 'passes the resolved workspace ids to Set-FabricDeploymentPipeline' {
-            Invoke-FabricSetup -Config (New-TestConfig) | Out-Null
-
-            Should -Invoke Set-FabricDeploymentPipeline -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter {
-                $KnownWorkspaceIds -and $KnownWorkspaceIds['Dev'] -eq 'ws-bronzeDev' -and $KnownWorkspaceIds['Test'] -eq 'ws-bronzeTest'
-            }
-        }
-
-        It 'passes only the covered environments when -Environments filters the run' {
-            Invoke-FabricSetup -Config (New-TestConfig) -Environments @('Dev') | Out-Null
-
-            Should -Invoke Set-FabricDeploymentPipeline -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter {
-                $KnownWorkspaceIds.ContainsKey('Dev') -and -not $KnownWorkspaceIds.ContainsKey('Test')
-            }
         }
 
         It 'survives a ConvertTo-Json | ConvertFrom-Json round-trip' {
