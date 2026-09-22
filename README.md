@@ -405,7 +405,6 @@ Managed private endpoints let a Fabric workspace's Spark workloads reach Azure r
 | `SqlServer` | `Microsoft.Sql/servers` | `sqlServer` |
 | `CosmosDb` | `Microsoft.DocumentDB/databaseAccounts` | `Sql` |
 | `EventHubs` | `Microsoft.EventHub/namespaces` | `namespace` |
-| `DataExplorer` | `Microsoft.Kusto/clusters` | `cluster` |
 
 ```powershell
 -AzureSubscriptionIds @{

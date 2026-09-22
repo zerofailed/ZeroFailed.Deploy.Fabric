@@ -34,7 +34,6 @@ Describe '_Resolve-ManagedPrivateEndpoint' {
         @{ Type = 'SqlServer';    Provider = 'Microsoft.Sql/servers';                 Sub = 'sqlServer' }
         @{ Type = 'CosmosDb';     Provider = 'Microsoft.DocumentDB/databaseAccounts'; Sub = 'Sql' }
         @{ Type = 'EventHubs';    Provider = 'Microsoft.EventHub/namespaces';         Sub = 'namespace' }
-        @{ Type = 'DataExplorer'; Provider = 'Microsoft.Kusto/clusters';              Sub = 'cluster' }
     ) {
         $r = Resolve-Mpe @{ SubscriptionId = $script:sub; ResourceGroup = 'rg'; ResourceName = 'res'; ResourceType = $Type }
         $r.TargetPrivateLinkResourceId | Should -BeLike "*/providers/$Provider/res"

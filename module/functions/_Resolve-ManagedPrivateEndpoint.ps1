@@ -13,7 +13,6 @@ function _Resolve-ManagedPrivateEndpoint {
           SqlServer    — Microsoft.Sql/servers                 (default sub-resource 'sqlServer')
           CosmosDb     — Microsoft.DocumentDB/databaseAccounts (default sub-resource 'Sql')
           EventHubs    — Microsoft.EventHub/namespaces         (default sub-resource 'namespace')
-          DataExplorer — Microsoft.Kusto/clusters              (default sub-resource 'cluster')
 
         The endpoint is named '{ResourceName}.{sub-resource}' in lower case (e.g. 'kv-sales-dev.vault'),
         so one resource can have an endpoint per sub-resource in the same workspace. A type with no
@@ -54,7 +53,6 @@ function _Resolve-ManagedPrivateEndpoint {
         SqlServer    = @{ Provider = 'Microsoft.Sql/servers';                 DefaultSubresource = 'sqlServer' }
         CosmosDb     = @{ Provider = 'Microsoft.DocumentDB/databaseAccounts'; DefaultSubresource = 'Sql' }
         EventHubs    = @{ Provider = 'Microsoft.EventHub/namespaces';         DefaultSubresource = 'namespace' }
-        DataExplorer = @{ Provider = 'Microsoft.Kusto/clusters';              DefaultSubresource = 'cluster' }
     }
 
     if (-not $ResourceType) {

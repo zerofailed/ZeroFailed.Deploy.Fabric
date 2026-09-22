@@ -265,6 +265,17 @@ Describe 'Invoke-FabricSetup' {
             Should -Invoke New-FabricWorkspace -Times 0 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
         }
 
+        It 'still creates managed private endpoints in a workspace that already exists' {
+            Mock Test-FabricWorkspaceExists { [pscustomobject]@{ id = 'existing-ws' } } -ModuleName ZeroFailed.Deploy.Fabric
+
+            $r = Invoke-FabricSetup -Config (New-TestConfig)
+
+            $r.ManagedPrivateEndpoints.Count | Should -Be 2
+            Should -Invoke Set-FabricManagedPrivateEndpoint -Times 2 -Exactly -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter {
+                $WorkspaceId -eq 'existing-ws'
+            }
+        }
+
         It 'processes only the environment named in -Environment' {
             $r = Invoke-FabricSetup -Config (New-TestConfig) -Environment 'Dev'
             $r.Summary.Created | Should -Be 1

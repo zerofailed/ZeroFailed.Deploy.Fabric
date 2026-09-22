@@ -431,7 +431,7 @@ HelpMessage: ''
 Array of managed private endpoint rules to create in workspaces.
 Each rule is a hashtable with:
   ResourceType          (required) — the target resource type: one of KeyVault, Storage, SqlServer,
-                                     CosmosDb, EventHubs or DataExplorer, or any provider path such as
+                                     CosmosDb or EventHubs, or any provider path such as
                                      'Microsoft.KeyVault/vaults'
   Targets               (required) — hashtable mapping environment name to
                                      @{ ResourceGroup = '...'; ResourceName = '...' } for that stage;
