@@ -4,7 +4,7 @@ external help file: ZeroFailed.Deploy.Fabric-Help.xml
 HelpUri: https://learn.microsoft.com/rest/api/fabric/
 Locale: en-US
 Module Name: ZeroFailed.Deploy.Fabric
-ms.date: 09/10/2026
+ms.date: 09/18/2026
 PlatyPS schema version: 2024-05-01
 title: New-FabricTopologyConfig
 ---
@@ -26,9 +26,10 @@ New-FabricTopologyConfig [-Project] <string> [-WorkspaceTypes] <string[]> [-Envi
  [[-EnableIdentity] <string[]>] [[-EnableMonitoring] <string[]>] [[-RoleAssignments] <hashtable[]>]
  [[-EnablePipelines] <string[]>] [[-PipelineRoleAssignments] <hashtable[]>]
  [[-EnableEnvironments] <string[]>] [[-EnvironmentStages] <hashtable>]
- [[-EnvironmentRuntimeVersion] <string>] [[-TypeShortCodes] <hashtable>]
- [[-EnvShortCodes] <hashtable>] [[-OutputPath] <string>] [-SetEnvironmentAsDefault]
- [<CommonParameters>]
+ [[-EnvironmentRuntimeVersion] <string>] [[-EnableVariableLibraries] <string[]>]
+ [[-VariableLibraryName] <string>] [[-VariableLibraryStages] <hashtable>]
+ [[-TypeShortCodes] <hashtable>] [[-EnvShortCodes] <hashtable>] [[-OutputPath] <string>]
+ [-SetEnvironmentAsDefault] [-VariableLibraryDefaultValues] [<CommonParameters>]
 ```
 
 ## ALIASES
@@ -182,6 +183,29 @@ AcceptedValues: []
 HelpMessage: ''
 ```
 
+### -EnableVariableLibraries
+
+Array of workspace type names that should have a Fabric Variable Library provisioned
+(one empty library per workspace, in every environment).
+Defaults to no workspace types (opt-in).
+
+```yaml
+Type: System.String[]
+DefaultValue: ''
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: (All)
+  Position: 17
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
+```
+
 ### -EnvironmentRuntimeVersion
 
 Spark runtime version used for provisioned environments.
@@ -271,7 +295,7 @@ SupportsWildcards: false
 Aliases: []
 ParameterSets:
 - Name: (All)
-  Position: 18
+  Position: 21
   IsRequired: false
   ValueFromPipeline: false
   ValueFromPipelineByPropertyName: false
@@ -414,7 +438,7 @@ SupportsWildcards: false
 Aliases: []
 ParameterSets:
 - Name: (All)
-  Position: 19
+  Position: 22
   IsRequired: false
   ValueFromPipeline: false
   ValueFromPipelineByPropertyName: false
@@ -540,7 +564,85 @@ SupportsWildcards: false
 Aliases: []
 ParameterSets:
 - Name: (All)
-  Position: 17
+  Position: 20
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
+```
+
+### -VariableLibraryDefaultValues
+
+When set, variable libraries are populated with default variables (workspace_name, workspace_id,
+workspace_identity_name, workspace_identity_id).
+Their default value set holds only a
+placeholder; the real values go in a value set per stage (named by the environment short code,
+e.g.
+DEV), which is activated.
+
+```yaml
+Type: System.Management.Automation.SwitchParameter
+DefaultValue: False
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: (All)
+  Position: Named
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
+```
+
+### -VariableLibraryName
+
+Display name for the provisioned variable libraries.
+The name is used as-is, and is the same in
+every workspace and environment.
+Default: 'DefaultVariableLibrary'.
+
+```yaml
+Type: System.String
+DefaultValue: DefaultVariableLibrary
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: (All)
+  Position: 18
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
+```
+
+### -VariableLibraryStages
+
+Optional hashtable keyed by workspace type name, restricting which environments (stages)
+get a Variable Library for that type.
+Each value is an array of environment names.
+Only meaningful for types listed in -EnableVariableLibraries.
+A type that is enabled but absent
+from this hashtable gets a Variable Library in every environment (the default).
+E.g.
+@{ ETL = @('Dev','Production') }
+
+```yaml
+Type: System.Collections.Hashtable
+DefaultValue: ''
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: (All)
+  Position: 19
   IsRequired: false
   ValueFromPipeline: false
   ValueFromPipelineByPropertyName: false
@@ -588,7 +690,7 @@ This cmdlet supports the common parameters: -Debug, -ErrorAction, -ErrorVariable
 
 ### System.Management.Automation.PSObject
 
-A topology configuration object describing all workspaces, environments, naming convention, Git, identity, monitoring, pipeline, environment, and role assignment settings.
+A topology configuration object describing all workspaces, environments, naming convention, Git, identity, monitoring, pipeline, environment, variable library, and role assignment settings.
 
 ## NOTES
 

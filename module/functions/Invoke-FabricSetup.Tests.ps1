@@ -19,8 +19,8 @@ BeforeAll {
         [pscustomobject]@{
             gitEnvironment = 'Dev'
             environments   = @(
-                [pscustomobject]@{ name = 'Dev';  capacityName = 'cap-dev' }
-                [pscustomobject]@{ name = 'Test'; capacityName = 'cap-test' }
+                [pscustomobject]@{ name = 'Dev';  shortCode = 'DEV';  capacityName = 'cap-dev' }
+                [pscustomobject]@{ name = 'Test'; shortCode = 'TEST'; capacityName = 'cap-test' }
             )
             workspaces     = @(
                 [pscustomobject]@{
@@ -31,6 +31,7 @@ BeforeAll {
                     rbac       = [pscustomobject]@{ Dev = @([pscustomobject]@{ principalId = 'g1'; principalType = 'Group'; role = 'Member' }) }
                     pipeline   = [pscustomobject]@{ enabled = $true; roleAssignments = @([pscustomobject]@{ principalId = 'pg1'; principalType = 'Group'; role = 'Admin' }) }
                     environment = [pscustomobject]@{ enabled = $true; setAsWorkspaceDefault = $true; runtimeVersion = '1.3' }
+                    variableLibrary = [pscustomobject]@{ enabled = $true; name = 'Bronze Variables' }
                 }
             )
         }
@@ -70,10 +71,13 @@ Describe 'Invoke-FabricSetup' {
             Mock Test-FabricWorkspaceExists { $null } -ModuleName ZeroFailed.Deploy.Fabric
             Mock New-FabricWorkspace { [pscustomobject]@{ id = 'ws-1' } } -ModuleName ZeroFailed.Deploy.Fabric
             Mock Set-FabricGitIntegration {} -ModuleName ZeroFailed.Deploy.Fabric
-            Mock Enable-FabricWorkspaceIdentity { @{ WorkspaceName = 'bronze'; ServicePrincipalObjectId = 'sp-oid' } } -ModuleName ZeroFailed.Deploy.Fabric
+            Mock Enable-FabricWorkspaceIdentity { @{ WorkspaceName = 'bronze'; WorkspaceId = 'ws-1'; ServicePrincipalObjectId = 'sp-oid'; ApplicationId = 'app-1' } } -ModuleName ZeroFailed.Deploy.Fabric
             Mock Enable-FabricWorkspaceMonitoring { @{ Enabled = $true } } -ModuleName ZeroFailed.Deploy.Fabric
             Mock New-FabricEnvironment { [pscustomobject]@{ id = 'env-1'; displayName = 'bronze Env' } } -ModuleName ZeroFailed.Deploy.Fabric
             Mock Set-FabricWorkspaceDefaultEnvironment { @{ EnvironmentName = 'bronze Env'; Action = 'Set' } } -ModuleName ZeroFailed.Deploy.Fabric
+            Mock New-FabricVariableLibrary { [pscustomobject]@{ id = 'vl-1'; displayName = $DisplayName } } -ModuleName ZeroFailed.Deploy.Fabric
+            Mock Set-FabricVariableLibraryValues { @{ DefinitionAction = 'Updated'; ActiveValueSetAction = 'Set' } } -ModuleName ZeroFailed.Deploy.Fabric
+            Mock _Get-FabricWorkspaceIdentity { $null } -ModuleName ZeroFailed.Deploy.Fabric
             Mock Set-FabricWorkspaceRoleAssignment { @{ Action = 'Created' } } -ModuleName ZeroFailed.Deploy.Fabric
             Mock Set-FabricDeploymentPipeline { @{ Action = 'Created'; PipelineId = 'pipe-1'; PipelineName = 'bronze-pipeline' } } -ModuleName ZeroFailed.Deploy.Fabric
             Mock Set-FabricDeploymentPipelineRoleAssignment { @{ Action = 'Created' } } -ModuleName ZeroFailed.Deploy.Fabric
@@ -172,10 +176,12 @@ Describe 'Invoke-FabricSetup' {
         }
 
         It 'honours the Skip switches' {
-            $r = Invoke-FabricSetup -Config (New-TestConfig) -SkipGit -SkipIdentity -SkipMonitoring -SkipEnvironment -SkipRbac
+            $r = Invoke-FabricSetup -Config (New-TestConfig) -SkipGit -SkipIdentity -SkipMonitoring -SkipEnvironment -SkipVariableLibrary -SkipRbac
             $r.Identities.Count      | Should -Be 0
             $r.Monitoring.Count      | Should -Be 0
             $r.Environments.Count    | Should -Be 0
+            $r.VariableLibraries.Count | Should -Be 0
+            Should -Invoke New-FabricVariableLibrary     -Times 0 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
             $r.RoleAssignments.Count | Should -Be 0
             Should -Invoke Set-FabricGitIntegration     -Times 0 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
             Should -Invoke Enable-FabricWorkspaceIdentity -Times 0 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
@@ -228,6 +234,128 @@ Describe 'Invoke-FabricSetup' {
 
             $r.Environments.Count | Should -Be 0
             ($r.Failures.Step) | Should -Contain 'Environment'
+        }
+
+        It 'provisions a variable library with the same name in each environment' {
+            $r = Invoke-FabricSetup -Config (New-TestConfig)
+
+            $r.VariableLibraries.Count | Should -Be 2     # 1 workspace x 2 environments
+            ($r.VariableLibraries.VariableLibraryName | Sort-Object -Unique) | Should -Be 'Bronze Variables'
+            $r.VariableLibraries[0].VariableLibraryId | Should -Be 'vl-1'
+            Should -Invoke New-FabricVariableLibrary -Times 2 -Exactly -ModuleName ZeroFailed.Deploy.Fabric `
+                -ParameterFilter { $WorkspaceId -eq 'ws-1' -and $DisplayName -eq 'Bronze Variables' }
+        }
+
+        It 'uses the default variable library name when the variableLibrary block has no name' {
+            $config = New-TestConfig
+            $config.workspaces[0].variableLibrary.PSObject.Properties.Remove('name')
+            $r = Invoke-FabricSetup -Config $config -Environment 'Dev'
+
+            $r.VariableLibraries[0].VariableLibraryName | Should -Be 'DefaultVariableLibrary'
+            Should -Invoke New-FabricVariableLibrary -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric `
+                -ParameterFilter { $DisplayName -eq 'DefaultVariableLibrary' }
+        }
+
+        It 'skips variable library provisioning when the workspace has it disabled' {
+            $config = New-TestConfig
+            $config.workspaces[0].variableLibrary.enabled = $false
+            $r = Invoke-FabricSetup -Config $config -Environment 'Dev'
+
+            $r.VariableLibraries.Count | Should -Be 0
+            Should -Invoke New-FabricVariableLibrary -Times 0 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
+        }
+
+        It 'skips variable library provisioning for an older config without a variableLibrary block' {
+            $config = New-TestConfig
+            $config.workspaces[0].PSObject.Properties.Remove('variableLibrary')
+            $r = Invoke-FabricSetup -Config $config -Environment 'Dev'
+
+            $r.VariableLibraries.Count | Should -Be 0
+            $r.Failures.Count          | Should -Be 0
+            Should -Invoke New-FabricVariableLibrary -Times 0 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
+        }
+
+        It 'only provisions the variable library in the configured stages' {
+            $config = New-TestConfig
+            $config.workspaces[0].variableLibrary | Add-Member -NotePropertyName stages -NotePropertyValue @('Test')
+            $r = Invoke-FabricSetup -Config $config
+
+            $r.VariableLibraries.Count | Should -Be 1
+            Should -Invoke New-FabricVariableLibrary -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
+        }
+
+        It 'does not set default values unless defaultValues is enabled' {
+            $r = Invoke-FabricSetup -Config (New-TestConfig) -Environment 'Dev'
+
+            $r.VariableLibraries[0].DefaultValues | Should -BeNullOrEmpty
+            Should -Invoke Set-FabricVariableLibraryValues -Times 0 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
+        }
+
+        It 'sets the default values in a value set named by the stage short code' {
+            $config = New-TestConfig
+            $config.workspaces[0].variableLibrary | Add-Member -NotePropertyName defaultValues -NotePropertyValue $true
+            $r = Invoke-FabricSetup -Config $config -Environment 'Dev'
+
+            $r.VariableLibraries[0].DefaultValues.DefinitionAction | Should -Be 'Updated'
+            $workspaceName = $r.VariableLibraries[0].WorkspaceName
+            Should -Invoke Set-FabricVariableLibraryValues -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter {
+                $WorkspaceId -eq 'ws-1' -and $VariableLibraryId -eq 'vl-1' -and $VariableLibraryName -eq 'Bronze Variables' -and
+                $ValueSetName -eq 'DEV' -and
+                ($Values.Keys -join ',') -eq 'workspace_name,workspace_id,workspace_identity_name,workspace_identity_id' -and
+                $Values.workspace_name -eq $workspaceName -and $Values.workspace_id -eq 'ws-1' -and
+                $Values.workspace_identity_name -eq $workspaceName -and $Values.workspace_identity_id -eq 'app-1'
+            }
+            # The identity provisioned in this run is used — no extra lookup.
+            Should -Invoke _Get-FabricWorkspaceIdentity -Times 0 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
+        }
+
+        It 'reads the identity off the workspace when identity provisioning is skipped' {
+            Mock _Get-FabricWorkspaceIdentity { [pscustomobject]@{ applicationId = 'app-existing'; servicePrincipalId = 'sp-existing' } } -ModuleName ZeroFailed.Deploy.Fabric
+            $config = New-TestConfig
+            $config.workspaces[0].variableLibrary | Add-Member -NotePropertyName defaultValues -NotePropertyValue $true
+            Invoke-FabricSetup -Config $config -Environment 'Dev' -SkipIdentity | Out-Null
+
+            Should -Invoke Set-FabricVariableLibraryValues -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter {
+                $Values.workspace_identity_id -eq 'app-existing'
+            }
+        }
+
+        It 'sets empty identity values when the workspace has no identity' {
+            $config = New-TestConfig
+            $config.workspaces[0].variableLibrary | Add-Member -NotePropertyName defaultValues -NotePropertyValue $true
+            Invoke-FabricSetup -Config $config -Environment 'Dev' -SkipIdentity | Out-Null
+
+            Should -Invoke Set-FabricVariableLibraryValues -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter {
+                $Values.workspace_identity_name -eq '' -and $Values.workspace_identity_id -eq ''
+            }
+        }
+
+        It 'names the value set after the environment when the config has no short codes' {
+            $config = New-TestConfig
+            $config.environments[0].PSObject.Properties.Remove('shortCode')
+            $config.workspaces[0].variableLibrary | Add-Member -NotePropertyName defaultValues -NotePropertyValue $true
+            Invoke-FabricSetup -Config $config -Environment 'Dev' | Out-Null
+
+            Should -Invoke Set-FabricVariableLibraryValues -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $ValueSetName -eq 'Dev' }
+        }
+
+        It 'records a non-fatal failure when setting default values throws, keeping the library' {
+            Mock Set-FabricVariableLibraryValues { throw 'values boom' } -ModuleName ZeroFailed.Deploy.Fabric
+            $config = New-TestConfig
+            $config.workspaces[0].variableLibrary | Add-Member -NotePropertyName defaultValues -NotePropertyValue $true
+            $r = Invoke-FabricSetup -Config $config -Environment 'Dev'
+
+            $r.VariableLibraries.Count | Should -Be 1
+            ($r.Failures.Step) | Should -Contain 'VariableLibraryValues'
+        }
+
+        It 'records a non-fatal failure when variable library provisioning throws' {
+            Mock New-FabricVariableLibrary { throw 'variable library boom' } -ModuleName ZeroFailed.Deploy.Fabric
+            $r = Invoke-FabricSetup -Config (New-TestConfig) -Environment 'Dev'
+
+            $r.VariableLibraries.Count | Should -Be 0
+            ($r.Failures.Step) | Should -Contain 'VariableLibrary'
+            $r.Environments.Count | Should -Be 2     # later/earlier steps unaffected
         }
 
         It 'refreshes the token when it is near expiry' {
