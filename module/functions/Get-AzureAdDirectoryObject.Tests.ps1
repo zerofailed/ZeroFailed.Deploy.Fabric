@@ -2,90 +2,103 @@
 # Copyright (c) Endjin Limited. All rights reserved.
 # </copyright>
 
-$here = Split-Path -Parent $MyInvocation.MyCommand.Path
-$sut = (Split-Path -Leaf $MyInvocation.MyCommand.Path).Replace(".Tests.ps1", ".ps1")
+#Requires -Version 7.0
+#Requires -Modules Pester
 
-. "$here\$sut"
-
-# define other functions that will be mocked
-function _EnsureAzureConnection {}
+BeforeAll {
+    $modulePath = Join-Path $PSScriptRoot '..' 'ZeroFailed.Deploy.Fabric.psd1'
+    Import-Module $modulePath -Force -ErrorAction Stop
+}
 
 Describe "Get-AzureAdDirectoryObject Tests" {
 
-    function _EnsureAzureConnection { $true }
+    BeforeAll {
+        # Setup some mock AzureAD objects
+        $mockGroup = @{
+            ObjectId = '5c21a713-c12c-4592-807e-e45b1adc8634'
+            DisplayName = 'Mock Group'
+        }
+        $mockServicePrincipal = @{
+            ObjectId = '308d6796-5639-49da-a0b4-17e37de6e4de'
+            ApplicationId = 'c6c60257-7088-41b0-a8b3-6cdfe22c4855'
+            DisplayName = 'Mock Service Principal'
+        }
+        $mockUser = @{
+            ObjectId = '5f3c6343-88e8-4888-afcd-2a7acfaa7fc7'
+            DisplayName = 'Mock User'
+            UserPrincipalName = 'mock.user@nowhere.org'
+        }
 
-    # Setup some mock AzureAD objects
-    $mockGroup = @{
-        ObjectId = '5c21a713-c12c-4592-807e-e45b1adc8634'
-        DisplayName = 'Mock Group'
-    }
-    $mockServicePrincipal = @{
-        ObjectId = '308d6796-5639-49da-a0b4-17e37de6e4de'
-        ApplicationId = 'c6c60257-7088-41b0-a8b3-6cdfe22c4855'
-        DisplayName = 'Mock Service Principal'
-    }
-    $mockUser = @{
-        ObjectId = '5f3c6343-88e8-4888-afcd-2a7acfaa7fc7'
-        DisplayName = 'Mock User'
-        UserPrincipalName = 'mock.user@nowhere.org'
-    }
+        Mock Write-Verbose {} -ModuleName ZeroFailed.Deploy.Fabric
+        Mock Write-Warning {} -ModuleName ZeroFailed.Deploy.Fabric
 
-    # Mock out the calls to AzureAD, intercepting those that need to simulate a matching result
-    Mock _groupById { $global:methodUsed="ObjectId"; $mockGroup } -ParameterFilter { $ObjectId -eq $mockGroup.ObjectId }
-    Mock _groupById {}
-    Mock _groupByName { $global:methodUsed="DisplayName"; $mockGroup } -ParameterFilter { $DisplayName -eq $mockGroup.DisplayName }
-    Mock _groupByName {}
-    Mock _spByAppId { $global:methodUsed="ApplicationId"; $mockServicePrincipal } -ParameterFilter { $ApplicationId -eq $mockServicePrincipal.ApplicationId }
-    Mock _spByAppId {}
-    Mock _spByObjectId { $global:methodUsed="ObjectId"; $mockServicePrincipal } -ParameterFilter { $ObjectId -eq $mockServicePrincipal.ObjectId }
-    Mock _spByObjectId {}
-    Mock _spByName { $global:methodUsed="DisplayName"; $mockServicePrincipal } -ParameterFilter { $DisplayName -eq $mockServicePrincipal.DisplayName }
-    Mock _spByName {}
-    Mock _userById { $global:methodUsed="ObjectId"; $mockUser } -ParameterFilter { $ObjectId -eq $mockUser.ObjectId }
-    Mock _userById {}
-    Mock _userByName { $global:methodUsed="DisplayName"; $mockUser } -ParameterFilter { $DisplayName -eq $mockUser.DisplayName }
-    Mock _userByName {}
-    Mock _userByUpn { $global:methodUsed="UserPrincipalName"; $mockUser } -ParameterFilter { $UserPrincipalName -eq $mockUser.UserPrincipalName }
-    Mock _userByUpn {}
+        # Mock the real cmdlets that the SUT's nested lookup helpers (_groupById, _groupByName,
+        # etc.) call internally. Pester's -ModuleName mock intercepts calls made from nested
+        # function bodies too, since they still resolve unqualified command names through the
+        # enclosing module's scope - so the nested helpers themselves don't need to be (and,
+        # being declared inside their parent function's body, can't be) mocked directly.
+        #
+        # ObjectId-based lookups throw on no match; DisplayName/ApplicationId/UserPrincipalName
+        # lookups return $null on no match - matching the real Az cmdlets' documented behaviour
+        # (see the comments in Get-AzureAdDirectoryObject.ps1).
 
-    Mock Write-Verbose {}
-    Mock Write-Warning {}
+        Mock Get-AzADGroup { $global:methodUsed = "ObjectId"; $mockGroup } -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $ObjectId -eq $mockGroup.ObjectId }
+        Mock Get-AzADGroup { throw "not found" } -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $ObjectId -and $ObjectId -ne $mockGroup.ObjectId }
+        Mock Get-AzADGroup { $global:methodUsed = "DisplayName"; $mockGroup } -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $DisplayName -eq $mockGroup.DisplayName }
+        Mock Get-AzADGroup {} -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $DisplayName -and $DisplayName -ne $mockGroup.DisplayName }
+
+        Mock Get-AzADServicePrincipal { $global:methodUsed = "ApplicationId"; $mockServicePrincipal } -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $ApplicationId -eq $mockServicePrincipal.ApplicationId }
+        Mock Get-AzADServicePrincipal {} -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $ApplicationId -and $ApplicationId -ne $mockServicePrincipal.ApplicationId }
+        Mock Get-AzADServicePrincipal { $global:methodUsed = "ObjectId"; $mockServicePrincipal } -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $ObjectId -eq $mockServicePrincipal.ObjectId }
+        Mock Get-AzADServicePrincipal { throw "not found" } -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $ObjectId -and $ObjectId -ne $mockServicePrincipal.ObjectId }
+        Mock Get-AzADServicePrincipal { $global:methodUsed = "DisplayName"; $mockServicePrincipal } -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $DisplayName -eq $mockServicePrincipal.DisplayName }
+        Mock Get-AzADServicePrincipal {} -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $DisplayName -and $DisplayName -ne $mockServicePrincipal.DisplayName }
+
+        Mock Get-AzADUser { $global:methodUsed = "ObjectId"; $mockUser } -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $ObjectId -eq $mockUser.ObjectId }
+        Mock Get-AzADUser { throw "not found" } -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $ObjectId -and $ObjectId -ne $mockUser.ObjectId }
+        Mock Get-AzADUser { $global:methodUsed = "DisplayName"; $mockUser } -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $DisplayName -eq $mockUser.DisplayName }
+        Mock Get-AzADUser {} -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $DisplayName -and $DisplayName -ne $mockUser.DisplayName }
+        Mock Get-AzADUser { $global:methodUsed = "UserPrincipalName"; $mockUser } -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $UserPrincipalName -eq $mockUser.UserPrincipalName }
+        Mock Get-AzADUser {} -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $UserPrincipalName -and $UserPrincipalName -ne $mockUser.UserPrincipalName }
+    }
 
     Context "Finding a group" {
 
         Context "Searching by ObjectId" {
-            $global:methodUsed = $null
-            $res = Get-AzureAdDirectoryObject -Criterion $mockGroup.ObjectId
-            
+
             It "should return the group" {
+                $global:methodUsed = $null
+                $res = Get-AzureAdDirectoryObject -Criterion $mockGroup.ObjectId
+
                 $methodUsed | Should -Be "ObjectId"
                 $res.DisplayName | Should -Be $mockGroup.DisplayName
-                
-                Assert-MockCalled _groupById -Times 1
-                Assert-MockCalled _spByAppId -Times 1
-                Assert-MockCalled _spByObjectId -Times 1
-                Assert-MockCalled _userById -Times 1
-                Assert-MockCalled _groupByName -Times 0
-                Assert-MockCalled _spByName -Times 0
-                Assert-MockCalled _userByName -Times 0
+
+                Should -Invoke Get-AzADGroup -Times 1 -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $ObjectId }
+                Should -Invoke Get-AzADServicePrincipal -Times 1 -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $ApplicationId }
+                Should -Invoke Get-AzADServicePrincipal -Times 1 -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $ObjectId }
+                Should -Invoke Get-AzADUser -Times 1 -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $ObjectId }
+                Should -Invoke Get-AzADGroup -Times 0 -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $DisplayName }
+                Should -Invoke Get-AzADServicePrincipal -Times 0 -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $DisplayName }
+                Should -Invoke Get-AzADUser -Times 0 -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $DisplayName }
             }
         }
 
         Context "Searching by DisplayName" {
-            $global:methodUsed = $null
-            $res = Get-AzureAdDirectoryObject -Criterion $mockGroup.DisplayName
-            
+
             It "should return the group" {
+                $global:methodUsed = $null
+                $res = Get-AzureAdDirectoryObject -Criterion $mockGroup.DisplayName
+
                 $methodUsed | Should -Be "DisplayName"
                 $res.ObjectId | Should -Be $mockGroup.ObjectId
-                
-                Assert-MockCalled _groupById -Times 0
-                Assert-MockCalled _spByAppId -Times 0
-                Assert-MockCalled _spByObjectId -Times 0
-                Assert-MockCalled _userById -Times 0
-                Assert-MockCalled _groupByName -Times 1
-                Assert-MockCalled _spByName -Times 1
-                Assert-MockCalled _userByName -Times 1
+
+                Should -Invoke Get-AzADGroup -Times 0 -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $ObjectId }
+                Should -Invoke Get-AzADServicePrincipal -Times 0 -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $ApplicationId }
+                Should -Invoke Get-AzADServicePrincipal -Times 0 -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $ObjectId }
+                Should -Invoke Get-AzADUser -Times 0 -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $ObjectId }
+                Should -Invoke Get-AzADGroup -Times 1 -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $DisplayName }
+                Should -Invoke Get-AzADServicePrincipal -Times 1 -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $DisplayName }
+                Should -Invoke Get-AzADUser -Times 1 -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $DisplayName }
             }
         }
     }
@@ -93,56 +106,59 @@ Describe "Get-AzureAdDirectoryObject Tests" {
     Context "Finding a service principal" {
 
         Context "Searching by ObjectId" {
-            $global:methodUsed = $null
-            $res = Get-AzureAdDirectoryObject -Criterion $mockServicePrincipal.ObjectId
-            
+
             It "should return the service principal" {
+                $global:methodUsed = $null
+                $res = Get-AzureAdDirectoryObject -Criterion $mockServicePrincipal.ObjectId
+
                 $methodUsed | Should -Be "ObjectId"
                 $res.DisplayName | Should -Be $mockServicePrincipal.DisplayName
-                
-                Assert-MockCalled _groupById -Times 1
-                Assert-MockCalled _spByAppId -Times 1
-                Assert-MockCalled _spByObjectId -Times 1
-                Assert-MockCalled _userById -Times 1
-                Assert-MockCalled _groupByName -Times 0
-                Assert-MockCalled _spByName -Times 0
-                Assert-MockCalled _userByName -Times 0
+
+                Should -Invoke Get-AzADGroup -Times 1 -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $ObjectId }
+                Should -Invoke Get-AzADServicePrincipal -Times 1 -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $ApplicationId }
+                Should -Invoke Get-AzADServicePrincipal -Times 1 -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $ObjectId }
+                Should -Invoke Get-AzADUser -Times 1 -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $ObjectId }
+                Should -Invoke Get-AzADGroup -Times 0 -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $DisplayName }
+                Should -Invoke Get-AzADServicePrincipal -Times 0 -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $DisplayName }
+                Should -Invoke Get-AzADUser -Times 0 -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $DisplayName }
             }
         }
 
         Context "Searching by ApplicationId" {
-            $global:methodUsed = $null
-            $res = Get-AzureAdDirectoryObject -Criterion $mockServicePrincipal.ApplicationId
-            
+
             It "should return the service principal" {
+                $global:methodUsed = $null
+                $res = Get-AzureAdDirectoryObject -Criterion $mockServicePrincipal.ApplicationId
+
                 $methodUsed | Should -Be "ApplicationId"
                 $res.DisplayName | Should -Be $mockServicePrincipal.DisplayName
-                
-                Assert-MockCalled _groupById -Times 1
-                Assert-MockCalled _spByAppId -Times 1
-                Assert-MockCalled _spByObjectId -Times 1
-                Assert-MockCalled _userById -Times 1
-                Assert-MockCalled _groupByName -Times 0
-                Assert-MockCalled _spByName -Times 0
-                Assert-MockCalled _userByName -Times 0
+
+                Should -Invoke Get-AzADGroup -Times 1 -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $ObjectId }
+                Should -Invoke Get-AzADServicePrincipal -Times 1 -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $ApplicationId }
+                Should -Invoke Get-AzADServicePrincipal -Times 1 -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $ObjectId }
+                Should -Invoke Get-AzADUser -Times 1 -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $ObjectId }
+                Should -Invoke Get-AzADGroup -Times 0 -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $DisplayName }
+                Should -Invoke Get-AzADServicePrincipal -Times 0 -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $DisplayName }
+                Should -Invoke Get-AzADUser -Times 0 -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $DisplayName }
             }
         }
 
         Context "Searching by DisplayName" {
-            $global:methodUsed = $null
-            $res = Get-AzureAdDirectoryObject -Criterion $mockServicePrincipal.DisplayName
-            
+
             It "should return the service principal" {
+                $global:methodUsed = $null
+                $res = Get-AzureAdDirectoryObject -Criterion $mockServicePrincipal.DisplayName
+
                 $methodUsed | Should -Be "DisplayName"
                 $res.ObjectId | Should -Be $mockServicePrincipal.ObjectId
-                
-                Assert-MockCalled _groupById -Times 0
-                Assert-MockCalled _spByAppId -Times 0
-                Assert-MockCalled _spByObjectId -Times 0
-                Assert-MockCalled _userById -Times 0
-                Assert-MockCalled _groupByName -Times 1
-                Assert-MockCalled _spByName -Times 1
-                Assert-MockCalled _userByName -Times 1
+
+                Should -Invoke Get-AzADGroup -Times 0 -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $ObjectId }
+                Should -Invoke Get-AzADServicePrincipal -Times 0 -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $ApplicationId }
+                Should -Invoke Get-AzADServicePrincipal -Times 0 -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $ObjectId }
+                Should -Invoke Get-AzADUser -Times 0 -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $ObjectId }
+                Should -Invoke Get-AzADGroup -Times 1 -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $DisplayName }
+                Should -Invoke Get-AzADServicePrincipal -Times 1 -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $DisplayName }
+                Should -Invoke Get-AzADUser -Times 1 -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $DisplayName }
             }
         }
     }
@@ -150,56 +166,58 @@ Describe "Get-AzureAdDirectoryObject Tests" {
     Context "Finding a user" {
 
         Context "Searching by ObjectId" {
-            $global:methodUsed = $null
-            $res = Get-AzureAdDirectoryObject -Criterion $mockUser.ObjectId
-            
+
             It "should return the user" {
+                $global:methodUsed = $null
+                $res = Get-AzureAdDirectoryObject -Criterion $mockUser.ObjectId
+
                 $methodUsed | Should -Be "ObjectId"
                 $res.DisplayName | Should -Be $mockUser.DisplayName
-                
-                Assert-MockCalled _groupById -Times 1
-                Assert-MockCalled _spByAppId -Times 1
-                Assert-MockCalled _spByObjectId -Times 1
-                Assert-MockCalled _userById -Times 1
-                Assert-MockCalled _groupByName -Times 0
-                Assert-MockCalled _spByName -Times 0
-                Assert-MockCalled _userByName -Times 0
+
+                Should -Invoke Get-AzADGroup -Times 1 -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $ObjectId }
+                Should -Invoke Get-AzADServicePrincipal -Times 1 -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $ApplicationId }
+                Should -Invoke Get-AzADServicePrincipal -Times 1 -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $ObjectId }
+                Should -Invoke Get-AzADUser -Times 1 -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $ObjectId }
+                Should -Invoke Get-AzADGroup -Times 0 -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $DisplayName }
+                Should -Invoke Get-AzADServicePrincipal -Times 0 -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $DisplayName }
+                Should -Invoke Get-AzADUser -Times 0 -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $DisplayName }
             }
         }
 
         Context "Searching by DisplayName" {
-            $global:methodUsed = $null
-            $res = Get-AzureAdDirectoryObject -Criterion $mockUser.DisplayName
-            
+
             It "should return the user" {
+                $global:methodUsed = $null
+                $res = Get-AzureAdDirectoryObject -Criterion $mockUser.DisplayName
+
                 $methodUsed | Should -Be "DisplayName"
                 $res.ObjectId | Should -Be $mockUser.ObjectId
-                
-                Assert-MockCalled _groupById -Times 0
-                Assert-MockCalled _spByAppId -Times 0
-                Assert-MockCalled _spByObjectId -Times 0
-                Assert-MockCalled _userById -Times 0
-                Assert-MockCalled _groupByName -Times 1
-                Assert-MockCalled _spByName -Times 1
-                Assert-MockCalled _userByName -Times 1
+
+                Should -Invoke Get-AzADGroup -Times 0 -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $ObjectId }
+                Should -Invoke Get-AzADServicePrincipal -Times 0 -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $ObjectId }
+                Should -Invoke Get-AzADServicePrincipal -Times 0 -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $ObjectId }
+                Should -Invoke Get-AzADUser -Times 0 -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $ObjectId }
+                Should -Invoke Get-AzADGroup -Times 1 -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $DisplayName }
+                Should -Invoke Get-AzADServicePrincipal -Times 1 -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $DisplayName }
+                Should -Invoke Get-AzADUser -Times 1 -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $DisplayName }
             }
         }
 
         Context "Searching by UPN" {
-            $global:methodUsed = $null
-            $res = Get-AzureAdDirectoryObject -Criterion $mockUser.UserPrincipalName
-            
+
             It "should return the user" {
+                $global:methodUsed = $null
+                $res = Get-AzureAdDirectoryObject -Criterion $mockUser.UserPrincipalName
+
                 $methodUsed | Should -Be "UserPrincipalName"
                 $res.ObjectId | Should -Be $mockUser.ObjectId
-                
-                Assert-MockCalled _groupById -Times 0
-                Assert-MockCalled _spByAppId -Times 0
-                Assert-MockCalled _spByObjectId -Times 0
-                Assert-MockCalled _userById -Times 0
-                Assert-MockCalled _groupByName -Times 1
-                Assert-MockCalled _spByName -Times 1
-                Assert-MockCalled _userByName -Times 1
+
+                Should -Invoke Get-AzADGroup -Times 0 -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $ObjectId }
+                Should -Invoke Get-AzADServicePrincipal -Times 0 -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $ObjectId }
+                Should -Invoke Get-AzADUser -Times 0 -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $ObjectId }
+                Should -Invoke Get-AzADGroup -Times 1 -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $DisplayName }
+                Should -Invoke Get-AzADServicePrincipal -Times 1 -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $DisplayName }
+                Should -Invoke Get-AzADUser -Times 1 -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $DisplayName }
             }
         }
     }
