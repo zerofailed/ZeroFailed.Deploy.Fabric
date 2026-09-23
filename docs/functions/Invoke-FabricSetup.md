@@ -4,7 +4,7 @@ external help file: ZeroFailed.Deploy.Fabric-Help.xml
 HelpUri: https://learn.microsoft.com/rest/api/fabric/
 Locale: en-US
 Module Name: ZeroFailed.Deploy.Fabric
-ms.date: 09/18/2026
+ms.date: 09/22/2026
 PlatyPS schema version: 2024-05-01
 title: Invoke-FabricSetup
 ---
@@ -22,6 +22,7 @@ Orchestrates the full Fabric workspace provisioning pipeline from a topology con
 ```
 Invoke-FabricSetup [-Config] <psobject> [-Environment <string>] [-SkipGit] [-SkipIdentity]
  [-SkipMonitoring] [-SkipEnvironment] [-SkipVariableLibrary] [-SkipRbac] [-WhatIf] [-Confirm]
+ [<CommonParameters>]
 ```
 
 ### File
@@ -29,6 +30,7 @@ Invoke-FabricSetup [-Config] <psobject> [-Environment <string>] [-SkipGit] [-Ski
 ```
 Invoke-FabricSetup -ConfigPath <string> [-Environment <string>] [-SkipGit] [-SkipIdentity]
  [-SkipMonitoring] [-SkipEnvironment] [-SkipVariableLibrary] [-SkipRbac] [-WhatIf] [-Confirm]
+ [<CommonParameters>]
 ```
 
 ## ALIASES
@@ -57,9 +59,11 @@ Provisions a Variable Library (if enabled for the type and the current environme
      in a value set for the current stage and activates it
   9.
 Applies RBAC role assignments (if configured)
-Returns a structured results object with a summary, identity report, monitoring report,
-environment report, variable library report, role assignment report, and failure details.
-
+Returns a structured results object with a summary; a per-workspace model (a flat
+'Workspaces' list and a nested 'WorkspacesByType.<type>.<environment>' index, each record
+carrying the workspace id, identity principal/application ids, Spark environment id and
+status); and the identity report, monitoring report, environment report, variable library report,
+role assignment report, and failure details.
 Deployment pipelines span every environment, so they are not configured here: run
 Invoke-FabricDeploymentPipelineSetup once each environment's workspaces have been provisioned.
 

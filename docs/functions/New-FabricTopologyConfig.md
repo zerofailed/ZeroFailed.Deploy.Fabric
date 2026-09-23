@@ -29,7 +29,7 @@ New-FabricTopologyConfig [-Project] <string> [-WorkspaceTypes] <string[]> [-Envi
  [[-EnvironmentRuntimeVersion] <string>] [[-EnableVariableLibraries] <string[]>]
  [[-VariableLibraryName] <string>] [[-VariableLibraryStages] <hashtable>]
  [[-TypeShortCodes] <hashtable>] [[-EnvShortCodes] <hashtable>] [[-OutputPath] <string>]
- [-SetEnvironmentAsDefault] [-VariableLibraryDefaultValues]
+ [-SetEnvironmentAsDefault] [-VariableLibraryDefaultValues] [<CommonParameters>]
 ```
 
 ## ALIASES
@@ -66,6 +66,7 @@ New-FabricTopologyConfig `
   -EnableIdentity      @("ETL") `
   -EnableMonitoring    @("ETL","Reporting") `
   -OutputPath          "./topology.json"
+# Produces workspace names like: SalesAnalytics-ETL [DEV], SalesAnalytics-Report [PROD]
 
 ## PARAMETERS
 

@@ -6,8 +6,8 @@ function _Get-FabricDeploymentIdentity {
         Reads the signed-in principal from Get-AzContext, then resolves its Entra object id:
           - Service principals / federated (ClientAssertion) identities via Get-AzADServicePrincipal
             -ApplicationId (Get-AzContext exposes the app/client id, not the object id Fabric needs).
-          - Users via Get-AzADUser -UserPrincipalName, falling back to the object id embedded in the
-            context's HomeAccountId for guest users.
+          - Users (including guests) via Get-AzADUser -SignedIn, which returns the local-tenant
+            object id that Fabric role assignments require.
 
         Works both in Azure DevOps (where the wrapper pipeline signs in as the service principal) and
         locally (signed-in user). Best-effort: returns $null with a warning if it cannot be resolved
@@ -46,13 +46,8 @@ function _Get-FabricDeploymentIdentity {
             }
         }
         else {
-            $objectId = (Get-AzADUser -UserPrincipalName $account.Id -ErrorAction SilentlyContinue).Id
-            if (-not $objectId -and
-                $account.ExtendedProperties -and
-                $account.ExtendedProperties.ContainsKey('HomeAccountId')) {
-                # HomeAccountId is "<objectId>.<tenantId>"; the leading segment is the object id.
-                $objectId = $account.ExtendedProperties['HomeAccountId'].Split('.')[0]
-            }
+            # Use '-SignedIn' as it gives us the local tenant object id for regular & guest users.
+            $objectId = (Get-AzADuser -SignedIn -ErrorAction Stop).Id
             if ($objectId) {
                 return @{ Id = $objectId; Type = 'User' }
             }

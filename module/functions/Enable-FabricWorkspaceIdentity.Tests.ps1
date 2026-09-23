@@ -18,6 +18,12 @@ BeforeAll {
 
 Describe 'Enable-FabricWorkspaceIdentity' {
 
+    BeforeAll {
+        # Silence the "Provisioning Workspace Identity..." progress line so a passing run stays
+        # clean. No test asserts on this output.
+        Mock Write-Host {} -ModuleName ZeroFailed.Deploy.Fabric
+    }
+
     It 'returns WhatIf placeholder when -WhatIf is specified' {
         $result = Enable-FabricWorkspaceIdentity -WorkspaceId 'ws-id' -WorkspaceName 'my-ws' -Token 'tok' -WhatIf
         $result.WorkspaceName            | Should -Be 'my-ws'

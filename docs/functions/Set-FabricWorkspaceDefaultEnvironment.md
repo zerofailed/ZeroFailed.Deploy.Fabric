@@ -4,7 +4,7 @@ external help file: ZeroFailed.Deploy.Fabric-Help.xml
 HelpUri: https://learn.microsoft.com/rest/api/fabric/spark/workspace-settings/update-spark-settings
 Locale: en-US
 Module Name: ZeroFailed.Deploy.Fabric
-ms.date: 08/18/2026
+ms.date: 09/10/2026
 PlatyPS schema version: 2024-05-01
 title: Set-FabricWorkspaceDefaultEnvironment
 ---
@@ -43,7 +43,7 @@ environment is already set to the requested name.
 ### EXAMPLE 1
 
 Set-FabricWorkspaceDefaultEnvironment -WorkspaceId $ws.id -WorkspaceName 'SalesAnalytics-ETL [DEV]' `
-    -EnvironmentName 'SalesAnalytics-ETL [DEV] Env' -Token $token
+    -EnvironmentName 'SalesAnalytics-ETL Env' -Token $token
 
 Sets the environment as the workspace default, or reports Skipped if already set.
 
@@ -94,7 +94,6 @@ HelpMessage: ''
 
 ### -RuntimeVersion
 
-Spark runtime version for the default environment. Default: 1.3.
 Spark runtime version for the default environment.
 Default: 1.3.
 

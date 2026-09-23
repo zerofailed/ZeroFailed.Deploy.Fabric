@@ -23,7 +23,8 @@ function Enable-FabricWorkspaceIdentity {
 
         Provisions a workspace identity and returns its service principal details.
     #>
-    [CmdletBinding(SupportsShouldProcess)]
+    [CmdletBinding(SupportsShouldProcess,
+        HelpUri = 'https://learn.microsoft.com/rest/api/fabric/core/workspaces/provision-identity')]
     [OutputType([hashtable])]
     param(
         [Parameter(Mandatory)]

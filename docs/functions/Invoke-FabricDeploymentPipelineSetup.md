@@ -4,7 +4,7 @@ external help file: ZeroFailed.Deploy.Fabric-Help.xml
 HelpUri: https://learn.microsoft.com/rest/api/fabric/core/deployment-pipelines
 Locale: en-US
 Module Name: ZeroFailed.Deploy.Fabric
-ms.date: 09/15/2026
+ms.date: 09/21/2026
 PlatyPS schema version: 2024-05-01
 title: Invoke-FabricDeploymentPipelineSetup
 ---
@@ -36,13 +36,22 @@ Invoke-FabricDeploymentPipelineSetup -ConfigPath <string> [-SkipPipelineRbac] [-
 ## DESCRIPTION
 
 For each workspace type with pipelines enabled in the config:
-  1. Creates or updates the deployment pipeline, with one stage per environment, and assigns each environment's workspace to its stage
-  2. Applies deployment pipeline role assignments (if configured)
-Returns a structured results object with a summary, pipeline report, pipeline role assignment report, and failure details.
+  1.
+Creates or updates the deployment pipeline, with one stage per environment, and assigns
+     each environment's workspace to its stage
+  2.
+Applies deployment pipeline role assignments (if configured)
+Returns a structured results object with a summary, pipeline report, pipeline role assignment
+report, and failure details.
 
-Deployment pipelines span every environment, so this runs separately from Invoke-FabricSetup, typically as a dedicated pipeline stage once each environment's workspaces have been provisioned.
-The identity running it must be able to see every workspace, and assigning a workspace to a pipeline stage requires workspace Admin: grant this through the topology's role assignments for every environment.
-A workspace type whose workspaces cannot all be found is recorded as a failure and its pipeline is left untouched.
+Deployment pipelines span every environment, so this runs separately from Invoke-FabricSetup —
+typically as a dedicated pipeline stage once each environment's workspaces have been
+provisioned.
+The identity running it must be able to see every workspace, and assigning a
+workspace to a pipeline stage requires workspace Admin: grant this through the topology's
+role assignments for every environment.
+A workspace type whose workspaces cannot all be found
+is recorded as a failure and its pipeline is left untouched.
 
 ## EXAMPLES
 
@@ -56,7 +65,8 @@ Simulates deployment pipeline setup for every pipeline-enabled workspace type.
 
 Invoke-FabricDeploymentPipelineSetup -ConfigPath "./topology.json" -SkipPipelineRbac
 
-Creates or updates the deployment pipelines from a saved topology config, without applying pipeline role assignments.
+Creates or updates the deployment pipelines from a saved topology config, without applying
+pipeline role assignments.
 
 ## PARAMETERS
 

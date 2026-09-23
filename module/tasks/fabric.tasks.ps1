@@ -43,6 +43,19 @@ task provisionFabricWorkspaces -After DeployCore {
 
     $result = Invoke-FabricSetup @setupParams
 
+    # Publish the results for subsequently-running tasks BEFORE the failure throw below, so partial
+    # results (workspace IDs, identity principal IDs, etc.) are still available after a failed run.
+    $script:FabricProvisioningResult = $result
+
+    if ($FabricProvisioningResultPath) {
+        $resultDir = Split-Path -Parent $FabricProvisioningResultPath
+        if ($resultDir -and -not (Test-Path $resultDir)) {
+            New-Item -ItemType Directory -Path $resultDir -Force | Out-Null
+        }
+        $result | ConvertTo-Json -Depth 10 | Set-Content -Path $FabricProvisioningResultPath -Encoding utf8
+        Write-Build Green "Fabric provisioning result written to: $FabricProvisioningResultPath"
+    }
+
     $s = $result.Summary
     Write-Build Green "Provisioning complete — Created: $($s.Created)  Skipped: $($s.Skipped)  Failed: $($s.Failed)"
 
@@ -177,5 +190,111 @@ task deployFabricPythonLibraries {
             Write-Build Red "  $($_.WorkspaceName) [$($_.Stage)]: $($_.Error)"
         }
         throw "Fabric Python library deployment completed with $($result.Failures.Count) failure(s)."
+    }
+}
+
+# Resolves the current Fabric topology state via read-only lookups (no provisioning, no changes) and
+# publishes it as $script:FabricProvisioningResult — the same handoff variable that
+# 'provisionFabricWorkspaces' populates. Lets a deploy-only pipeline consume workspace / identity /
+# environment / pipeline IDs without running provisioning. Standalone: not chained via -Before/-After;
+# invoke it by name from the deploy-only pipeline.
+# The condition allows other tasks to include it as a dependency, but skipping it if the
+# 'provisionFabricWorkspaces' task has already run.
+task resolveFabricTopologyState -If { $FabricProvisioningResult -eq $null } {
+    Write-Build Cyan "Resolving Fabric topology state from: $FabricTopologyConfigPath"
+
+    if (-not (Test-Path $FabricTopologyConfigPath)) {
+        throw "Fabric topology config not found: $FabricTopologyConfigPath"
+    }
+
+    $stateParams = @{
+        ConfigPath      = $FabricTopologyConfigPath
+        Environment     = $FabricEnvironment
+        SkipGit         = $FabricSkipGit
+        SkipIdentity    = $FabricSkipIdentity
+        SkipEnvironment = $FabricSkipEnvironment
+        SkipPipeline    = $FabricSkipPipeline
+    }
+
+    $result = Get-FabricTopologyState @stateParams
+
+    # Same handoff variable + JSON artifact as provisionFabricWorkspaces, so downstream tasks are
+    # agnostic about whether provisioning or discovery populated it.
+    $script:FabricProvisioningResult = $result
+
+    if ($FabricProvisioningResultPath) {
+        $resultDir = Split-Path -Parent $FabricProvisioningResultPath
+        if ($resultDir -and -not (Test-Path $resultDir)) {
+            New-Item -ItemType Directory -Path $resultDir -Force | Out-Null
+        }
+        $result | ConvertTo-Json -Depth 10 | Set-Content -Path $FabricProvisioningResultPath -Encoding utf8
+        Write-Build Green "Fabric topology state written to: $FabricProvisioningResultPath"
+    }
+
+    $s = $result.Summary
+    Write-Build Green "Topology state resolved — Found: $($s.Found)  Missing: $($s.Missing)  Failed: $($s.Failed)"
+
+    # A read-only scan tolerates partial lookup failures — record them and still publish the result.
+    if ($result.Failures.Count -gt 0) {
+        Write-Build Yellow "$($result.Failures.Count) lookup(s) failed:"
+        $result.Failures | ForEach-Object {
+            Write-Build Yellow "  $($_.WorkspaceName) [$($_.Environment)]: $($_.Error)"
+        }
+    }
+}
+
+# Synopsis: Ensures that provisioned Fabric Workspace Identities are members of a group that can be used for granting Azure RBAC permissions.
+task grantWorkspaceIdentitiesAzurePermissions `
+        -If { !$FabricSkipEntra } `
+        -After provisionFabricWorkspaces `
+        -Jobs resolveFabricTopologyState,{
+
+    # If the group gets created below, we need to ensure that the
+    # deployment identity is set as a group owner, so it can manage
+    # the membership going forward.
+    $currentIdentity = _Get-FabricDeploymentIdentity
+
+    # Establish which environments we need to process
+    $availableFabricEnvs = $FabricProvisioningResult.Workspaces | Select-Object -Unique -ExpandProperty Environment
+    Write-Verbose "availableFabricEnvs: $($availableFabricEnvs | ConvertTo-Json -Depth 20)"
+
+    $targetFabricEnvs = if ($FabricEnvironment) {
+         $availableFabricEnvs | Where-Object { $_ -eq $FabricEnvironment }
+    }
+    else {
+        $availableFabricEnvs
+    }
+
+    if (!$targetFabricEnvs) {
+        Write-Warning "No matching target Fabric environment(s) found. Check your configured topology or the value of 'FabricEnvironment' if this is unexpected."
+    }
+
+    # RBAC is managed on a per-environment basis
+    foreach ($fabricEnv in $targetFabricEnvs) {
+        $azureEnv = $FabricAzureEnvironmentMapping[$fabricEnv]
+        Write-Build White "Fabric -> Azure environment mapping: $fabricEnv -> $azureEnv"
+
+        $groupName = $FabricWorkspaceIdentitiesAzureAccessGroupName -f $azureEnv
+        $groupDescription = $FabricWorkspaceIdentitiesAzureAccessGroupDescription -f $azureEnv
+        $splat = @{
+            DisplayName = $groupName
+            MailNickname = $groupName
+            Description = $groupDescription
+            OwnersToAssignOnCreation = @(
+                $currentIdentity.Id
+            )
+            StrictMode = $false         # This group will typically already exist, so avoid errors if 'groupDescription' is out-of-date
+        }
+        # Ensure the central group for managing RBAC permissions for Fabric Workspace IDs is setup
+        Write-Build White "Ensuring Azure RBAC management group exists: $groupName"
+        $group = Assert-AzureAdSecurityGroup @splat
+        
+        # Ensure all the Workspace IDs associated with the current environment are group members
+        $workspaceIdentities = $FabricProvisioningResult.Workspaces |
+                                    Where-Object { $_.Environment -eq $fabricEnv } |
+                                    Select-Object -ExpandProperty Identity |
+                                    Select-Object -ExpandProperty PrincipalId
+        Write-Build White "Ensuring workspace identities are members: $($workspaceIdentities -join ',')"
+        Assert-AzureAdGroupMembership -ObjectId $group.Id -RequiredMembers $workspaceIdentities | Out-Null
     }
 }
