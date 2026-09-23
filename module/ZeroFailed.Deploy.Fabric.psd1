@@ -38,6 +38,13 @@
                     Name          = 'ZeroFailed.DevOps.Common'
                     GitRepository = 'https://github.com/zerofailed/ZeroFailed.DevOps.Common'
                 }
+                @{
+                    # Provides 'Assert-PrivateEndpointConnectionApproval', used by
+                    # Invoke-FabricManagedPrivateEndpointApproval to approve the private endpoint
+                    # connections requested by managed private endpoints. Assume latest stable version.
+                    Name          = 'ZeroFailed.Deploy.Azure'
+                    GitRepository = 'https://github.com/zerofailed/ZeroFailed.Deploy.Azure'
+                }
             )
         }
     }

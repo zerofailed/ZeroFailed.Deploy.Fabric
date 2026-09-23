@@ -37,6 +37,8 @@ $FabricSkipEnvironment    = $false
 $FabricSkipVariableLibrary = $false
 $FabricSkipRbac           = $false
 $FabricSkipManagedPrivateEndpoints = $false
+$FabricSkipManagedPrivateEndpointApproval = $false
+$FabricFailOnManagedPrivateEndpointApprovalError = $false
 $FabricSkipPipeline       = $false    # provisionFabricDeploymentPipelines task only
 $FabricSkipPipelineRbac   = $false    # provisionFabricDeploymentPipelines task only
 $FabricWhatIf             = $false
@@ -45,8 +47,9 @@ $FabricWhatIf             = $false
 Every `$Fabric*` property above (and the Python library deployment ones below) can also be overridden via an identically-named environment variable — e.g. `$env:FabricEnvironment = 'Dev'` — without editing `.zf/config.ps1`, which is useful for varying behaviour between CI/CD and local runs (for example, setting `FabricEnvironment` per stage in a multi-stage ADO pipeline). An explicit assignment in `.zf/config.ps1` still takes priority over the environment variable.
 
 The module registers these Invoke-Build tasks:
-- `ensureFabricModules` — registers Az.Accounts, Az.Resources and MicrosoftFabricMgmt with ZeroFailed.DevOps.Common's `RequiredPowerShellModules`, so `setupModules` installs/imports them (runs before `setupModules`)
+- `ensureFabricModules` — registers Az.Accounts, Az.Resources, Az.Network and MicrosoftFabricMgmt with ZeroFailed.DevOps.Common's `RequiredPowerShellModules`, so `setupModules` installs/imports them (runs before `setupModules`)
 - `provisionFabricWorkspaces` — runs `Invoke-FabricSetup` from the topology config (runs after `DeployCore`)
+- `approveFabricManagedPrivateEndpoints` — runs `Invoke-FabricManagedPrivateEndpointApproval` to approve the connections requested by the workspaces' managed private endpoints (runs after `provisionFabricWorkspaces`)
 - `provisionFabricDeploymentPipelines` — runs `Invoke-FabricDeploymentPipelineSetup` from the topology config (standalone; invoke from a dedicated stage once every environment's workspaces exist)
 - `ensureFabricPythonLibraryTooling` — verifies Python/pip is available (runs before `deployFabricPythonLibraries`)
 - `deployFabricPythonLibraries` — runs `Invoke-FabricPythonLibraryDeploy` for a single stage (standalone; invoke from a separate deployment pipeline)
@@ -457,7 +460,7 @@ At provisioning time, `Invoke-FabricSetup` turns each resource into the managed 
 
 `New-FabricTopologyConfig` resolves every target the same way when it builds the config, so it rejects unknown resource types, targets missing a resource group or name, environments with no subscription in `-AzureSubscriptionIds`, subscription IDs that aren't GUIDs, endpoint names over Fabric's 64-character limit, two rules resolving to the same endpoint in a workspace, and unknown environments or workspace types — before any API call is made.
 
-> **Approval is a manual step.** Creating an endpoint only *requests* a private link connection. The owner of each target resource must approve it (Azure portal → the resource → **Networking** → **Private endpoint connections**) before it can be used. `Invoke-FabricSetup` reports each endpoint's `ConnectionStatus` and writes a warning on every run until it is `Approved`.
+> **Connections need approving.** Creating an endpoint only *requests* a private link connection; it cannot be used until the owner of the target resource approves it. `Invoke-FabricSetup` reports each endpoint's `ConnectionStatus` and warns on every run until it is `Approved`. [`Invoke-FabricManagedPrivateEndpointApproval`](#invoke-fabricmanagedprivateendpointapproval) automates the approval, or it can be done by hand in the Azure portal (the resource → **Networking** → **Private endpoint connections**).
 
 > **Endpoints can't be updated in place.** Fabric has no API to change an endpoint's target. If a rule's target or sub-resource changes, `Invoke-FabricSetup` reports a `ManagedPrivateEndpoint` failure rather than deleting the existing endpoint — deleting it would drop an approved connection. Delete the endpoint in the workspace's **Network security** settings and re-run to create it with the new target. Endpoints removed from the topology are likewise left in place.
 
@@ -545,7 +548,7 @@ Without `-VariableLibraryDefaultValues`, an **empty** Variable Library is provis
 
 Orchestrates the full provisioning pipeline. For each environment × workspace combination: resolves the name, creates the workspace (idempotent), grants the deploying identity Admin on the workspace, connects Git (in the designated Git environment only, for configured workspace types), provisions identity, enables monitoring, provisions a Spark Environment (and optionally sets it as the workspace default), provisions a Variable Library (with `defaultValues`, populating the default variables in the stage's value set and activating it), applies RBAC role assignments, and creates managed private endpoints. Returns a structured results object. Deployment pipelines are not configured here — they span every environment, so they are set up separately by [`Invoke-FabricDeploymentPipelineSetup`](#invoke-fabricdeploymentpipelinesetup).
 
-> **Deploying identity auto-grant:** every workspace is granted the identity running the deployment the **Admin** role — idempotently, and independently of `-SkipRbac`. The identity (and its Entra **object id**, which Fabric role assignments require) is resolved with `Get-AzContext` plus `Get-AzADServicePrincipal`/`Get-AzADUser` (implemented directly in this module rather than depending on ZeroFailed.Deploy.Azure, to avoid pulling in a full deploy extension for a single identity lookup), so it works both as the Azure DevOps service principal and as a locally signed-in user. This guarantees the deployer can always see and re-manage the workspace on later runs — without it, a re-run hits `WorkspaceNameAlreadyExists` (names are unique tenant-wide) but cannot resolve the workspace via `GET /workspaces`. No topology config required.
+> **Deploying identity auto-grant:** every workspace is granted the identity running the deployment the **Admin** role — idempotently, and independently of `-SkipRbac`. The identity (and its Entra **object id**, which Fabric role assignments require) is resolved with `Get-AzContext` plus `Get-AzADServicePrincipal`/`Get-AzADUser` (implemented directly in this module rather than using ZeroFailed.Deploy.Azure's `getDeploymentIdentity` task, so it works the same whatever tasks a consuming process runs), so it works both as the Azure DevOps service principal and as a locally signed-in user. This guarantees the deployer can always see and re-manage the workspace on later runs — without it, a re-run hits `WorkspaceNameAlreadyExists` (names are unique tenant-wide) but cannot resolve the workspace via `GET /workspaces`. No topology config required.
 
 ```powershell
 # Full run from config object
@@ -719,6 +722,71 @@ if ($result.Failures.Count -gt 0) {
     $result.Failures | ForEach-Object { [pscustomobject]$_ } | Format-List
 }
 ```
+
+---
+
+#### `Invoke-FabricManagedPrivateEndpointApproval`
+
+Approves the private endpoint connections requested by the workspaces' managed private endpoints, so they can actually be used. It reads the same topology config as `Invoke-FabricSetup`; no additional config is needed. For each endpoint it:
+
+1. Finds the endpoint on its workspace, waiting for Fabric to finish provisioning it (a connection only reaches the target resource once provisioning has succeeded)
+2. Skips it when its connection is already approved
+3. Otherwise approves the connection on the target resource, using [`Assert-PrivateEndpointConnectionApproval`](https://github.com/zerofailed/ZeroFailed.Deploy.Azure) from the ZeroFailed.Deploy.Azure extension
+
+```powershell
+# Approve every environment's endpoints
+$result = Invoke-FabricManagedPrivateEndpointApproval -Config $topology
+
+# One environment only (e.g. one ADO pipeline stage per environment)
+$result = Invoke-FabricManagedPrivateEndpointApproval -Config $topology -Environment "Dev"
+
+# Report what would be approved, without approving anything
+$result = Invoke-FabricManagedPrivateEndpointApproval -ConfigPath "./topology.json" -WhatIf
+
+# Fail the run when an endpoint cannot be approved, instead of reporting it
+$result = Invoke-FabricManagedPrivateEndpointApproval -Config $topology -FailOnError
+```
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `-Config` | `pscustomobject` | Topology config object from `New-FabricTopologyConfig` |
+| `-ConfigPath` | `string` | Path to a JSON topology config file (alternative to `-Config`) |
+| `-Environment` | `string` | Single environment name to process. Defaults to all environments in config |
+| `-EndpointNamePattern` | `string` | Wildcard pattern identifying the private endpoint on the target resource, with the `{workspaceId}` and `{name}` tokens. Default: `*{workspaceId}*{name}` |
+| `-TimeoutSeconds` | `int` | How long to wait for provisioning, for the connection to appear, and for an approval to take effect. Default: 600 |
+| `-PollIntervalSeconds` | `int` | How long to wait between checks. Default: 15 |
+| `-FailOnError` | `switch` | Throw at the end when any endpoint could not be approved |
+| `-WhatIf` | `switch` | Report what would be approved; nothing is approved |
+
+**Return value:**
+
+```powershell
+$result.Summary   # @{ Approved=int; Skipped=int; Failed=int }
+$result.Approvals # Array of approval report entries
+$result.Failures  # Array of per-endpoint failure details
+```
+
+**Approval report structure** (one entry per endpoint):
+
+```powershell
+@{
+    WorkspaceName               = "salesanalytics-ETL [DEV]"
+    WorkspaceId                 = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+    Environment                 = "Dev"
+    Name                        = "kv-sales-dev.vault"
+    TargetPrivateLinkResourceId = "/subscriptions/{sub-id}/resourceGroups/rg-sales-dev/providers/Microsoft.KeyVault/vaults/kv-sales-dev"
+    ConnectionStatus            = "Approved"   # Approved | Pending | Rejected | Disconnected | NotFound
+    Action                      = "Approved"   # Approved | Skipped | WhatIf | None
+}
+```
+
+> **Permissions.** Approving a connection needs `privateEndpointConnectionsApproval/action` on the *target Azure resource* (included in Owner and Contributor) — not a Fabric permission. The identity provisioning workspaces often doesn't have it, which is why this runs as its own step: set `$FabricSkipManagedPrivateEndpointApproval` to leave the connections for another identity or pipeline stage.
+
+> **Failures don't block provisioning.** By default an endpoint that can't be approved is reported in `$result.Failures`, with a warning, and its connection stays pending. Use `-FailOnError` (or `$FabricFailOnManagedPrivateEndpointApprovalError`) to fail the run instead.
+
+> **Endpoint naming on the target.** Fabric names the private endpoint it creates on the target resource after the managed private endpoint, prefixed with the workspace id, and the connection is matched on that name. If Fabric's naming differs from the default `*{workspaceId}*{name}` pattern, override it with `-EndpointNamePattern` or `$FabricManagedPrivateEndpointNamePattern`.
 
 ---
 
@@ -1111,6 +1179,24 @@ Invoke-FabricSetup
             └── not found → POST /managedPrivateEndpoints  → append to $result.ManagedPrivateEndpoints
                 (the connection then awaits approval on the target resource)
 
+Invoke-FabricManagedPrivateEndpointApproval
+├── _Get-FabricAuthToken        (Get-AzAccessToken for Fabric API)
+│
+└── For each environment × workspace with managedPrivateEndpoints[env].resources:
+    ├── [token refresh if < 5 min remaining]
+    ├── _Resolve-WorkspaceName → Test-FabricWorkspaceExists
+    │   └── missing → append to $result.Failures (run provisioning first)
+    └── For each resource:
+        ├── _Resolve-ManagedPrivateEndpoint  → resource ID, name and sub-resource
+        ├── _Get-FabricManagedPrivateEndpoint  (poll until provisioningState is not 'Provisioning')
+        │   ├── missing / still provisioning / Failed → append to $result.Failures
+        │   └── connectionState.status = 'Approved' → skip
+        └── Assert-PrivateEndpointConnectionApproval  (ZeroFailed.Deploy.Azure)
+            ├── GET the target resource's private endpoint connections (matched on the endpoint name)
+            ├── Pending → approve, then wait for the approval to take effect
+            ├── Approved → skip
+            └── Rejected / Disconnected / not found → append to $result.Failures
+
 Invoke-FabricDeploymentPipelineSetup
 ├── _Get-FabricAuthToken        (Get-AzAccessToken for Fabric API)
 │
@@ -1214,6 +1300,8 @@ The test suite covers:
 - `Set-FabricDeploymentPipelineRoleAssignment` — WhatIf, Admin default, non-Admin role rejection, skip when principal already present, create via POST, principal type acceptance, API error propagation, report field correctness
 - `Invoke-FabricSetup` — deploying identity Admin and workspace identity Contributor grants, single-environment targeting, deployment pipelines not configured, environment provisioning + set-as-default, `-SkipEnvironment`, non-fatal environment failures, variable library provisioning per environment, stage scoping, `-SkipVariableLibrary`, older configs without a `variableLibrary` block, default name when none configured, default values off unless enabled, default values in a value set named by stage short code (environment name fallback), identity from this run or read off the workspace, empty identity values without an identity, non-fatal default values failures, non-fatal variable library failures, managed private endpoints (per-environment subscription and resources, request message naming the workspace, default sub-resource, `-SkipManagedPrivateEndpoints`, configs predating the block, in-memory dictionary shape, missing subscription, non-fatal failures)
 - `Set-FabricManagedPrivateEndpoint` — WhatIf, create via POST (optional fields omitted or included), skip when the target matches (case-insensitive), drifted target or sub-resource rejected without a POST, approval and failed-provisioning warnings, pagination, StrictMode safety, API error propagation, name and request message length limits
+- `_Get-FabricManagedPrivateEndpoint` — find by name, pagination across continuation tokens, missing endpoint, StrictMode safety, API error propagation
+- `Invoke-FabricManagedPrivateEndpointApproval` — approval per environment and workspace, resolved target and name pattern (including a custom one), already-approved skip, waiting for provisioning, failures (still provisioning, failed provisioning, missing endpoint, missing workspace, rejected connection, approval error), `-FailOnError`, `-WhatIf`, single-environment targeting, configs predating the block, in-memory dictionary shape, token refresh, `-ConfigPath`
 - `Invoke-FabricDeploymentPipelineSetup` — pipeline-enabled types only, summary by action (WhatIf not counted), pipeline role assignment application, `-SkipPipelineRbac`, failed pipeline recorded without an RBAC attempt while other types continue, non-fatal pipeline RBAC failures, no-op warning when no pipelines are enabled, token refresh, `-ConfigPath`
 - `_Invoke-FabricFileUpload` — multipart upload URL/headers, no manual Content-Type, missing-file guard, API error unwrap
 - `Add-FabricEnvironmentLibrary` — staging-libraries endpoint, WhatIf no-op
@@ -1240,7 +1328,8 @@ ZeroFailed.Deploy.Fabric/
 └── module/
     ├── ZeroFailed.Deploy.Fabric.psd1              # Module manifest (PS 7+); declares ZF extension
     │                                               # dependencies (ZeroFailed.Deploy.Common,
-    │                                               # ZeroFailed.DevOps.Common) under PrivateData.ZeroFailed
+    │                                               # ZeroFailed.DevOps.Common, ZeroFailed.Deploy.Azure)
+    │                                               # under PrivateData.ZeroFailed
     ├── ZeroFailed.Deploy.Fabric.psm1              # Auto-discovery module loader
     ├── ZeroFailed.Deploy.Fabric.module.tests.ps1  # Module-level Pester tests
     ├── functions/
@@ -1265,6 +1354,8 @@ ZeroFailed.Deploy.Fabric/
     │   ├── Get-FabricEnvironmentLibraries.Tests.ps1
     │   ├── Invoke-FabricDeploymentPipelineSetup.ps1  # Deployment pipelines: orchestrator
     │   ├── Invoke-FabricDeploymentPipelineSetup.Tests.ps1
+    │   ├── Invoke-FabricManagedPrivateEndpointApproval.ps1  # MPE connection approval: orchestrator
+    │   ├── Invoke-FabricManagedPrivateEndpointApproval.Tests.ps1
     │   ├── Invoke-FabricPythonLibraryDeploy.ps1   # Python library deploy: orchestrator
     │   ├── Invoke-FabricPythonLibraryDeploy.Tests.ps1
     │   ├── Invoke-FabricSetup.ps1
@@ -1293,6 +1384,8 @@ ZeroFailed.Deploy.Fabric/
     │   ├── Set-FabricVariableLibraryValues.Tests.ps1
     │   ├── Set-FabricManagedPrivateEndpoint.ps1
     │   ├── Set-FabricManagedPrivateEndpoint.Tests.ps1
+    │   ├── _Get-FabricManagedPrivateEndpoint.ps1   # Private: find a workspace's MPE by name
+    │   ├── _Get-FabricManagedPrivateEndpoint.Tests.ps1
     │   ├── Set-FabricWorkspaceDefaultEnvironment.ps1
     │   ├── Set-FabricWorkspaceDefaultEnvironment.Tests.ps1
     │   ├── Set-FabricWorkspaceRoleAssignment.ps1
