@@ -33,9 +33,8 @@ function Invoke-FabricManagedPrivateEndpointApproval {
         '*{workspaceId}*{name}'.
     .PARAMETER TimeoutSeconds
         How long to wait for each endpoint to finish provisioning, for its connection to appear on the
-        target resource, and for an approval to take effect. Default: 120. The wait applies per
-        endpoint, so a long timeout is expensive when connections cannot be found — raise it only when
-        endpoints are known to be slow to provision.
+        target resource, and for an approval to take effect. Default: 300. The wait applies per
+        endpoint, so a long timeout is expensive when connections cannot be found.
     .PARAMETER PollIntervalSeconds
         How long to wait between checks. Default: 15.
     .PARAMETER FailOnError
@@ -63,7 +62,7 @@ function Invoke-FabricManagedPrivateEndpointApproval {
         [string]$EndpointNamePattern = '*{workspaceId}*{name}',
 
         [ValidateRange(0, 3600)]
-        [int]$TimeoutSeconds = 120,
+        [int]$TimeoutSeconds = 300,
 
         [ValidateRange(1, 300)]
         [int]$PollIntervalSeconds = 15,

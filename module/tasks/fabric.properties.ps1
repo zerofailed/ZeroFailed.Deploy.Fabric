@@ -17,7 +17,7 @@ $FabricSkipEntra         = [Convert]::ToBoolean((property FabricSkipEntra $false
 # so it can be skipped (or made fatal) independently of creating the endpoints.
 $FabricSkipManagedPrivateEndpointApproval = [Convert]::ToBoolean((property FabricSkipManagedPrivateEndpointApproval $false))
 $FabricFailOnManagedPrivateEndpointApprovalError = [Convert]::ToBoolean((property FabricFailOnManagedPrivateEndpointApprovalError $false))
-$FabricManagedPrivateEndpointApprovalTimeoutSeconds = [int](property FabricManagedPrivateEndpointApprovalTimeoutSeconds 120)
+$FabricManagedPrivateEndpointApprovalTimeoutSeconds = [int](property FabricManagedPrivateEndpointApprovalTimeoutSeconds 300)
 $FabricManagedPrivateEndpointApprovalPollIntervalSeconds = [int](property FabricManagedPrivateEndpointApprovalPollIntervalSeconds 15)
 # Wildcard pattern identifying the private endpoint Fabric creates on the target resource, with the
 # {workspaceId} and {name} tokens. Override if Fabric's naming differs from the default.

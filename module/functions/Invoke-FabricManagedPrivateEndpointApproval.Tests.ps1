@@ -270,11 +270,11 @@ Describe 'Invoke-FabricManagedPrivateEndpointApproval' {
             $r.Approvals.Count | Should -Be 1
         }
 
-        It 'defaults to a 120 second timeout' {
+        It 'defaults to a 300 second timeout' {
             Invoke-FabricManagedPrivateEndpointApproval -Config (New-TestConfig) -Environment 'Dev' | Out-Null
 
             Should -Invoke Assert-PrivateEndpointConnectionApproval -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter {
-                $TimeoutSeconds -eq 120
+                $TimeoutSeconds -eq 300
             }
         }
 

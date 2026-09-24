@@ -235,14 +235,13 @@ HelpMessage: ''
 
 How long to wait for each endpoint to finish provisioning, for its connection to appear on the
 target resource, and for an approval to take effect.
-Default: 120.
+Default: 300.
 The wait applies per
-endpoint, so a long timeout is expensive when connections cannot be found — raise it only when
-endpoints are known to be slow to provision.
+endpoint, so a long timeout is expensive when connections cannot be found.
 
 ```yaml
 Type: System.Int32
-DefaultValue: 120
+DefaultValue: 300
 SupportsWildcards: false
 Aliases: []
 ParameterSets:
