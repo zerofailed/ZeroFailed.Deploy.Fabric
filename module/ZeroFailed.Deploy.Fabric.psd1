@@ -44,6 +44,7 @@
                     # connections requested by managed private endpoints. Assume latest stable version.
                     Name          = 'ZeroFailed.Deploy.Azure'
                     GitRepository = 'https://github.com/zerofailed/ZeroFailed.Deploy.Azure'
+                    GitRef = "e547b40267a7bfd9e81a9dec08f8bc5e9e675eb6"
                 }
             )
         }
