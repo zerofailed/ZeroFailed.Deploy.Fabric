@@ -63,6 +63,33 @@ AfterAll {
 
 Describe 'Invoke-FabricManagedPrivateEndpointApproval' {
 
+    Context 'without the ZeroFailed.Deploy.Azure extension' {
+
+        BeforeEach {
+            Mock _Get-FabricAuthToken { @{ Token = 'tok'; ExpiresOn = [DateTimeOffset]::UtcNow.AddHours(1) } } -ModuleName ZeroFailed.Deploy.Fabric
+            Mock _Test-FabricTokenExpiry { $false } -ModuleName ZeroFailed.Deploy.Fabric
+            Mock _Resolve-WorkspaceName { 'bronze [DEV]' } -ModuleName ZeroFailed.Deploy.Fabric
+            Mock Test-FabricWorkspaceExists { [pscustomobject]@{ id = 'ws-1' } } -ModuleName ZeroFailed.Deploy.Fabric
+            # Simulate the extension not being loaded: its command cannot be found.
+            Mock Get-Command { $null } -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter { $Name -eq 'Assert-PrivateEndpointConnectionApproval' }
+        }
+
+        It 'throws a helpful error when there are endpoints to approve' {
+            { Invoke-FabricManagedPrivateEndpointApproval -Config (New-TestConfig) -Environment 'Dev' } |
+                Should -Throw '*requires the ZeroFailed.Deploy.Azure extension*'
+        }
+
+        It 'does nothing when the topology has no managed private endpoints' {
+            $config = New-TestConfig
+            $config.workspaces[0].PSObject.Properties.Remove('managedPrivateEndpoints')
+
+            $r = Invoke-FabricManagedPrivateEndpointApproval -Config $config
+
+            $r.Approvals.Count | Should -Be 0
+            $r.Summary.Failed  | Should -Be 0
+        }
+    }
+
     Context 'input validation' {
         It 'throws when ConfigPath does not exist' {
             { Invoke-FabricManagedPrivateEndpointApproval -ConfigPath './nonexistent.json' } | Should -Throw '*not found*'
@@ -241,6 +268,14 @@ Describe 'Invoke-FabricManagedPrivateEndpointApproval' {
             $r = Invoke-FabricManagedPrivateEndpointApproval -Config $config
 
             $r.Approvals.Count | Should -Be 1
+        }
+
+        It 'defaults to a 120 second timeout' {
+            Invoke-FabricManagedPrivateEndpointApproval -Config (New-TestConfig) -Environment 'Dev' | Out-Null
+
+            Should -Invoke Assert-PrivateEndpointConnectionApproval -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter {
+                $TimeoutSeconds -eq 120
+            }
         }
 
         It 'ignores a config that predates managed private endpoints' {

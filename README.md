@@ -755,7 +755,7 @@ $result = Invoke-FabricManagedPrivateEndpointApproval -Config $topology -FailOnE
 | `-ConfigPath` | `string` | Path to a JSON topology config file (alternative to `-Config`) |
 | `-Environment` | `string` | Single environment name to process. Defaults to all environments in config |
 | `-EndpointNamePattern` | `string` | Wildcard pattern identifying the private endpoint on the target resource, with the `{workspaceId}` and `{name}` tokens. Default: `*{workspaceId}*{name}` |
-| `-TimeoutSeconds` | `int` | How long to wait for provisioning, for the connection to appear, and for an approval to take effect. Default: 600 |
+| `-TimeoutSeconds` | `int` | How long to wait for provisioning, for the connection to appear, and for an approval to take effect. Default: 120. Applied per endpoint |
 | `-PollIntervalSeconds` | `int` | How long to wait between checks. Default: 15 |
 | `-FailOnError` | `switch` | Throw at the end when any endpoint could not be approved |
 | `-WhatIf` | `switch` | Report what would be approved; nothing is approved |
@@ -787,6 +787,8 @@ $result.Failures  # Array of per-endpoint failure details
 > **Failures don't block provisioning.** By default an endpoint that can't be approved is reported in `$result.Failures`, with a warning, and its connection stays pending. Use `-FailOnError` (or `$FabricFailOnManagedPrivateEndpointApprovalError`) to fail the run instead.
 
 > **Endpoint naming on the target.** Fabric names the private endpoint it creates on the target resource after the managed private endpoint, prefixed with the workspace id, and the connection is matched on that name. If Fabric's naming differs from the default `*{workspaceId}*{name}` pattern, override it with `-EndpointNamePattern` or `$FabricManagedPrivateEndpointNamePattern`.
+
+> **The timeout is per endpoint.** When a connection can't be matched on the target resource, each endpoint waits the full `-TimeoutSeconds` before being reported as `NotFound`, so a wrong name pattern is slow as well as wrong. The default of 120 seconds keeps that cheap; raise it (or `$FabricManagedPrivateEndpointApprovalTimeoutSeconds`) if endpoints are slow to provision.
 
 ---
 

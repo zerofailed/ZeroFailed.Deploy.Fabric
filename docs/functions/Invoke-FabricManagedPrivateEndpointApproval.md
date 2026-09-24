@@ -2,9 +2,9 @@
 document type: cmdlet
 external help file: ZeroFailed.Deploy.Fabric-Help.xml
 HelpUri: ''
-Locale: en-GB
+Locale: en-US
 Module Name: ZeroFailed.Deploy.Fabric
-ms.date: 09/23/2026
+ms.date: 09/24/2026
 PlatyPS schema version: 2024-05-01
 title: Invoke-FabricManagedPrivateEndpointApproval
 ---
@@ -148,10 +148,6 @@ Wildcard pattern identifying the private endpoint on the target resource, with t
 {workspaceId} and {name} (the managed private endpoint's name).
 Defaults to
 '*{workspaceId}*{name}'.
-Wildcard pattern identifying the private endpoint on the target resource, with the tokens
-{workspaceId} and {name} (the managed private endpoint's name).
-Defaults to
-'*{workspaceId}*{name}'.
 
 ```yaml
 Type: System.String
@@ -172,8 +168,6 @@ HelpMessage: ''
 
 ### -Environment
 
-Single environment name to process.
-Defaults to every environment in the config.
 Single environment name to process.
 Defaults to every environment in the config.
 
@@ -219,8 +213,6 @@ HelpMessage: ''
 
 How long to wait between checks.
 Default: 15.
-How long to wait between checks.
-Default: 15.
 
 ```yaml
 Type: System.Int32
@@ -243,14 +235,14 @@ HelpMessage: ''
 
 How long to wait for each endpoint to finish provisioning, for its connection to appear on the
 target resource, and for an approval to take effect.
-Default: 600.
-How long to wait for each endpoint to finish provisioning, for its connection to appear on the
-target resource, and for an approval to take effect.
-Default: 600.
+Default: 120.
+The wait applies per
+endpoint, so a long timeout is expensive when connections cannot be found — raise it only when
+endpoints are known to be slow to provision.
 
 ```yaml
 Type: System.Int32
-DefaultValue: 600
+DefaultValue: 120
 SupportsWildcards: false
 Aliases: []
 ParameterSets:

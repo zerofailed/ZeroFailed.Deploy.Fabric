@@ -33,7 +33,9 @@ function Invoke-FabricManagedPrivateEndpointApproval {
         '*{workspaceId}*{name}'.
     .PARAMETER TimeoutSeconds
         How long to wait for each endpoint to finish provisioning, for its connection to appear on the
-        target resource, and for an approval to take effect. Default: 600.
+        target resource, and for an approval to take effect. Default: 120. The wait applies per
+        endpoint, so a long timeout is expensive when connections cannot be found — raise it only when
+        endpoints are known to be slow to provision.
     .PARAMETER PollIntervalSeconds
         How long to wait between checks. Default: 15.
     .PARAMETER FailOnError
@@ -61,7 +63,7 @@ function Invoke-FabricManagedPrivateEndpointApproval {
         [string]$EndpointNamePattern = '*{workspaceId}*{name}',
 
         [ValidateRange(0, 3600)]
-        [int]$TimeoutSeconds = 600,
+        [int]$TimeoutSeconds = 120,
 
         [ValidateRange(1, 300)]
         [int]$PollIntervalSeconds = 15,
@@ -70,12 +72,6 @@ function Invoke-FabricManagedPrivateEndpointApproval {
     )
 
     $ErrorActionPreference = 'Stop'
-
-    # Approval lives in ZeroFailed.Deploy.Azure, a required extension dependency of this one. Fail
-    # with something more useful than 'command not found' when it has not been loaded.
-    if (-not (Get-Command Assert-PrivateEndpointConnectionApproval -ErrorAction Ignore)) {
-        throw "Assert-PrivateEndpointConnectionApproval was not found. Managed private endpoint approval requires the ZeroFailed.Deploy.Azure extension, which provides it."
-    }
 
     # --- 1. Load config ---
     if ($PSCmdlet.ParameterSetName -eq 'File') {
@@ -108,7 +104,8 @@ function Invoke-FabricManagedPrivateEndpointApproval {
         Failures  = [System.Collections.Generic.List[hashtable]]::new()
     }
 
-    $maxAttempts = [Math]::Max(1, [Math]::Ceiling($TimeoutSeconds / $PollIntervalSeconds) + 1)
+    $maxAttempts            = [Math]::Max(1, [Math]::Ceiling($TimeoutSeconds / $PollIntervalSeconds) + 1)
+    $approvalCommandChecked = $false
 
     foreach ($env in $targetEnvs) {
         foreach ($ws in $Config.workspaces) {
@@ -130,6 +127,16 @@ function Invoke-FabricManagedPrivateEndpointApproval {
             $subscriptionId = if ($mpeBlockProps -contains 'subscriptionId') { $mpeBlock.subscriptionId } else { $null }
             $mpeResources   = @(if ($mpeBlockProps -contains 'resources') { $mpeBlock.resources | Where-Object { $_ } })
             if ($mpeResources.Count -eq 0) { continue }
+
+            # Approval lives in ZeroFailed.Deploy.Azure, a required extension dependency of this one.
+            # Checked on first use, so a topology with no managed private endpoints is a no-op rather
+            # than a failure, and fails with something more useful than 'command not found'.
+            if (-not $approvalCommandChecked) {
+                if (-not (Get-Command Assert-PrivateEndpointConnectionApproval -ErrorAction Ignore)) {
+                    throw "Assert-PrivateEndpointConnectionApproval was not found. Managed private endpoint approval requires the ZeroFailed.Deploy.Azure extension, which provides it."
+                }
+                $approvalCommandChecked = $true
+            }
 
             # Refresh token if near expiry
             if (_Test-FabricTokenExpiry -TokenInfo $tokenInfo) {
