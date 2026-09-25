@@ -4,7 +4,7 @@ external help file: ZeroFailed.Deploy.Fabric-Help.xml
 HelpUri: https://learn.microsoft.com/rest/api/fabric/
 Locale: en-US
 Module Name: ZeroFailed.Deploy.Fabric
-ms.date: 09/18/2026
+ms.date: 09/25/2026
 PlatyPS schema version: 2024-05-01
 title: New-FabricTopologyConfig
 ---
@@ -31,6 +31,7 @@ New-FabricTopologyConfig [-Project] <string> [-WorkspaceTypes] <string[]> [-Envi
  [[-TypeShortCodes] <hashtable>] [[-EnvShortCodes] <hashtable>]
  [[-ManagedPrivateEndpoints] <hashtable[]>] [[-AzureSubscriptionIds] <hashtable>]
  [[-OutputPath] <string>] [-SetEnvironmentAsDefault] [-VariableLibraryDefaultValues]
+ [<CommonParameters>]
 ```
 
 ## ALIASES
@@ -67,8 +68,34 @@ New-FabricTopologyConfig `
   -EnableIdentity      @("ETL") `
   -EnableMonitoring    @("ETL","Reporting") `
   -OutputPath          "./topology.json"
+# Produces workspace names like: SalesAnalytics-ETL [DEV], SalesAnalytics-Report [PROD]
 
 ## PARAMETERS
+
+### -AzureSubscriptionIds
+
+Hashtable mapping environment name to the Azure subscription ID that holds that stage's resources,
+e.g.
+@{ Dev = '...'; Production = '...' }.
+Required for every environment a
+-ManagedPrivateEndpoints rule targets.
+
+```yaml
+Type: System.Collections.Hashtable
+DefaultValue: ''
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: (All)
+  Position: 23
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
+```
 
 ### -CapacityMap
 
@@ -461,31 +488,6 @@ Aliases: []
 ParameterSets:
 - Name: (All)
   Position: 22
-  IsRequired: false
-  ValueFromPipeline: false
-  ValueFromPipelineByPropertyName: false
-  ValueFromRemainingArguments: false
-DontShow: false
-AcceptedValues: []
-HelpMessage: ''
-```
-
-### -AzureSubscriptionIds
-
-Hashtable mapping environment name to the Azure subscription ID that holds that stage's resources,
-e.g.
-@{ Dev = '...'; Production = '...' }.
-Required for every environment a
--ManagedPrivateEndpoints rule targets.
-
-```yaml
-Type: System.Collections.Hashtable
-DefaultValue: ''
-SupportsWildcards: false
-Aliases: []
-ParameterSets:
-- Name: (All)
-  Position: 23
   IsRequired: false
   ValueFromPipeline: false
   ValueFromPipelineByPropertyName: false

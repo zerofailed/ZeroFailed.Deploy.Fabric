@@ -4,7 +4,7 @@ external help file: ZeroFailed.Deploy.Fabric-Help.xml
 HelpUri: https://learn.microsoft.com/rest/api/fabric/core/workspaces/list-workspaces
 Locale: en-US
 Module Name: ZeroFailed.Deploy.Fabric
-ms.date: 08/18/2026
+ms.date: 09/10/2026
 PlatyPS schema version: 2024-05-01
 title: Test-FabricWorkspaceExists
 ---
@@ -28,8 +28,12 @@ Test-FabricWorkspaceExists [-DisplayName] <string> [-Token] <string> [<CommonPar
 ## DESCRIPTION
 
 Lists the Fabric workspaces via the REST API and returns the one whose displayName matches
-exactly, or $null when none match. Uses the same bearer-token REST path as the rest of the
-module, paginates across continuation tokens, and is safe under Set-StrictMode.
+exactly, or $null when none match.
+Uses the same bearer-token REST path as the rest of the
+module (rather than MicrosoftFabricMgmt's Get-FabricWorkspace, whose lookup under the
+injected auth context proved unreliable and caused non-idempotent creation).
+Paginates
+across continuation tokens and is safe under Set-StrictMode.
 
 ## EXAMPLES
 

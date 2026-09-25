@@ -2,9 +2,9 @@
 document type: cmdlet
 external help file: ZeroFailed.Deploy.Fabric-Help.xml
 HelpUri: ''
-Locale: en-GB
+Locale: en-US
 Module Name: ZeroFailed.Deploy.Fabric
-ms.date: 08/25/2026
+ms.date: 09/10/2026
 PlatyPS schema version: 2024-05-01
 title: Import-FabricEnvironmentExternalLibraries
 ---
@@ -28,15 +28,15 @@ Import-FabricEnvironmentExternalLibraries [-WorkspaceId] <string> [-EnvironmentI
 
 ## DESCRIPTION
 
-Uploads an environment.yml describing public PyPI/conda packages to the environment's staging area
-via POST /workspaces/{id}/environments/{id}/staging/libraries/importExternalLibraries.
+Uploads an environment.yml describing public PyPI/conda packages to the environment's staging
+area via POST /workspaces/{id}/environments/{id}/staging/libraries/importExternalLibraries.
 The call OVERRIDES the whole external library list, so the supplied document is the complete
 desired set — stale external libraries are removed automatically on the next publish.
 
 Like custom library uploads, this stages only; the environment must be published (see
 Publish-FabricEnvironment) for the changes to take effect.
-The document is sent as the raw request body via _Invoke-FabricFileUpload, which also gives it
-retry-on-5xx behaviour.
+The document is sent as the raw
+request body via _Invoke-FabricFileUpload, which also gives it retry-on-5xx behaviour.
 
 ## EXAMPLES
 

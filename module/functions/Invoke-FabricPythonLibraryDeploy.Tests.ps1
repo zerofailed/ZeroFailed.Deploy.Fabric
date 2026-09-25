@@ -38,6 +38,14 @@ BeforeAll {
 
 Describe 'Invoke-FabricPythonLibraryDeploy' {
 
+    BeforeAll {
+        # Several tests deliberately drive the "nothing to deploy" / per-workspace failure
+        # branches; silence the warnings and non-terminating errors they emit so a passing run
+        # stays clean. No test asserts on this output.
+        Mock Write-Warning {} -ModuleName ZeroFailed.Deploy.Fabric
+        Mock Write-Error   {} -ModuleName ZeroFailed.Deploy.Fabric
+    }
+
     BeforeEach {
         Mock _Get-FabricAuthToken { @{ Token = 'tok'; ExpiresOn = [datetimeoffset]::UtcNow.AddHours(1) } } -ModuleName ZeroFailed.Deploy.Fabric
         Mock _Test-FabricTokenExpiry { $false } -ModuleName ZeroFailed.Deploy.Fabric

@@ -1,55 +1,49 @@
 ---
 document type: cmdlet
 external help file: ZeroFailed.Deploy.Fabric-Help.xml
-HelpUri: https://learn.microsoft.com/rest/api/fabric/core/workspaces/create-workspace
+HelpUri: https://learn.microsoft.com/graph/api/group-post-groups
 Locale: en-US
 Module Name: ZeroFailed.Deploy.Fabric
-ms.date: 09/10/2026
+ms.date: 09/21/2026
 PlatyPS schema version: 2024-05-01
-title: New-FabricWorkspace
+title: Assert-AzureAdSecurityGroup
 ---
 
-# New-FabricWorkspace
+# Assert-AzureAdSecurityGroup
 
 ## SYNOPSIS
 
-Creates a Fabric workspace idempotently (skips creation if it already exists).
+Creates or updates a AzureAD group.
 
 ## SYNTAX
 
 ### __AllParameterSets
 
 ```
-New-FabricWorkspace [-DisplayName] <string> [-CapacityName] <string> [-Token] <string> [-WhatIf]
- [-Confirm] [<CommonParameters>]
+Assert-AzureAdSecurityGroup [-DisplayName] <string> [-MailNickname] <string>
+ [[-Description] <string>] [[-OwnersToAssignOnCreation] <string[]>] [[-StrictMode] <bool>]
+ [<CommonParameters>]
 ```
 
 ## ALIASES
 
 ## DESCRIPTION
 
-Checks whether a workspace with the given display name already exists and returns it if so.
-Otherwise resolves the capacity by name and creates the workspace via the Fabric REST API
-(POST /workspaces), returning the created object.
-
-Uses the module's own bearer-token REST path (not MicrosoftFabricMgmt) for a consistent
-identity, clean error propagation, and StrictMode safety.
-A WorkspaceNameAlreadyExists
-(HTTP 409) conflict is treated idempotently: the existing workspace is resolved and returned.
+Uses Azure PowerShell to create an AzureAD security group.
+ This function assumes that the caller will not have full AzureAD
+permissions (i.e.
+'Group.Create' instead of 'Group.ReadWrite.All') as this is typically the case for least-privilege
+automation scenarios.
+ It therefore assumes that group owners can only be configured as part of the creation request, as this
+is supported for callers with 'Group.Create' permissions.
 
 ## EXAMPLES
 
-### EXAMPLE 1
-
-New-FabricWorkspace -DisplayName 'SalesAnalytics-ETL [DEV]' -CapacityName 'cap-dev' -Token $token
-
-Creates the workspace on the cap-dev capacity, or returns it if it already exists.
-
 ## PARAMETERS
 
-### -CapacityName
+### -Description
 
-The Fabric capacity to assign to the workspace.
+The description of the group
 
 ```yaml
 Type: System.String
@@ -58,29 +52,7 @@ SupportsWildcards: false
 Aliases: []
 ParameterSets:
 - Name: (All)
-  Position: 1
-  IsRequired: true
-  ValueFromPipeline: false
-  ValueFromPipelineByPropertyName: false
-  ValueFromRemainingArguments: false
-DontShow: false
-AcceptedValues: []
-HelpMessage: ''
-```
-
-### -Confirm
-
-Prompts you for confirmation before running the cmdlet.
-
-```yaml
-Type: System.Management.Automation.SwitchParameter
-DefaultValue: ''
-SupportsWildcards: false
-Aliases:
-- cf
-ParameterSets:
-- Name: (All)
-  Position: Named
+  Position: 2
   IsRequired: false
   ValueFromPipeline: false
   ValueFromPipelineByPropertyName: false
@@ -92,13 +64,14 @@ HelpMessage: ''
 
 ### -DisplayName
 
-The display name for the workspace.
+The display name of the group.
 
 ```yaml
 Type: System.String
 DefaultValue: ''
 SupportsWildcards: false
-Aliases: []
+Aliases:
+- Name
 ParameterSets:
 - Name: (All)
   Position: 0
@@ -111,18 +84,19 @@ AcceptedValues: []
 HelpMessage: ''
 ```
 
-### -Token
+### -MailNickname
 
-Bearer token string for the Fabric REST API.
+The username portion of the email address associated with the group
 
 ```yaml
 Type: System.String
 DefaultValue: ''
 SupportsWildcards: false
-Aliases: []
+Aliases:
+- EmailName
 ParameterSets:
 - Name: (All)
-  Position: 2
+  Position: 1
   IsRequired: true
   ValueFromPipeline: false
   ValueFromPipelineByPropertyName: false
@@ -132,19 +106,42 @@ AcceptedValues: []
 HelpMessage: ''
 ```
 
-### -WhatIf
+### -OwnersToAssignOnCreation
 
-Runs the command in a mode that only reports what would happen without performing the actions.
+The DisplayName, UserPrincipalName, ObjectId or ApplicationId of the users, groups, service principals to assign as owners to the group.
+Note, that if the group already exists, we will not attempt to assign the owners (see the note in the description for more details)
 
 ```yaml
-Type: System.Management.Automation.SwitchParameter
+Type: System.String[]
 DefaultValue: ''
 SupportsWildcards: false
-Aliases:
-- wi
+Aliases: []
 ParameterSets:
 - Name: (All)
-  Position: Named
+  Position: 3
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
+```
+
+### -StrictMode
+
+When true, the group's description forms part of the idempotency check.
+ If the specified description does not match the group's
+definition in AzureAD, then it will be updated to ensure it matches.
+
+```yaml
+Type: System.Boolean
+DefaultValue: True
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: (All)
+  Position: 4
   IsRequired: false
   ValueFromPipeline: false
   ValueFromPipelineByPropertyName: false
@@ -165,12 +162,13 @@ This cmdlet supports the common parameters: -Debug, -ErrorAction, -ErrorVariable
 
 ## OUTPUTS
 
-### System.Management.Automation.PSObject
+### AzureAD group definition object
 
-The Fabric workspace object, whether it already existed or was newly created.
+The AzureAD group definition, as returned by `Get-AzADGroup`, whether it already existed, was
+newly created, or was updated.
 
 ## NOTES
 
 ## RELATED LINKS
 
-- [](https://learn.microsoft.com/rest/api/fabric/core/workspaces/create-workspace)
+- [](https://learn.microsoft.com/graph/api/group-post-groups)

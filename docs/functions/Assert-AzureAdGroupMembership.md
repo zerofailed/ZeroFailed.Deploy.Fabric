@@ -1,83 +1,65 @@
 ---
 document type: cmdlet
 external help file: ZeroFailed.Deploy.Fabric-Help.xml
-HelpUri: https://learn.microsoft.com/rest/api/fabric/core/workspaces/create-workspace
+HelpUri: https://learn.microsoft.com/graph/api/group-list-members
 Locale: en-US
 Module Name: ZeroFailed.Deploy.Fabric
-ms.date: 09/10/2026
+ms.date: 09/21/2026
 PlatyPS schema version: 2024-05-01
-title: New-FabricWorkspace
+title: Assert-AzureAdGroupMembership
 ---
 
-# New-FabricWorkspace
+# Assert-AzureAdGroupMembership
 
 ## SYNOPSIS
 
-Creates a Fabric workspace idempotently (skips creation if it already exists).
+Configures the membership of an AzureAD group.
 
 ## SYNTAX
 
-### __AllParameterSets
+### ByName
 
 ```
-New-FabricWorkspace [-DisplayName] <string> [-CapacityName] <string> [-Token] <string> [-WhatIf]
- [-Confirm] [<CommonParameters>]
+Assert-AzureAdGroupMembership -Name <string> [-RequiredMembers <string[]>] [-GroupType <string>]
+ [-StrictMode <bool>] [<CommonParameters>]
+```
+
+### ByObjectId
+
+```
+Assert-AzureAdGroupMembership -ObjectId <string> [-RequiredMembers <string[]>] [-GroupType <string>]
+ [-StrictMode <bool>] [<CommonParameters>]
 ```
 
 ## ALIASES
 
 ## DESCRIPTION
 
-Checks whether a workspace with the given display name already exists and returns it if so.
-Otherwise resolves the capacity by name and creates the workspace via the Fabric REST API
-(POST /workspaces), returning the created object.
-
-Uses the module's own bearer-token REST path (not MicrosoftFabricMgmt) for a consistent
-identity, clean error propagation, and StrictMode safety.
-A WorkspaceNameAlreadyExists
-(HTTP 409) conflict is treated idempotently: the existing workspace is resolved and returned.
+Uses Azure PowerShell to manage AzureAD group membership.
 
 ## EXAMPLES
 
 ### EXAMPLE 1
 
-New-FabricWorkspace -DisplayName 'SalesAnalytics-ETL [DEV]' -CapacityName 'cap-dev' -Token $token
-
-Creates the workspace on the cap-dev capacity, or returns it if it already exists.
+Assert-AzureAdGroupMembership -Name "MyGroup" -RequiredMembers @("MyOtherGroup", "MyUser", "MyServicePrincipal")
+Assert-AzureAdGroupMembership -Name "MyGroup" -RequiredMembers @("MyOtherGroup", "MyUser@nowhere.org", "be2a6313-cb3a-45ad-a70f-cbac2a8c565f")
+Assert-AzureAdGroupMembership -Name "MyGroup" -RequiredMembers @("f7f0545c-82b5-4008-bebf-f73fb1d5a7f8", "MyUser@nowhere.org", "be2a6313-cb3a-45ad-a70f-cbac2a8c565f")
 
 ## PARAMETERS
 
-### -CapacityName
+### -GroupType
 
-The Fabric capacity to assign to the workspace.
+The type of group to manage: 'Security' or 'Distribution'.
+Used to disambiguate when a group
+with a matching Name/ObjectId exists as both a security and a distribution group.
+Defaults to
+'Security'.
 
 ```yaml
 Type: System.String
-DefaultValue: ''
+DefaultValue: Security
 SupportsWildcards: false
 Aliases: []
-ParameterSets:
-- Name: (All)
-  Position: 1
-  IsRequired: true
-  ValueFromPipeline: false
-  ValueFromPipelineByPropertyName: false
-  ValueFromRemainingArguments: false
-DontShow: false
-AcceptedValues: []
-HelpMessage: ''
-```
-
-### -Confirm
-
-Prompts you for confirmation before running the cmdlet.
-
-```yaml
-Type: System.Management.Automation.SwitchParameter
-DefaultValue: ''
-SupportsWildcards: false
-Aliases:
-- cf
 ParameterSets:
 - Name: (All)
   Position: Named
@@ -90,9 +72,9 @@ AcceptedValues: []
 HelpMessage: ''
 ```
 
-### -DisplayName
+### -Name
 
-The display name for the workspace.
+The display name of the group.
 
 ```yaml
 Type: System.String
@@ -100,8 +82,8 @@ DefaultValue: ''
 SupportsWildcards: false
 Aliases: []
 ParameterSets:
-- Name: (All)
-  Position: 0
+- Name: ByName
+  Position: Named
   IsRequired: true
   ValueFromPipeline: false
   ValueFromPipelineByPropertyName: false
@@ -111,9 +93,9 @@ AcceptedValues: []
 HelpMessage: ''
 ```
 
-### -Token
+### -ObjectId
 
-Bearer token string for the Fabric REST API.
+The objectId of the group.
 
 ```yaml
 Type: System.String
@@ -121,8 +103,8 @@ DefaultValue: ''
 SupportsWildcards: false
 Aliases: []
 ParameterSets:
-- Name: (All)
-  Position: 2
+- Name: ByObjectId
+  Position: Named
   IsRequired: true
   ValueFromPipeline: false
   ValueFromPipelineByPropertyName: false
@@ -132,16 +114,38 @@ AcceptedValues: []
 HelpMessage: ''
 ```
 
-### -WhatIf
+### -RequiredMembers
 
-Runs the command in a mode that only reports what would happen without performing the actions.
+The list of AzureAD objects that should be members of the group.
+These can be specified using
+'DisplayName', 'ObjectId', 'ApplicationId' or 'UserPrincipalName'.
 
 ```yaml
-Type: System.Management.Automation.SwitchParameter
+Type: System.String[]
 DefaultValue: ''
 SupportsWildcards: false
-Aliases:
-- wi
+Aliases: []
+ParameterSets:
+- Name: (All)
+  Position: Named
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
+```
+
+### -StrictMode
+
+When true, existing group members not specified in the 'RequiredMembers' parameters will be removed from the group.
+
+```yaml
+Type: System.Boolean
+DefaultValue: False
+SupportsWildcards: false
+Aliases: []
 ParameterSets:
 - Name: (All)
   Position: Named
@@ -165,12 +169,8 @@ This cmdlet supports the common parameters: -Debug, -ErrorAction, -ErrorVariable
 
 ## OUTPUTS
 
-### System.Management.Automation.PSObject
-
-The Fabric workspace object, whether it already existed or was newly created.
-
 ## NOTES
 
 ## RELATED LINKS
 
-- [](https://learn.microsoft.com/rest/api/fabric/core/workspaces/create-workspace)
+- [](https://learn.microsoft.com/graph/api/group-list-members)

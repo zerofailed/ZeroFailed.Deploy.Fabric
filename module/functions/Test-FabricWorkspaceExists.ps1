@@ -17,7 +17,7 @@ function Test-FabricWorkspaceExists {
 
         Returns the workspace object if it exists, otherwise $null.
     #>
-    [CmdletBinding()]
+    [CmdletBinding(HelpUri = 'https://learn.microsoft.com/rest/api/fabric/core/workspaces/list-workspaces')]
     [OutputType([pscustomobject])]
     param(
         [Parameter(Mandatory)]

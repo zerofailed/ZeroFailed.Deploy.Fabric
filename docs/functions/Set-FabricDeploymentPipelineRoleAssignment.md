@@ -4,7 +4,7 @@ external help file: ZeroFailed.Deploy.Fabric-Help.xml
 HelpUri: https://learn.microsoft.com/rest/api/fabric/core/deployment-pipelines/add-deployment-pipeline-role-assignment
 Locale: en-US
 Module Name: ZeroFailed.Deploy.Fabric
-ms.date: 08/18/2026
+ms.date: 09/10/2026
 PlatyPS schema version: 2024-05-01
 title: Set-FabricDeploymentPipelineRoleAssignment
 ---
@@ -34,8 +34,8 @@ Checks the current role assignments on a deployment pipeline, then:
   - Creates the assignment via POST if the principal has no current assignment
 Supports Entra Group, User, and Service Principal object IDs.
 
-Fabric deployment pipelines only support the 'Admin' role, so an existing principal already holds
-the only available role and the assignment is skipped.
+Fabric deployment pipelines only support the 'Admin' role, so an existing principal
+already holds the only available role and the assignment is skipped.
 
 ## EXAMPLES
 
@@ -158,7 +158,6 @@ HelpMessage: ''
 
 ### -Role
 
-The deployment pipeline role to assign. Only 'Admin' is supported. Defaults to 'Admin'.
 The deployment pipeline role to assign.
 Only 'Admin' is supported.
 Defaults to 'Admin'.

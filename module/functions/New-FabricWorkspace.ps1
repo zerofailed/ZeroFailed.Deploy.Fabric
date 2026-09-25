@@ -21,7 +21,8 @@ function New-FabricWorkspace {
 
         Creates the workspace on the cap-dev capacity, or returns it if it already exists.
     #>
-    [CmdletBinding(SupportsShouldProcess)]
+    [CmdletBinding(SupportsShouldProcess,
+        HelpUri = 'https://learn.microsoft.com/rest/api/fabric/core/workspaces/create-workspace')]
     [OutputType([pscustomobject])]
     param(
         [Parameter(Mandatory)]

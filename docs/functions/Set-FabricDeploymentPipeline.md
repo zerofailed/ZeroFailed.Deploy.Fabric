@@ -21,7 +21,7 @@ Creates or updates a Fabric deployment pipeline for a workspace type across all 
 
 ```
 Set-FabricDeploymentPipeline [-Config] <psobject> [-WorkspaceType] <string> [-Token] <string>
- [-WhatIf] [-Confirm] [<CommonParameters>]
+ [[-KnownWorkspaceIds] <hashtable>] [-WhatIf] [-Confirm] [<CommonParameters>]
 ```
 
 ## ALIASES
@@ -87,6 +87,31 @@ Aliases:
 ParameterSets:
 - Name: (All)
   Position: Named
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
+```
+
+### -KnownWorkspaceIds
+
+Optional map of environment name -> Fabric workspace GUID, supplied by Invoke-FabricSetup from
+the workspace IDs it already resolved in the per-workspace provisioning loop.
+Environments
+absent from this map (or mapped to $null) fall back to a live _Resolve-WorkspaceName +
+Test-FabricWorkspaceExists lookup, so behaviour is unchanged for callers that omit it.
+
+```yaml
+Type: System.Collections.Hashtable
+DefaultValue: ''
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: (All)
+  Position: 3
   IsRequired: false
   ValueFromPipeline: false
   ValueFromPipelineByPropertyName: false
