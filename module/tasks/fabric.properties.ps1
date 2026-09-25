@@ -12,6 +12,15 @@ $FabricSkipEnvironment   = [Convert]::ToBoolean((property FabricSkipEnvironment 
 $FabricSkipVariableLibrary = [Convert]::ToBoolean((property FabricSkipVariableLibrary $false))
 $FabricSkipRbac          = [Convert]::ToBoolean((property FabricSkipRbac $false))
 $FabricSkipManagedPrivateEndpoints = [Convert]::ToBoolean((property FabricSkipManagedPrivateEndpoints $false))
+# Approval of managed private endpoint connections — needs permission on the target Azure resources,
+# so it can be skipped (or made fatal) independently of creating the endpoints.
+$FabricSkipManagedPrivateEndpointApproval = [Convert]::ToBoolean((property FabricSkipManagedPrivateEndpointApproval $false))
+$FabricFailOnManagedPrivateEndpointApprovalError = [Convert]::ToBoolean((property FabricFailOnManagedPrivateEndpointApprovalError $false))
+$FabricManagedPrivateEndpointApprovalTimeoutSeconds = [int](property FabricManagedPrivateEndpointApprovalTimeoutSeconds 300)
+$FabricManagedPrivateEndpointApprovalPollIntervalSeconds = [int](property FabricManagedPrivateEndpointApprovalPollIntervalSeconds 15)
+# Wildcard pattern identifying the private endpoint Fabric creates on the target resource, with the
+# {workspaceId} and {name} tokens. Override if Fabric's naming differs from the default.
+$FabricManagedPrivateEndpointNamePattern = property FabricManagedPrivateEndpointNamePattern ''
 $FabricSkipEntra         = [Convert]::ToBoolean((property FabricSkipEntra $false))
 $FabricWhatIf            = [Convert]::ToBoolean((property FabricWhatIf $false))
 
