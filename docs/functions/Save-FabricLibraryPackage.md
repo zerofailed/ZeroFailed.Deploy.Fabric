@@ -2,9 +2,9 @@
 document type: cmdlet
 external help file: ZeroFailed.Deploy.Fabric-Help.xml
 HelpUri: ''
-Locale: en-GB
+Locale: en-US
 Module Name: ZeroFailed.Deploy.Fabric
-ms.date: 08/18/2026
+ms.date: 09/10/2026
 PlatyPS schema version: 2024-05-01
 title: Save-FabricLibraryPackage
 ---
@@ -369,4 +369,3 @@ The downloaded package file plus every file in its dependency closure.
 ## RELATED LINKS
 
 - [](https://pip.pypa.io/en/stable/cli/pip_download/)
-

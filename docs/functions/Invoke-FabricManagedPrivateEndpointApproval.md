@@ -4,7 +4,7 @@ external help file: ZeroFailed.Deploy.Fabric-Help.xml
 HelpUri: ''
 Locale: en-US
 Module Name: ZeroFailed.Deploy.Fabric
-ms.date: 09/24/2026
+ms.date: 09/25/2026
 PlatyPS schema version: 2024-05-01
 title: Invoke-FabricManagedPrivateEndpointApproval
 ---
@@ -299,4 +299,3 @@ A results object with a summary of endpoints by action, and the approval and fai
 
 - [](https://learn.microsoft.com/rest/api/fabric/core/managed-private-endpoints)
 - [](https://github.com/zerofailed/ZeroFailed.Deploy.Azure)
-

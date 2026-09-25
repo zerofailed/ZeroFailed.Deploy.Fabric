@@ -4,7 +4,7 @@ external help file: ZeroFailed.Deploy.Fabric-Help.xml
 HelpUri: https://learn.microsoft.com/rest/api/fabric/variablelibrary/items/update-variable-library-definition
 Locale: en-US
 Module Name: ZeroFailed.Deploy.Fabric
-ms.date: 09/18/2026
+ms.date: 09/22/2026
 PlatyPS schema version: 2024-05-01
 title: Set-FabricVariableLibraryValues
 ---
@@ -23,6 +23,7 @@ Sets variables and a stage value set on a Fabric Variable Library, preserving ev
 Set-FabricVariableLibraryValues [-WorkspaceId] <string> [-WorkspaceName] <string>
  [-VariableLibraryId] <string> [-VariableLibraryName] <string> [-ValueSetName] <string>
  [-Values] <IDictionary> [[-DefaultValue] <string>] [-Token] <string> [-WhatIf] [-Confirm]
+ [<CommonParameters>]
 ```
 
 ## ALIASES

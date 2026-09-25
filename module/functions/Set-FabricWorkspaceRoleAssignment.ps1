@@ -25,7 +25,8 @@ function Set-FabricWorkspaceRoleAssignment {
 
         Ensures the given Entra group holds the Member role on the workspace, applying the change idempotently.
     #>
-    [CmdletBinding(SupportsShouldProcess)]
+    [CmdletBinding(SupportsShouldProcess,
+        HelpUri = 'https://learn.microsoft.com/rest/api/fabric/core/workspaces/add-workspace-role-assignment')]
     [OutputType([hashtable])]
     param(
         [Parameter(Mandatory)]

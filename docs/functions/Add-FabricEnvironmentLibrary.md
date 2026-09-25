@@ -2,9 +2,9 @@
 document type: cmdlet
 external help file: ZeroFailed.Deploy.Fabric-Help.xml
 HelpUri: ''
-Locale: en-GB
+Locale: en-US
 Module Name: ZeroFailed.Deploy.Fabric
-ms.date: 08/25/2026
+ms.date: 09/10/2026
 PlatyPS schema version: 2024-05-01
 title: Add-FabricEnvironmentLibrary
 ---
@@ -198,4 +198,3 @@ A hashtable with keys: EnvironmentId, FileName, and Action ('Uploaded' or 'whati
 ## RELATED LINKS
 
 - [](https://learn.microsoft.com/rest/api/fabric/)
-

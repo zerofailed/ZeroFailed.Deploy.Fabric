@@ -21,12 +21,24 @@ $FabricManagedPrivateEndpointApprovalPollIntervalSeconds = [int](property Fabric
 # Wildcard pattern identifying the private endpoint Fabric creates on the target resource, with the
 # {workspaceId} and {name} tokens. Override if Fabric's naming differs from the default.
 $FabricManagedPrivateEndpointNamePattern = property FabricManagedPrivateEndpointNamePattern ''
+$FabricSkipEntra         = [Convert]::ToBoolean((property FabricSkipEntra $false))
 $FabricWhatIf            = [Convert]::ToBoolean((property FabricWhatIf $false))
 
 # Deployment pipeline setup (Invoke-FabricDeploymentPipelineSetup) — pipelines span every environment,
 # so this runs as its own stage once each environment's workspaces have been provisioned.
 $FabricSkipPipeline      = [Convert]::ToBoolean((property FabricSkipPipeline $false))
 $FabricSkipPipelineRbac  = [Convert]::ToBoolean((property FabricSkipPipelineRbac $false))
+
+# Provisioning run report, published by the 'provisionFabricWorkspaces' or 'resolveFabricTopologyState'
+# task for later use by other tasks (and a consuming repo's PostDeploy hooks).
+# Read the workspace / identity / environment / pipeline IDs from
+# $FabricProvisioningResult.WorkspacesByType.<type>.<env> instead of re-querying Fabric.
+# Not a 'property' — it is a task output, not a tunable.
+$FabricProvisioningResult ??= $null
+
+# Optional path to also persist that report as JSON (a publishable build artifact a separate
+# deployment pipeline can pick up). Empty string = don't write a file.
+$FabricProvisioningResultPath = property FabricProvisioningResultPath ''
 
 # Python library deployment (Invoke-FabricPythonLibraryDeploy) — runs after provisioning, typically
 # as a separate pipeline. Stage/package coordinates flow from the calling pipeline's build/stage context.
@@ -49,3 +61,13 @@ $FabricPythonExecutable   = property FabricPythonExecutable 'python3'
 # Runtime 1.2 -> Python 3.10; runtime 1.3 -> Python 3.11 (matches the topology's default).
 $FabricTargetPythonVersion = property FabricTargetPythonVersion '3.11'
 $FabricTargetPlatform      = property FabricTargetPlatform 'manylinux2014_x86_64'
+
+# Used to handle the scenario where environment naming conventions differ between Fabric & Azure
+$FabricAzureEnvironmentMapping = @{
+    DEV = 'dev'
+    TEST = 'test'
+    PROD = 'prod'
+}
+
+$FabricWorkspaceIdentitiesAzureAccessGroupName = "fabric-workspace-identities-{0}"
+$FabricWorkspaceIdentitiesAzureAccessGroupDescription = "Used to grant Fabric Workspace Identities permissions to '{0}' environment Azure resources"

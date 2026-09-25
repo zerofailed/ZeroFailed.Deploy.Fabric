@@ -21,5 +21,7 @@ $PowerShellModulesToPublish = @(
 $PSMarkdownDocsFlattenOutputPath = $true
 $PSMarkdownDocsOutputPath        = './docs/functions'
 $PSMarkdownDocsIncludeModulePage = $false
+# Pin the docs locale so generated frontmatter doesn't vary with the build agent's culture.
+$PSMarkdownDocsLocale           = 'en-US'
 
 task . FullBuild

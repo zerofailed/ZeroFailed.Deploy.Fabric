@@ -20,7 +20,8 @@ function Set-FabricGitIntegration {
 
         Connects the workspace to the configured Git repository and initialises the connection.
     #>
-    [CmdletBinding(SupportsShouldProcess)]
+    [CmdletBinding(SupportsShouldProcess,
+        HelpUri = 'https://learn.microsoft.com/rest/api/fabric/core/git')]
     param(
         [Parameter(Mandatory)]
         [string]$WorkspaceId,

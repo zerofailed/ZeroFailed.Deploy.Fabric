@@ -4,7 +4,7 @@ external help file: ZeroFailed.Deploy.Fabric-Help.xml
 HelpUri: https://learn.microsoft.com/rest/api/fabric/environment/items/create-environment
 Locale: en-US
 Module Name: ZeroFailed.Deploy.Fabric
-ms.date: 08/18/2026
+ms.date: 09/10/2026
 PlatyPS schema version: 2024-05-01
 title: New-FabricEnvironment
 ---
@@ -29,13 +29,15 @@ New-FabricEnvironment [-WorkspaceId] <string> [-DisplayName] <string> [[-Descrip
 ## DESCRIPTION
 
 Checks whether an environment with the given display name already exists in the workspace
-and returns it if so. Otherwise creates it via the Fabric REST API
+and returns it if so.
+Otherwise creates it via the Fabric REST API
 (POST /workspaces/{id}/environments), returning the created object.
 
 An EnvironmentDisplayNameAlreadyInUse (HTTP 409) conflict is treated idempotently: the
 existing environment is resolved and returned.
 
-This provisions an empty environment only. Uploading libraries (.whl) and publishing are
+This provisions an empty environment only.
+Uploading libraries (.whl) and publishing are
 handled by a separate action — creating and referencing an empty environment does not
 require a publish.
 
@@ -43,7 +45,7 @@ require a publish.
 
 ### EXAMPLE 1
 
-New-FabricEnvironment -WorkspaceId $ws.id -DisplayName 'SalesAnalytics-ETL [DEV] Env' -Token $token
+New-FabricEnvironment -WorkspaceId $ws.id -DisplayName 'SalesAnalytics-ETL Env' -Token $token
 
 Creates the environment in the workspace, or returns it if it already exists.
 

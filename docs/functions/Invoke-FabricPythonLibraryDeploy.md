@@ -2,9 +2,9 @@
 document type: cmdlet
 external help file: ZeroFailed.Deploy.Fabric-Help.xml
 HelpUri: ''
-Locale: en-GB
+Locale: en-US
 Module Name: ZeroFailed.Deploy.Fabric
-ms.date: 08/25/2026
+ms.date: 09/10/2026
 PlatyPS schema version: 2024-05-01
 title: Invoke-FabricPythonLibraryDeploy
 ---
@@ -24,8 +24,8 @@ Invoke-FabricPythonLibraryDeploy [-Config] <psobject> -Stage <string> -PackageNa
  -PackageVersion <string> -FeedOrganisation <string> -FeedProject <string> -FeedName <string>
  -FeedToken <string> [-StagingPath <string>] [-ConstraintsPath <string>] [-SkipDownload] [-Force]
  [-PrivatePackageName <string[]>] [-ExtraIndexUrl <string>] [-PythonExecutable <string>]
- [-TargetPythonVersion <string>]
- [-TargetPlatform <string>] [-PublishTimeoutSeconds <int>] [-WhatIf] [-Confirm] [<CommonParameters>]
+ [-TargetPythonVersion <string>] [-TargetPlatform <string>] [-PublishTimeoutSeconds <int>] [-WhatIf]
+ [-Confirm] [<CommonParameters>]
 ```
 
 ### File
@@ -35,8 +35,8 @@ Invoke-FabricPythonLibraryDeploy -ConfigPath <string> -Stage <string> -PackageNa
  -PackageVersion <string> -FeedOrganisation <string> -FeedProject <string> -FeedName <string>
  -FeedToken <string> [-StagingPath <string>] [-ConstraintsPath <string>] [-SkipDownload] [-Force]
  [-PrivatePackageName <string[]>] [-ExtraIndexUrl <string>] [-PythonExecutable <string>]
- [-TargetPythonVersion <string>]
- [-TargetPlatform <string>] [-PublishTimeoutSeconds <int>] [-WhatIf] [-Confirm] [<CommonParameters>]
+ [-TargetPythonVersion <string>] [-TargetPlatform <string>] [-PublishTimeoutSeconds <int>] [-WhatIf]
+ [-Confirm] [<CommonParameters>]
 ```
 
 ## ALIASES
@@ -572,4 +572,3 @@ deployment details, and a Failures list of any non-fatal per-workspace errors.
 ## RELATED LINKS
 
 - [](https://learn.microsoft.com/rest/api/fabric/)
-
