@@ -599,14 +599,9 @@ $result.Identities        # Array of identity entries — handoff for downstream
 $result.Monitoring        # Array of monitoring report entries
 $result.Environments      # Array of environment provisioning report entries
 $result.VariableLibraries # Array of variable library provisioning report entries
-<<<<<<< HEAD
-$result.RoleAssignments # Array of role assignment report entries
-$result.ManagedPrivateEndpoints # Array of managed private endpoint report entries
-$result.Failures        # Array of per-workspace failure details
-=======
 $result.RoleAssignments   # Array of role assignment report entries
+$result.ManagedPrivateEndpoints # Array of managed private endpoint report entries
 $result.Failures          # Array of per-workspace failure details
->>>>>>> main
 ```
 
 **Per-workspace record structure** — `$result.Workspaces` holds one record per workspace type ×
@@ -1196,7 +1191,6 @@ Invoke-FabricSetup
     │           ├── merge default variables (placeholder defaults) + stage value set overrides
     │           ├── changed → POST /variableLibraries/{id}/updateDefinition (full definition)
     │           └── active value set differs → PATCH /variableLibraries/{id} (activeValueSetName)
-<<<<<<< HEAD
     ├── For each role assignment in ws.rbac[env]:  (unless -SkipRbac or no assignments)
     │   └── Set-FabricWorkspaceRoleAssignment
     │       ├── GET workspaces/{id}/roleAssignments  (idempotency check)
@@ -1211,16 +1205,8 @@ Invoke-FabricSetup
             ├── different target → throw (endpoints can't be updated in place)
             └── not found → POST /managedPrivateEndpoints  → append to $result.ManagedPrivateEndpoints
                 (the connection then awaits approval on the target resource)
-=======
-    └── For each role assignment in ws.rbac[env]:  (unless -SkipRbac or no assignments)
-        └── Set-FabricWorkspaceRoleAssignment
-            ├── GET workspaces/{id}/roleAssignments  (idempotency check)
-            ├── same role → skip
-            ├── different role → PATCH /roleAssignments/{id}
-            └── not found → POST /roleAssignments  → append to $result.RoleAssignments
 │
 └── build WorkspacesByType index from the Workspaces list
->>>>>>> main
 
 Invoke-FabricDeploymentPipelineSetup
 ├── _Get-FabricAuthToken        (Get-AzAccessToken for Fabric API)
@@ -1327,12 +1313,8 @@ The test suite covers:
 - `Set-FabricWorkspaceDefaultEnvironment` — WhatIf, PATCH body shape, custom runtime version, skip when default already matches
 - `Set-FabricDeploymentPipeline` — WhatIf, create+assign all stages, skip when fully assigned, update vacant stages, throw without touching the pipeline when a workspace is missing, pagination across continuation tokens, API error propagation, report field correctness
 - `Set-FabricDeploymentPipelineRoleAssignment` — WhatIf, Admin default, non-Admin role rejection, skip when principal already present, create via POST, principal type acceptance, API error propagation, report field correctness
-<<<<<<< HEAD
-- `Invoke-FabricSetup` — deploying identity Admin and workspace identity Contributor grants, single-environment targeting, deployment pipelines not configured, environment provisioning + set-as-default, `-SkipEnvironment`, non-fatal environment failures, variable library provisioning per environment, stage scoping, `-SkipVariableLibrary`, older configs without a `variableLibrary` block, default name when none configured, default values off unless enabled, default values in a value set named by stage short code (environment name fallback), identity from this run or read off the workspace, empty identity values without an identity, non-fatal default values failures, non-fatal variable library failures, managed private endpoints (per-environment subscription and resources, request message naming the workspace, default sub-resource, `-SkipManagedPrivateEndpoints`, configs predating the block, in-memory dictionary shape, missing subscription, non-fatal failures)
+- `Invoke-FabricSetup` — deploying identity Admin and workspace identity Contributor grants, single-environment targeting, deployment pipelines not configured, environment provisioning + set-as-default, `-SkipEnvironment`, non-fatal environment failures, per-workspace model (`Workspaces` / `WorkspacesByType`) shape/status/identity, managed private endpoints (per-environment subscription and resources, request message naming the workspace, default sub-resource, `-SkipManagedPrivateEndpoints`, configs predating the block, in-memory dictionary shape, missing subscription, non-fatal failures)
 - `Set-FabricManagedPrivateEndpoint` — WhatIf, create via POST (optional fields omitted or included), skip when the target matches (case-insensitive), drifted target or sub-resource rejected without a POST, approval and failed-provisioning warnings, pagination, StrictMode safety, API error propagation, name and request message length limits
-=======
-- `Invoke-FabricSetup` — deploying identity Admin and workspace identity Contributor grants, single-environment targeting, deployment pipelines not configured, environment provisioning + set-as-default, `-SkipEnvironment`, non-fatal environment failures, per-workspace model (`Workspaces` / `WorkspacesByType`) shape/status/identity
->>>>>>> main
 - `Invoke-FabricDeploymentPipelineSetup` — pipeline-enabled types only, summary by action (WhatIf not counted), pipeline role assignment application, `-SkipPipelineRbac`, failed pipeline recorded without an RBAC attempt while other types continue, non-fatal pipeline RBAC failures, no-op warning when no pipelines are enabled, token refresh, `-ConfigPath`
 - `Get-FabricTopologyState` — full read-only model for existing workspaces, `NotFound` status for absent ones, `-Skip*` suppress their lookups, pipeline `Existing`/`NotFound` + `Stages` map, non-fatal sub-lookup failures, Git 404 as not-connected, `-Environments` filter, `-ConfigPath`, JSON round-trip, `Found/Missing/Failed` summary
 - `_New-FabricWorkspaceRecord` / `_ConvertTo-FabricWorkspaceIndex` / `_Get-FabricResourceMap` — record schema/defaults, nested-index object identity, paginated `displayName` maps
