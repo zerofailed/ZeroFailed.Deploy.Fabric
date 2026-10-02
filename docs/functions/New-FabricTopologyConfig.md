@@ -4,7 +4,7 @@ external help file: ZeroFailed.Deploy.Fabric-Help.xml
 HelpUri: https://learn.microsoft.com/rest/api/fabric/
 Locale: en-US
 Module Name: ZeroFailed.Deploy.Fabric
-ms.date: 09/18/2026
+ms.date: 09/25/2026
 PlatyPS schema version: 2024-05-01
 title: New-FabricTopologyConfig
 ---
@@ -28,8 +28,10 @@ New-FabricTopologyConfig [-Project] <string> [-WorkspaceTypes] <string[]> [-Envi
  [[-EnableEnvironments] <string[]>] [[-EnvironmentStages] <hashtable>]
  [[-EnvironmentRuntimeVersion] <string>] [[-EnableVariableLibraries] <string[]>]
  [[-VariableLibraryName] <string>] [[-VariableLibraryStages] <hashtable>]
- [[-TypeShortCodes] <hashtable>] [[-EnvShortCodes] <hashtable>] [[-OutputPath] <string>]
- [-SetEnvironmentAsDefault] [-VariableLibraryDefaultValues] [<CommonParameters>]
+ [[-TypeShortCodes] <hashtable>] [[-EnvShortCodes] <hashtable>]
+ [[-ManagedPrivateEndpoints] <hashtable[]>] [[-AzureSubscriptionIds] <hashtable>]
+ [[-OutputPath] <string>] [-SetEnvironmentAsDefault] [-VariableLibraryDefaultValues]
+ [<CommonParameters>]
 ```
 
 ## ALIASES
@@ -69,6 +71,31 @@ New-FabricTopologyConfig `
 # Produces workspace names like: SalesAnalytics-ETL [DEV], SalesAnalytics-Report [PROD]
 
 ## PARAMETERS
+
+### -AzureSubscriptionIds
+
+Hashtable mapping environment name to the Azure subscription ID that holds that stage's resources,
+e.g.
+@{ Dev = '...'; Production = '...' }.
+Required for every environment a
+-ManagedPrivateEndpoints rule targets.
+
+```yaml
+Type: System.Collections.Hashtable
+DefaultValue: ''
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: (All)
+  Position: 23
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
+```
 
 ### -CapacityMap
 
@@ -426,6 +453,50 @@ AcceptedValues: []
 HelpMessage: ''
 ```
 
+### -ManagedPrivateEndpoints
+
+Array of managed private endpoint rules to create in workspaces.
+Each rule is a hashtable with:
+  ResourceType          (required) — the target resource type: one of KeyVault, Storage, SqlServer,
+                                     CosmosDb or EventHubs, or any provider path such as
+                                     'Microsoft.KeyVault/vaults'
+  Targets               (required) — hashtable mapping environment name to
+                                     @{ ResourceGroup = '...'; ResourceName = '...' } for that stage;
+                                     a stage left out of the map gets no endpoint
+  SubResourceType       (optional) — private link sub-resource; defaults from ResourceType (e.g.
+'vault'
+                                     for KeyVault).
+Required for Storage ('blob', 'dfs', ...); pass it
+                                     explicitly with a provider path when the type needs one
+  WorkspaceTypes        (optional) — array of workspace type names this rule applies to; omit for all types
+Rules are resolved per workspace type and environment and stored in the topology config as
+managedPrivateEndpoints.<env> = { subscriptionId, resources = [{ resourceName, resourceGroup,
+resourceType, subResourceType }] }.
+At provisioning time the target resource ID is built as
+/subscriptions/{subscriptionId}/resourceGroups/{resourceGroup}/providers/{provider path}/{resourceName},
+the endpoint is named '{resourceName}.{subResourceType}' in lower case (e.g.
+'kv-sales-dev.vault'),
+and the approval request message is 'Fabric access from {workspace name}'.
+Endpoint names must fit
+Fabric's 64-character limit.
+
+```yaml
+Type: System.Collections.Hashtable[]
+DefaultValue: ''
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: (All)
+  Position: 22
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
+```
+
 ### -OutputPath
 
 Optional file path to write the generated config as JSON.
@@ -438,7 +509,7 @@ SupportsWildcards: false
 Aliases: []
 ParameterSets:
 - Name: (All)
-  Position: 22
+  Position: 24
   IsRequired: false
   ValueFromPipeline: false
   ValueFromPipelineByPropertyName: false

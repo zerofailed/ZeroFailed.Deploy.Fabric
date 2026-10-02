@@ -16,11 +16,12 @@ function Invoke-FabricSetup {
              type's configured stages) and, if default values are enabled, populates the default variables
              in a value set for the current stage and activates it
           9. Applies RBAC role assignments (if configured)
+         10. Creates the workspace type's managed private endpoints for the environment (if configured)
         Returns a structured results object with a summary; a per-workspace model (a flat
         'Workspaces' list and a nested 'WorkspacesByType.<type>.<environment>' index, each record
         carrying the workspace id, identity principal/application ids, Spark environment id and
         status); and the identity report, monitoring report, environment report, variable library report,
-	role assignment report, and failure details.
+        role assignment report, managed private endpoint report, and failure details.
         Deployment pipelines span every environment, so they are not configured here: run
         Invoke-FabricDeploymentPipelineSetup once each environment's workspaces have been provisioned.
     .PARAMETER Config
@@ -41,6 +42,8 @@ function Invoke-FabricSetup {
         Skip Variable Library provisioning for all workspaces.
     .PARAMETER SkipRbac
         Skip role assignment application for all workspaces.
+    .PARAMETER SkipManagedPrivateEndpoints
+        Skip managed private endpoint creation for all workspaces.
     .EXAMPLE
         Invoke-FabricSetup -Config $topology -Environment "Dev" -WhatIf
 
@@ -67,7 +70,8 @@ function Invoke-FabricSetup {
         [switch]$SkipMonitoring,
         [switch]$SkipEnvironment,
         [switch]$SkipVariableLibrary,
-        [switch]$SkipRbac
+        [switch]$SkipRbac,
+        [switch]$SkipManagedPrivateEndpoints
     )
 
     $ErrorActionPreference = 'Stop'
@@ -144,6 +148,7 @@ function Invoke-FabricSetup {
         Environments    = [System.Collections.Generic.List[hashtable]]::new()
         VariableLibraries = [System.Collections.Generic.List[hashtable]]::new()
         RoleAssignments = [System.Collections.Generic.List[hashtable]]::new()
+        ManagedPrivateEndpoints = [System.Collections.Generic.List[hashtable]]::new()
         Failures        = [System.Collections.Generic.List[hashtable]]::new()
     }
 
@@ -503,6 +508,60 @@ function Invoke-FabricSetup {
                                 Error         = $_.ToString()
                             })
                         }
+                    }
+                }
+            }
+
+            # i. Managed Private Endpoints — non-fatal, log and continue.
+            # Configs generated before managed private endpoints were supported have no block, so guard
+            # the access (a bare one would throw under Set-StrictMode). The block is an ordered
+            # dictionary when the config comes straight from New-FabricTopologyConfig, and an object
+            # when it has been loaded from JSON.
+            if (-not $SkipManagedPrivateEndpoints -and $ws.PSObject.Properties.Name -contains 'managedPrivateEndpoints') {
+                $mpeByEnv = $ws.managedPrivateEndpoints
+                $mpeBlock = if ($mpeByEnv -is [System.Collections.IDictionary]) {
+                    if ($mpeByEnv.Contains($env.name)) { $mpeByEnv[$env.name] }
+                }
+                elseif ($mpeByEnv -and $mpeByEnv.PSObject.Properties.Name -contains $env.name) {
+                    $mpeByEnv.$($env.name)
+                }
+                $mpeBlockProps  = if ($mpeBlock) { $mpeBlock.PSObject.Properties.Name } else { @() }
+                $subscriptionId = if ($mpeBlockProps -contains 'subscriptionId') { $mpeBlock.subscriptionId } else { $null }
+                $mpeResources   = @(if ($mpeBlockProps -contains 'resources') { $mpeBlock.resources | Where-Object { $_ } })
+
+                foreach ($resource in $mpeResources) {
+                    $resourceProps = $resource.PSObject.Properties.Name
+                    $resourceName  = if ($resourceProps -contains 'resourceName') { $resource.resourceName } else { $null }
+                    try {
+                        $mpe = _Resolve-ManagedPrivateEndpoint `
+                            -SubscriptionId  $subscriptionId `
+                            -ResourceGroup   $(if ($resourceProps -contains 'resourceGroup') { $resource.resourceGroup }) `
+                            -ResourceName    $resourceName `
+                            -ResourceType    $(if ($resourceProps -contains 'resourceType') { $resource.resourceType }) `
+                            -SubResourceType $(if ($resourceProps -contains 'subResourceType') { $resource.subResourceType })
+
+                        $mpeParams = @{
+                            WorkspaceId                 = $workspaceId
+                            WorkspaceName               = $resolvedName
+                            Token                       = $token
+                            Name                        = $mpe.Name
+                            TargetPrivateLinkResourceId = $mpe.TargetPrivateLinkResourceId
+                            # Workspace names are at most 64 characters, well within the 140-character limit.
+                            RequestMessage              = "Fabric access from $resolvedName"
+                        }
+                        if ($mpe.TargetSubresourceType) { $mpeParams.TargetSubresourceType = $mpe.TargetSubresourceType }
+
+                        $mpeResult = Set-FabricManagedPrivateEndpoint @mpeParams
+                        $results.ManagedPrivateEndpoints.Add($mpeResult)
+                    }
+                    catch {
+                        Write-Warning "Managed private endpoint to '$resourceName' failed for '$resolvedName' — $_"
+                        $results.Failures.Add(@{
+                            WorkspaceName = $resolvedName
+                            Environment   = $env.name
+                            Step          = 'ManagedPrivateEndpoint'
+                            Error         = $_.ToString()
+                        })
                     }
                 }
             }
