@@ -80,12 +80,9 @@ function Invoke-FabricManagedPrivateEndpointApproval {
         $Config = Get-Content -Path $ConfigPath -Raw | ConvertFrom-Json -Depth 20
     }
 
-    # --- 2. Acquire auth token ---
-    Write-Verbose 'Acquiring Fabric auth token...'
-    $tokenInfo = _Get-FabricAuthToken
-    $token     = $tokenInfo.Token
-
-    # --- 3. Determine environments to process ---
+    # --- 2. Determine environments to process ---
+    # Before acquiring a token, so a bad -Environment fails on its own terms rather than on the
+    # Azure login the token needs.
     $targetEnvs = if ($Environment) {
         $Config.environments | Where-Object { $_.name -eq $Environment }
     }
@@ -96,6 +93,11 @@ function Invoke-FabricManagedPrivateEndpointApproval {
     if (-not $targetEnvs) {
         throw "Environment '$Environment' not found in config. Available: $(($Config.environments.name) -join ', ')."
     }
+
+    # --- 3. Acquire auth token ---
+    Write-Verbose 'Acquiring Fabric auth token...'
+    $tokenInfo = _Get-FabricAuthToken
+    $token     = $tokenInfo.Token
 
     $results = [pscustomobject]@{
         Summary   = [pscustomobject]@{ Approved = 0; Skipped = 0; Failed = 0 }

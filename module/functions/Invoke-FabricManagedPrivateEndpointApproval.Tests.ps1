@@ -91,6 +91,13 @@ Describe 'Invoke-FabricManagedPrivateEndpointApproval' {
     }
 
     Context 'input validation' {
+
+        BeforeEach {
+            # Config problems must surface before anything needs an Azure login, so fail the test if
+            # a token is acquired (as happened in CI, where there is no signed-in identity).
+            Mock _Get-FabricAuthToken { throw 'a token should not be needed to validate the config' } -ModuleName ZeroFailed.Deploy.Fabric
+        }
+
         It 'throws when ConfigPath does not exist' {
             { Invoke-FabricManagedPrivateEndpointApproval -ConfigPath './nonexistent.json' } | Should -Throw '*not found*'
         }
