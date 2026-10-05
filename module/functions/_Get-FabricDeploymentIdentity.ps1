@@ -13,9 +13,11 @@ function _Get-FabricDeploymentIdentity {
         locally (signed-in user). Best-effort: returns $null with a warning if it cannot be resolved
         (e.g. Az.Resources unavailable or insufficient directory permissions).
     .NOTES
-        Implemented directly here rather than taking a dependency on ZeroFailed.Deploy.Azure's
-        equivalent 'getDeploymentIdentity' — pulling in a full deploy extension
-        for a single identity lookup was excessive coupling for a Fabric-specific module. 
+        Implemented directly here rather than using ZeroFailed.Deploy.Azure's equivalent
+        'getDeploymentIdentity' task: this is a single identity lookup needed by every provisioning
+        run, and keeping it here means it works the same whether or not that extension's tasks are
+        part of the process. (That extension is a dependency of this one, for approving managed
+        private endpoint connections.)
     .OUTPUTS
         A hashtable with keys: Id (Entra object id), Type ('ServicePrincipal' or 'User'); or $null.
     #>

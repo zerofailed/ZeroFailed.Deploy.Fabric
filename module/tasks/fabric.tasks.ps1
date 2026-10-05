@@ -1,14 +1,15 @@
 . $PSScriptRoot/fabric.properties.ps1
 
-# Registers Az.Accounts, Az.Resources and MicrosoftFabricMgmt with ZeroFailed.DevOps.Common's
+# Registers Az.Accounts, Az.Resources, Az.Network and MicrosoftFabricMgmt with ZeroFailed.DevOps.Common's
 # 'RequiredPowerShellModules' mechanism, so the 'setupModules' task installs/imports them — same
 # pattern as ZeroFailed.Build.PowerShell's 'EnsurePlatyPSModule' task. Az.Resources provides
 # Get-AzADServicePrincipal / Get-AzADUser, used to resolve the deploying identity's object id so
-# it can be granted Admin on each workspace.
+# it can be granted Admin on each workspace. Az.Network provides the private endpoint connection
+# cmdlets used by ZeroFailed.Deploy.Azure when approving managed private endpoint connections.
 task ensureFabricModules -Before setupModules {
     Write-Build Cyan 'Registering Fabric required modules...'
 
-    foreach ($moduleName in @('Az.Accounts', 'Az.Resources', 'MicrosoftFabricMgmt')) {
+    foreach ($moduleName in @('Az.Accounts', 'Az.Resources', 'Az.Network', 'MicrosoftFabricMgmt')) {
         if (-not $RequiredPowerShellModules.ContainsKey($moduleName)) {
             $script:RequiredPowerShellModules += @{ $moduleName = @{} }
         }
@@ -66,6 +67,48 @@ task provisionFabricWorkspaces -After DeployCore {
             Write-Build Red "  $($_.WorkspaceName) [$($_.Environment)]: $($_.Error)"
         }
         throw "Fabric provisioning completed with $($result.Failures.Count) failure(s)."
+    }
+}
+
+# Approves the private endpoint connections requested by the workspaces' managed private endpoints.
+# Runs after provisioning, since an endpoint has to exist before its connection can be approved.
+# Approving needs permission on each target Azure resource, which the identity provisioning the
+# workspaces may not have — set $FabricSkipManagedPrivateEndpointApproval to leave the connections for
+# someone else (or another pipeline stage) to approve.
+task approveFabricManagedPrivateEndpoints -After provisionFabricWorkspaces {
+    if ($FabricSkipManagedPrivateEndpoints -or $FabricSkipManagedPrivateEndpointApproval) {
+        Write-Build Yellow 'Skipping Fabric managed private endpoint approval.'
+        return
+    }
+
+    $envMessage = if ([string]::IsNullOrWhiteSpace($FabricEnvironment)) { 'all environments' } else { "environment '$FabricEnvironment'" }
+    Write-Build Cyan "Approving Fabric managed private endpoint connections ($envMessage) from: $FabricTopologyConfigPath"
+
+    $approvalParams = @{
+        ConfigPath          = $FabricTopologyConfigPath
+        TimeoutSeconds      = $FabricManagedPrivateEndpointApprovalTimeoutSeconds
+        PollIntervalSeconds = $FabricManagedPrivateEndpointApprovalPollIntervalSeconds
+        FailOnError         = $FabricFailOnManagedPrivateEndpointApprovalError
+        WhatIf              = $FabricWhatIf
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($FabricEnvironment)) {
+        $approvalParams.Environment = $FabricEnvironment
+    }
+    if (-not [string]::IsNullOrWhiteSpace($FabricManagedPrivateEndpointNamePattern)) {
+        $approvalParams.EndpointNamePattern = $FabricManagedPrivateEndpointNamePattern
+    }
+
+    $result = Invoke-FabricManagedPrivateEndpointApproval @approvalParams
+
+    $s = $result.Summary
+    Write-Build Green "Managed private endpoint approval complete — Approved: $($s.Approved)  Skipped: $($s.Skipped)  Failed: $($s.Failed)"
+
+    if ($result.Failures.Count -gt 0) {
+        Write-Build Yellow "$($result.Failures.Count) managed private endpoint(s) were not approved:"
+        $result.Failures | ForEach-Object {
+            Write-Build Yellow "  $($_.WorkspaceName) [$($_.Environment)]: $($_.Error)"
+        }
     }
 }
 

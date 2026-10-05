@@ -75,19 +75,7 @@ function Set-FabricManagedPrivateEndpoint {
     if ($PSCmdlet.ShouldProcess("$WorkspaceName ($Name)", "Ensure managed private endpoint to '$TargetPrivateLinkResourceId'")) {
         Write-Debug "Fetching managed private endpoints for workspace '$WorkspaceName' ($WorkspaceId)..."
 
-        $existing = $null
-        $nextUri  = "workspaces/$WorkspaceId/managedPrivateEndpoints"
-        do {
-            $page     = _Invoke-FabricRestMethod -Method GET -RelativeUri $nextUri -Token $Token -ErrorAction Stop
-            $items    = if ($page -and $page.PSObject.Properties.Name -contains 'value') { @($page.value) } else { @() }
-            $existing = $items | Where-Object { $_.name -eq $Name } | Select-Object -First 1
-            if ($existing) { break }
-
-            # continuationToken is only present when more pages remain. Guard the access so it does
-            # not throw under Set-StrictMode (as enforced by the ZeroFailed build harness).
-            $continuationToken = if ($page -and $page.PSObject.Properties.Name -contains 'continuationToken') { $page.continuationToken } else { $null }
-            $nextUri = if ($continuationToken) { "workspaces/$WorkspaceId/managedPrivateEndpoints?continuationToken=$continuationToken" } else { $null }
-        } while ($nextUri)
+        $existing = _Get-FabricManagedPrivateEndpoint -WorkspaceId $WorkspaceId -Name $Name -Token $Token
 
         if ($existing) {
             $existingProps       = $existing.PSObject.Properties.Name
