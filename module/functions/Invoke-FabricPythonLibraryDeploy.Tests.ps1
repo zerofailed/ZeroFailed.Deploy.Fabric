@@ -5,28 +5,9 @@ BeforeAll {
     $modulePath = Join-Path $PSScriptRoot '..' 'ZeroFailed.Deploy.Fabric.psd1'
     Import-Module $modulePath -Force -ErrorAction Stop
 
-    function New-TestConfig {
-        [pscustomobject]@{
-            project          = 'THX'
-            namingConvention = [pscustomobject]@{
-                template                = '{project}-{type} [{env}]'
-                environmentNameTemplate = '{project}-{type} Env'
-                maxLength               = 64
-                typeShortCodes          = [pscustomobject]@{ DataPrep = 'DataPrep'; Reporting = 'Report' }
-                envShortCodes           = [pscustomobject]@{ DEV = 'DEV' }
-            }
-            environments     = @(
-                [pscustomobject]@{ name = 'DEV'; shortCode = 'DEV'; capacityName = 'cap' }
-            )
-            workspaces       = @(
-                [pscustomobject]@{ id = 'DataPrep'; type = 'DataPrep'; environment = [pscustomobject]@{ enabled = $true } }
-                [pscustomobject]@{ id = 'Report';   type = 'Reporting'; environment = [pscustomobject]@{ enabled = $false } }
-            )
-        }
-    }
-
     $script:deployParams = @{
-        Stage            = 'DEV'
+        WorkspaceName    = 'THX-DataPrep [DEV]'
+        EnvironmentName  = 'THX-DataPrep Env'
         PackageName      = 'mypackage'
         PackageVersion   = '1.4.2'
         FeedOrganisation = 'contoso'
@@ -38,17 +19,8 @@ BeforeAll {
 
 Describe 'Invoke-FabricPythonLibraryDeploy' {
 
-    BeforeAll {
-        # Several tests deliberately drive the "nothing to deploy" / per-workspace failure
-        # branches; silence the warnings and non-terminating errors they emit so a passing run
-        # stays clean. No test asserts on this output.
-        Mock Write-Warning {} -ModuleName ZeroFailed.Deploy.Fabric
-        Mock Write-Error   {} -ModuleName ZeroFailed.Deploy.Fabric
-    }
-
     BeforeEach {
         Mock _Get-FabricAuthToken { @{ Token = 'tok'; ExpiresOn = [datetimeoffset]::UtcNow.AddHours(1) } } -ModuleName ZeroFailed.Deploy.Fabric
-        Mock _Test-FabricTokenExpiry { $false } -ModuleName ZeroFailed.Deploy.Fabric
         Mock Save-FabricLibraryPackage {
             @(
                 [pscustomobject]@{ Name = 'mypackage-1.4.2-py3-none-any.whl'; FullName = '/tmp/mypackage-1.4.2-py3-none-any.whl' }
@@ -67,78 +39,48 @@ Describe 'Invoke-FabricPythonLibraryDeploy' {
         Mock _Test-PackageOnPyPI { $false } -ModuleName ZeroFailed.Deploy.Fabric
     }
 
-    It 'deploys only to workspaces with a Spark Environment enabled' {
-        $config = New-TestConfig
-        $result = Invoke-FabricPythonLibraryDeploy -Config $config @script:deployParams
+    It 'deploys into the named workspace and environment' {
+        $result = Invoke-FabricPythonLibraryDeploy @script:deployParams
 
-        $result.Summary.Deployed | Should -Be 1
-        $result.Deployed[0].WorkspaceName | Should -Be 'THX-DataPrep [DEV]'
-        $result.Deployed[0].EnvironmentName | Should -Be 'THX-DataPrep Env'
-        Should -Invoke Publish-FabricEnvironment -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
-    }
-
-    It 'excludes a workspace whose Spark Environment is not configured for the stage' {
-        $config = New-TestConfig
-        # DataPrep has an environment, but only in a stage other than the one being deployed.
-        $config.workspaces[0].environment | Add-Member -NotePropertyName stages -NotePropertyValue @('PROD') -Force
-
-        $result = Invoke-FabricPythonLibraryDeploy -Config $config @script:deployParams
-
-        $result.Summary.Deployed | Should -Be 0
-        Should -Invoke Save-FabricLibraryPackage -Times 0 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
-        Should -Invoke Publish-FabricEnvironment -Times 0 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
-    }
-
-    It 'includes a workspace whose Spark Environment stages contain the deployed stage' {
-        $config = New-TestConfig
-        $config.workspaces[0].environment | Add-Member -NotePropertyName stages -NotePropertyValue @('DEV') -Force
-
-        $result = Invoke-FabricPythonLibraryDeploy -Config $config @script:deployParams
-
-        $result.Summary.Deployed | Should -Be 1
-        Should -Invoke Publish-FabricEnvironment -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
-    }
-
-    It 'downloads the package only once regardless of target count' {
-        $config = New-TestConfig
-        # Enable the second workspace too.
-        $config.workspaces[1].environment.enabled = $true
-
-        Invoke-FabricPythonLibraryDeploy -Config $config @script:deployParams | Out-Null
-
+        $result.Action | Should -Be 'Published'
+        $result.WorkspaceName | Should -Be 'THX-DataPrep [DEV]'
+        $result.EnvironmentName | Should -Be 'THX-DataPrep Env'
+        $result.EnvironmentId | Should -Be 'env-1'
+        Should -Invoke Test-FabricWorkspaceExists -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter {
+            $DisplayName -eq 'THX-DataPrep [DEV]'
+        }
+        Should -Invoke _Resolve-FabricEnvironment -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter {
+            $WorkspaceId -eq 'ws-1' -and $DisplayName -eq 'THX-DataPrep Env'
+        }
         Should -Invoke Save-FabricLibraryPackage -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
-        Should -Invoke Publish-FabricEnvironment -Times 2 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
+        Should -Invoke Publish-FabricEnvironment -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
     }
 
     It 'uploads every downloaded file to the environment' {
-        $config = New-TestConfig
-        Invoke-FabricPythonLibraryDeploy -Config $config @script:deployParams | Out-Null
+        Invoke-FabricPythonLibraryDeploy @script:deployParams | Out-Null
         Should -Invoke Add-FabricEnvironmentLibrary -Times 2 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
     }
 
     It 'passes the Fabric runtime target through to the download by default' {
-        $config = New-TestConfig
-        Invoke-FabricPythonLibraryDeploy -Config $config @script:deployParams | Out-Null
+        Invoke-FabricPythonLibraryDeploy @script:deployParams | Out-Null
         Should -Invoke Save-FabricLibraryPackage -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter {
             $TargetPythonVersion -eq '3.11' -and $TargetPlatform -eq 'manylinux2014_x86_64'
         }
     }
 
     It 'passes an overridden runtime target through to the download' {
-        $config = New-TestConfig
-        Invoke-FabricPythonLibraryDeploy -Config $config @script:deployParams -TargetPythonVersion '3.10' | Out-Null
+        Invoke-FabricPythonLibraryDeploy @script:deployParams -TargetPythonVersion '3.10' | Out-Null
         Should -Invoke Save-FabricLibraryPackage -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter {
             $TargetPythonVersion -eq '3.10'
         }
     }
 
     It 'passes a constraints file through to the download' {
-        $config = New-TestConfig
         $constraints = Join-Path ([System.IO.Path]::GetTempPath()) "constraints-$([guid]::NewGuid()).txt"
         Set-Content -LiteralPath $constraints -Value 'cryptography==42.0.2'
 
         try {
-            Invoke-FabricPythonLibraryDeploy -Config $config @script:deployParams -ConstraintsPath $constraints | Out-Null
+            Invoke-FabricPythonLibraryDeploy @script:deployParams -ConstraintsPath $constraints | Out-Null
             Should -Invoke Save-FabricLibraryPackage -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter {
                 $ConstraintsPath -eq $constraints
             }
@@ -149,8 +91,7 @@ Describe 'Invoke-FabricPythonLibraryDeploy' {
     }
 
     It 'fails before authenticating when the constraints file is missing' {
-        $config = New-TestConfig
-        { Invoke-FabricPythonLibraryDeploy -Config $config @script:deployParams `
+        { Invoke-FabricPythonLibraryDeploy @script:deployParams `
             -ConstraintsPath '/does/not/exist/constraints.txt' } | Should -Throw '*Constraints file not found*'
 
         Should -Invoke Save-FabricLibraryPackage -Times 0 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
@@ -161,10 +102,9 @@ Describe 'Invoke-FabricPythonLibraryDeploy' {
             if ($Staging) { @('mypackage-1.4.1-py3-none-any.whl', 'oldDep-1.0-py3-none-any.whl') } else { @() }
         } -ModuleName ZeroFailed.Deploy.Fabric
 
-        $config = New-TestConfig
-        $result = Invoke-FabricPythonLibraryDeploy -Config $config @script:deployParams
+        $result = Invoke-FabricPythonLibraryDeploy @script:deployParams
 
-        $result.Deployed[0].Removed | Should -HaveCount 2
+        $result.Removed | Should -HaveCount 2
         Should -Invoke Remove-FabricEnvironmentLibrary -Times 2 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
         Should -Invoke Remove-FabricEnvironmentLibrary -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter {
             $LibraryName -eq 'mypackage-1.4.1-py3-none-any.whl'
@@ -176,8 +116,7 @@ Describe 'Invoke-FabricPythonLibraryDeploy' {
             if ($Staging) { @('mypackage-1.4.2-py3-none-any.whl', 'stale-9.9-py3-none-any.whl') } else { @() }
         } -ModuleName ZeroFailed.Deploy.Fabric
 
-        $config = New-TestConfig
-        Invoke-FabricPythonLibraryDeploy -Config $config @script:deployParams | Out-Null
+        Invoke-FabricPythonLibraryDeploy @script:deployParams | Out-Null
 
         Should -Invoke Remove-FabricEnvironmentLibrary -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter {
             $LibraryName -eq 'stale-9.9-py3-none-any.whl'
@@ -191,11 +130,9 @@ Describe 'Invoke-FabricPythonLibraryDeploy' {
             else { @('mypackage-1.4.2-py3-none-any.whl', 'dep-2.0-py3-none-any.whl', 'mypackage-1.4.1-py3-none-any.whl') }
         } -ModuleName ZeroFailed.Deploy.Fabric
 
-        $config = New-TestConfig
-        $result = Invoke-FabricPythonLibraryDeploy -Config $config @script:deployParams
+        $result = Invoke-FabricPythonLibraryDeploy @script:deployParams
 
-        $result.Summary.Skipped | Should -Be 0
-        $result.Summary.Deployed | Should -Be 1
+        $result.Action | Should -Be 'Published'
         Should -Invoke Publish-FabricEnvironment -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
     }
 
@@ -204,11 +141,9 @@ Describe 'Invoke-FabricPythonLibraryDeploy' {
             if ($External) { @() } else { @('mypackage-1.4.2-py3-none-any.whl', 'dep-2.0-py3-none-any.whl') }
         } -ModuleName ZeroFailed.Deploy.Fabric
 
-        $config = New-TestConfig
-        $result = Invoke-FabricPythonLibraryDeploy -Config $config @script:deployParams
+        $result = Invoke-FabricPythonLibraryDeploy @script:deployParams
 
-        $result.Summary.Skipped | Should -Be 1
-        $result.Summary.Deployed | Should -Be 0
+        $result.Action | Should -Be 'Skipped'
         Should -Invoke Add-FabricEnvironmentLibrary -Times 0 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
         Should -Invoke Publish-FabricEnvironment -Times 0 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
     }
@@ -218,28 +153,30 @@ Describe 'Invoke-FabricPythonLibraryDeploy' {
             @('mypackage-1.4.2-py3-none-any.whl', 'dep-2.0-py3-none-any.whl')
         } -ModuleName ZeroFailed.Deploy.Fabric
 
-        $config = New-TestConfig
-        $result = Invoke-FabricPythonLibraryDeploy -Config $config @script:deployParams -Force
+        $result = Invoke-FabricPythonLibraryDeploy @script:deployParams -Force
 
-        $result.Summary.Deployed | Should -Be 1
+        $result.Action | Should -Be 'Published'
         Should -Invoke Publish-FabricEnvironment -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
     }
 
-    It 'records a non-fatal failure when the workspace does not exist' {
+    It 'throws before downloading when the workspace does not exist' {
         Mock Test-FabricWorkspaceExists { $null } -ModuleName ZeroFailed.Deploy.Fabric
 
-        $config = New-TestConfig
-        $result = Invoke-FabricPythonLibraryDeploy -Config $config @script:deployParams -ErrorAction SilentlyContinue
+        { Invoke-FabricPythonLibraryDeploy @script:deployParams } |
+            Should -Throw "*Workspace 'THX-DataPrep ``[DEV``]' does not exist*"
 
-        $result.Summary.Failed | Should -Be 1
-        $result.Failures[0].Error | Should -BeLike '*does not exist*'
+        Should -Invoke Save-FabricLibraryPackage -Times 0 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
         Should -Invoke Publish-FabricEnvironment -Times 0 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
     }
 
-    It 'throws when the stage is not in the config' {
-        $config = New-TestConfig
-        { Invoke-FabricPythonLibraryDeploy -Config $config @script:deployParams -Stage 'NOPE' } |
-            Should -Throw "*Stage 'NOPE' not found*"
+    It 'throws before downloading when the environment does not exist in the workspace' {
+        Mock _Resolve-FabricEnvironment { $null } -ModuleName ZeroFailed.Deploy.Fabric
+
+        { Invoke-FabricPythonLibraryDeploy @script:deployParams } |
+            Should -Throw "*Environment 'THX-DataPrep Env' does not exist*"
+
+        Should -Invoke Save-FabricLibraryPackage -Times 0 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
+        Should -Invoke Publish-FabricEnvironment -Times 0 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
     }
 
     It 'uses existing files under -SkipDownload without calling pip' {
@@ -247,9 +184,8 @@ Describe 'Invoke-FabricPythonLibraryDeploy' {
         New-Item -ItemType Directory -Path $staging -Force | Out-Null
         Set-Content -LiteralPath (Join-Path $staging 'mypackage-1.4.2-py3-none-any.whl') -Value 'x'
         try {
-            $config = New-TestConfig
-            $result = Invoke-FabricPythonLibraryDeploy -Config $config @script:deployParams -SkipDownload -StagingPath $staging
-            $result.Summary.Deployed | Should -Be 1
+            $result = Invoke-FabricPythonLibraryDeploy @script:deployParams -SkipDownload -StagingPath $staging
+            $result.Action | Should -Be 'Published'
             Should -Invoke Save-FabricLibraryPackage -Times 0 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
             Should -Invoke Add-FabricEnvironmentLibrary -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
         }
@@ -267,8 +203,7 @@ Describe 'Invoke-FabricPythonLibraryDeploy' {
             )
         } -ModuleName ZeroFailed.Deploy.Fabric
 
-        $config = New-TestConfig
-        $result = Invoke-FabricPythonLibraryDeploy -Config $config @script:deployParams
+        $result = Invoke-FabricPythonLibraryDeploy @script:deployParams
 
         # Only the private wheel is uploaded as a custom library.
         Should -Invoke Add-FabricEnvironmentLibrary -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter {
@@ -281,8 +216,8 @@ Describe 'Invoke-FabricPythonLibraryDeploy' {
         Should -Invoke Import-FabricEnvironmentExternalLibraries -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter {
             $EnvironmentYml -match 'deltalake==1\.6\.2'
         }
-        $result.Deployed[0].ExternalLibraries | Should -Contain 'deltalake==1.6.2'
-        $result.Deployed[0].Files | Should -Contain 'mypackage-1.4.2-py3-none-any.whl'
+        $result.ExternalLibraries | Should -Contain 'deltalake==1.6.2'
+        $result.Files | Should -Contain 'mypackage-1.4.2-py3-none-any.whl'
     }
 
     It 'uses -PrivatePackageName to classify without querying PyPI' {
@@ -293,14 +228,13 @@ Describe 'Invoke-FabricPythonLibraryDeploy' {
             )
         } -ModuleName ZeroFailed.Deploy.Fabric
 
-        $config = New-TestConfig
-        $result = Invoke-FabricPythonLibraryDeploy -Config $config @script:deployParams -PrivatePackageName 'mypackage'
+        $result = Invoke-FabricPythonLibraryDeploy @script:deployParams -PrivatePackageName 'mypackage'
 
         Should -Invoke _Test-PackageOnPyPI -Times 0 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
         Should -Invoke Add-FabricEnvironmentLibrary -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric -ParameterFilter {
             $FilePath -eq '/tmp/mypackage-1.4.2-py3-none-any.whl'
         }
-        $result.Deployed[0].ExternalLibraries | Should -Contain 'deltalake==1.6.2'
+        $result.ExternalLibraries | Should -Contain 'deltalake==1.6.2'
     }
 
     It 'skips when both the custom and external published sets already match' {
@@ -317,10 +251,9 @@ Describe 'Invoke-FabricPythonLibraryDeploy' {
             else { @('mypackage-1.4.2-py3-none-any.whl') }
         } -ModuleName ZeroFailed.Deploy.Fabric
 
-        $config = New-TestConfig
-        $result = Invoke-FabricPythonLibraryDeploy -Config $config @script:deployParams
+        $result = Invoke-FabricPythonLibraryDeploy @script:deployParams
 
-        $result.Summary.Skipped | Should -Be 1
+        $result.Action | Should -Be 'Skipped'
         Should -Invoke Import-FabricEnvironmentExternalLibraries -Times 0 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
         Should -Invoke Publish-FabricEnvironment -Times 0 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
     }
@@ -339,10 +272,9 @@ Describe 'Invoke-FabricPythonLibraryDeploy' {
             else { @('mypackage-1.4.2-py3-none-any.whl') }
         } -ModuleName ZeroFailed.Deploy.Fabric
 
-        $config = New-TestConfig
-        $result = Invoke-FabricPythonLibraryDeploy -Config $config @script:deployParams
+        $result = Invoke-FabricPythonLibraryDeploy @script:deployParams
 
-        $result.Summary.Deployed | Should -Be 1
+        $result.Action | Should -Be 'Published'
         Should -Invoke Import-FabricEnvironmentExternalLibraries -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
         Should -Invoke Publish-FabricEnvironment -Times 1 -Exactly -ModuleName ZeroFailed.Deploy.Fabric
     }

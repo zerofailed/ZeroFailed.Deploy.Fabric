@@ -2,7 +2,7 @@
 
 A ZeroFailed extension module for provisioning Microsoft Fabric workspaces across DTAP environments. Workspaces are named from a convention, connected to Git, optionally provisioned with Workspace Identities, optionally configured with workspace monitoring, optionally provisioned with a Fabric Spark Environment (set as the workspace default), optionally provisioned with an (empty) Fabric Variable Library, optionally have Entra-based RBAC role assignments applied, and optionally have Fabric deployment pipelines set up across environments — with their own Entra-based role assignments. All provisioning steps are idempotent and safe to re-run.
 
-The module also handles **Python library deployment**: once workspaces and their Spark Environments have been provisioned, `Invoke-FabricPythonLibraryDeploy` downloads a Python package (`.whl`) and its full dependency closure from an Azure Artifacts feed and uploads them into the Spark Environments' custom libraries for a given stage. Provisioning and Python library deployment are designed to run as **two separate pipelines** — see [Python library deployment](#python-library-deployment).
+The module also handles **Python library deployment**: once workspaces and their Spark Environments have been provisioned, `Invoke-FabricPythonLibraryDeploy` downloads a Python package (`.whl`) and its full dependency closure from an Azure Artifacts feed and uploads them into a named Spark Environment. It does not use the topology config, so it can run from the repo that builds the package. Provisioning and Python library deployment are designed to run as **two separate pipelines** — see [Python library deployment](#python-library-deployment).
 
 **Deployment pipelines** span every environment, so they are configured by a separate entry point, `Invoke-FabricDeploymentPipelineSetup`, from the same topology config — typically in a dedicated stage that runs once each environment's workspaces have been provisioned. See [`Invoke-FabricDeploymentPipelineSetup`](#invoke-fabricdeploymentpipelinesetup).
 
@@ -54,14 +54,15 @@ The module registers these Invoke-Build tasks:
 - `provisionFabricDeploymentPipelines` — runs `Invoke-FabricDeploymentPipelineSetup` from the topology config (standalone; invoke from a dedicated stage once every environment's workspaces exist)
 - `resolveFabricTopologyState` — runs `Get-FabricTopologyState` (read-only Fabric REST GETs) and publishes the **same** `$script:FabricProvisioningResult` (and `$FabricProvisioningResultPath` JSON) as `provisionFabricWorkspaces`, **without** provisioning or changing anything. Standalone (not auto-chained) — invoke it from a deploy-only pipeline that must consume workspace / identity / environment / pipeline IDs
 - `ensureFabricPythonLibraryTooling` — verifies Python/pip is available (runs before `deployFabricPythonLibraries`)
-- `deployFabricPythonLibraries` — runs `Invoke-FabricPythonLibraryDeploy` for a single stage (standalone; invoke from a separate deployment pipeline)
+- `deployFabricPythonLibraries` — runs `Invoke-FabricPythonLibraryDeploy` for a single, named workspace and Spark Environment (standalone, and independent of the topology config; invoke from a separate deployment pipeline)
 
 For **Python library deployment** (typically a separate pipeline from provisioning), configure:
 
 ```powershell
 # In your deployment build's .zf/config.ps1:
-$FabricPythonLibraryConfigPath = './fabric/topology.json'   # defaults to $FabricTopologyConfigPath
-$FabricPythonLibraryStage = 'DEV'                       # the single stage this run targets
+# No topology config is needed — name the target workspace and Spark Environment directly.
+$FabricPythonLibraryWorkspaceName   = 'salesanalytics-Bronze [DEV]'
+$FabricPythonLibraryEnvironmentName = 'salesanalytics-Bronze Env'
 $FabricPackageName        = 'mycompany.dataprep'
 $FabricPackageVersion     = '1.4.2'
 $FabricFeedOrganisation   = 'contoso'
@@ -489,11 +490,11 @@ New-FabricTopologyConfig `
     }
 ```
 
-`-EnvironmentStages` is keyed by workspace type; each value is the list of environment names that should receive a Spark Environment for that type. Keys must be listed in `-EnableEnvironments` and reference environments present in `-Environments`, or `New-FabricTopologyConfig` throws. A type that is environment-enabled but omitted from `-EnvironmentStages` keeps the default behaviour (every environment). This scoping is stored as `environment.stages` on each workspace in the config, and is honoured by both `Invoke-FabricSetup` (only provisions the environment in the listed stages) and `Invoke-FabricPythonLibraryDeploy` (only deploys packages into workspaces whose environment is enabled for the target stage).
+`-EnvironmentStages` is keyed by workspace type; each value is the list of environment names that should receive a Spark Environment for that type. Keys must be listed in `-EnableEnvironments` and reference environments present in `-Environments`, or `New-FabricTopologyConfig` throws. A type that is environment-enabled but omitted from `-EnvironmentStages` keeps the default behaviour (every environment). This scoping is stored as `environment.stages` on each workspace in the config, and is honoured by `Invoke-FabricSetup`, which only provisions the environment in the listed stages. `Invoke-FabricPythonLibraryDeploy` does not read the topology: it deploys into whichever workspace and environment it is given by name.
 
 When `-SetEnvironmentAsDefault` is supplied, each enabled workspace's environment is registered as the **workspace default** (via the Spark settings API), so notebooks and jobs using *Workspace default* inherit its compute and libraries. Setting the default requires the workspace **Admin** role — already satisfied because `Invoke-FabricSetup` auto-grants the deploying identity Admin on every workspace.
 
-> **Note:** This step provisions an **empty** environment and (optionally) sets it as the workspace default — it does not upload any libraries. Creating and referencing an empty environment does not require a publish. Uploading `.whl` packages (from Azure Artifacts) and publishing them is handled by `Invoke-FabricArtefactDeploy` as a separate step — see [Code-artefact deployment](#code-artefact-deployment).
+> **Note:** This step provisions an **empty** environment and (optionally) sets it as the workspace default — it does not upload any libraries. Creating and referencing an empty environment does not require a publish. Uploading `.whl` packages (from Azure Artifacts) and publishing them is handled by `Invoke-FabricPythonLibraryDeploy` as a separate step — see [Python library deployment](#python-library-deployment).
 
 **`-EnableVariableLibraries` — Variable Libraries:**
 
@@ -1084,42 +1085,58 @@ if ($existing) { "Exists: $($existing.id)" }
 
 ### Python library deployment
 
-Once workspaces and their Spark Environments have been provisioned, `Invoke-FabricPythonLibraryDeploy` deploys a Python package (and its dependencies) into those environments' **custom libraries**. It is the counterpart to `Invoke-FabricSetup` and is intended to run **after** provisioning, usually as a **separate pipeline**.
+Once workspaces and their Spark Environments have been provisioned, `Invoke-FabricPythonLibraryDeploy` deploys a Python package (and its dependencies) into a Spark Environment. It is the counterpart to `Invoke-FabricSetup` and is intended to run **after** provisioning, usually as a **separate pipeline**.
 
 **Design:**
 
-- **Stages are owned by the calling pipeline.** One invocation targets a single stage (`-Stage`). Your ADO/CI pipeline defines the stages and calls the script once per stage — there is no stage loop inside the module.
-- **Targets are automatic.** Every workspace in the topology with a Spark Environment enabled (`environment.enabled`) for the target stage (`environment.stages`, set via `-EnvironmentStages`) receives the package. Workspaces whose environment is not provisioned for that stage are skipped. There is no per-package on/off config.
-- **The package is a runtime parameter.** `-PackageName` / `-PackageVersion` flow from the build, so the version isn't baked into the topology config. The topology is used only to resolve workspace and environment names.
+- **No topology config.** One invocation targets a single Spark Environment, named directly by `-WorkspaceName` and `-EnvironmentName` (display names, used as-is). This means the deployment can live in the repo that builds the package, separately from wherever provisioning and the topology config live.
+- **One target per call.** To deploy the same package into more than one environment, call it once per target. Pass the same `-StagingPath` on each call, with `-SkipDownload` on the later ones, so the package is downloaded only once.
+- **The package is a runtime parameter.** `-PackageName` / `-PackageVersion` flow from the build, so the version is never stored in config.
 - **Dependencies are resolved automatically.** `pip download` reads the package metadata from the feed and pulls the full transitive dependency closure — no dependency list is maintained anywhere.
 - **Public and private dependencies are handled differently.** The closure is split: **private** (feed-only) packages are uploaded as **custom libraries**; **public** packages (resolvable on PyPI) are declared in a generated **`environment.yml`** and imported as **external libraries** for Fabric to resolve from PyPI directly. This keeps large public binary wheels (e.g. `deltalake`, ~50 MB) out of the custom-library upload path, whose size limit a big wheel exceeds with a server-side 500. Classification is automatic via a PyPI lookup per package, or explicit via `-PrivatePackageName`. **This requires the Fabric Spark environment to have outbound access to PyPI.**
 
 **What it does, per invocation:**
 
-1. Downloads `PackageName==PackageVersion` **and all dependencies** once, from the Azure Artifacts feed, via `Save-FabricLibraryPackage` (`pip download`).
-2. Splits the closure into private (custom-library) and public (environment.yml) packages.
-3. For each target workspace in the stage: resolves the workspace and its Spark Environment (both must already exist from provisioning).
+1. Resolves the workspace and its Spark Environment by display name. Both must already exist from provisioning; if either is missing, it throws before downloading anything.
+2. Downloads `PackageName==PackageVersion` **and all dependencies** from the Azure Artifacts feed, via `Save-FabricLibraryPackage` (`pip download`).
+3. Splits the closure into private (custom-library) and public (environment.yml) packages.
 4. Clears down any staged custom library that isn't part of the private set (`Remove-FabricEnvironmentLibrary`); imports the public `environment.yml` (`Import-FabricEnvironmentExternalLibraries`, which overrides the whole external set); uploads the private wheels (`Add-FabricEnvironmentLibrary`); and publishes (`Publish-FabricEnvironment`, a long-running operation).
 5. **Idempotent:** if both the published custom libraries and the published external (public) libraries are exactly the desired set, upload and publish are skipped (unless `-Force`). A stale version published alongside the desired files counts as a difference, so it triggers a deploy that clears it down.
 
 ```powershell
-# Log in, then deploy one stage (this is what the deployment pipeline runs per stage)
+# Log in, then deploy into one Spark Environment
 Connect-AzAccount -UseDeviceAuthentication
 
+$result = Invoke-FabricPythonLibraryDeploy `
+    -WorkspaceName    'salesanalytics-Bronze [DEV]' `
+    -EnvironmentName  'salesanalytics-Bronze Env' `
+    -PackageName      'mycompany.dataprep' `
+    -PackageVersion   '1.4.2' `
+    -FeedOrganisation 'contoso' `
+    -FeedProject      'Analytics' `
+    -FeedName         'fabric-python' `
+    -FeedToken        $env:SYSTEM_ACCESSTOKEN
 
-
-$result.Summary   # @{ Deployed=int; Skipped=int; Failed=int }
-$result.Deployed | ForEach-Object { [pscustomobject]$_ } |
-    Format-Table WorkspaceName, EnvironmentName, Action
+$result | Format-List WorkspaceName, EnvironmentName, Action, Files, ExternalLibraries, Removed
 ```
+
+The result is a single object:
+
+| Property | Description |
+|---|---|
+| `WorkspaceName` / `EnvironmentName` | The target, as supplied |
+| `EnvironmentId` | The resolved Spark Environment ID |
+| `Files` | The private wheels uploaded as custom libraries |
+| `ExternalLibraries` | The public packages declared in `environment.yml`, as `name==version` |
+| `Removed` | Staged custom libraries that were cleared down (empty when skipped) |
+| `Action` | `Published`, `Skipped` (already up to date) or `whatif` |
 
 **`Invoke-FabricPythonLibraryDeploy` parameters:**
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `-Config` | `pscustomobject` | Yes* | — | Topology config object from `New-FabricTopologyConfig` |
-| `-ConfigPath` | `string` | Yes* | — | Path to a JSON topology config file (alternative to `-Config`) |
-| `-Stage` | `string` | Yes | — | The single stage/environment name (as in `config.environments`) to deploy into |
+| `-WorkspaceName` | `string` | Yes | — | Display name of the target workspace |
+| `-EnvironmentName` | `string` | Yes | — | Display name of the target Spark Environment in that workspace |
 | `-PackageName` | `string` | Yes | — | Package (distribution) name to deploy |
 | `-PackageVersion` | `string` | Yes | — | Exact package version to deploy |
 | `-FeedOrganisation` | `string` | Yes | — | Azure DevOps organisation hosting the Artifacts feed |
@@ -1134,20 +1151,18 @@ $result.Deployed | ForEach-Object { [pscustomobject]$_ } |
 | `-PythonExecutable` | `string` | No | `python` | Python executable used for the download |
 | `-TargetPythonVersion` | `string` | No | `3.11` | Python version of the target Fabric runtime that wheels are resolved for |
 | `-TargetPlatform` | `string` | No | `manylinux2014_x86_64` | Platform tag wheels are resolved for |
-| `-PublishTimeoutSeconds` | `int` | No | `600` | Max seconds to wait for each environment publish |
+| `-PublishTimeoutSeconds` | `int` | No | `600` | Max seconds to wait for the environment publish |
 | `-WhatIf` | `switch` | No | — | Simulate upload/publish; no changes are made |
 
-*Provide either `-Config` or `-ConfigPath`.
-
-Per-workspace failures are non-fatal and collected in `$result.Failures`; the function throws at the end if any workspace failed, so the pipeline step fails while still attempting every target.
+Any failure, including a missing workspace or environment, is terminating, so the pipeline step fails.
 
 > **Wheels are resolved for the Fabric runtime, not the build agent.** pip would otherwise select wheels matching the agent's interpreter — e.g. a `cp312` wheel on a Python 3.12 agent — and any dependency with a compiled C extension would then fail to import inside Fabric, *after* a successful upload and publish. `Save-FabricLibraryPackage` therefore passes `--only-binary=:all: --python-version <target> --implementation cp --abi cp<target> --platform <platform>`. Fabric **runtime 1.2 → Python 3.10**; **runtime 1.3 → Python 3.11** (the default, matching `-EnvironmentRuntimeVersion`). Set `-TargetPythonVersion '3.10'` if your environments use runtime 1.2.
 >
-> Two consequences: (1) `--only-binary=:all:` is mandatory whenever `--platform`/`--abi` are used, so a dependency that publishes **only an sdist** now fails the download rather than silently shipping an unusable artefact; (2) the download happens **once per invocation**, so all target workspaces in a stage must share a runtime version.
+> Two consequences: (1) `--only-binary=:all:` is mandatory whenever `--platform`/`--abi` are used, so a dependency that publishes **only an sdist** now fails the download rather than silently shipping an unusable artefact; (2) when you reuse one download across several targets with `-SkipDownload`, those environments must share a runtime version.
 
-> **Feed authentication:** the feed is accessed via an authenticated pip index URL of the form `https://build:<token>@pkgs.dev.azure.com/{org}/{project}/_packaging/{feed}/pypi/simple/`. The token (`-FeedToken`) is never logged and is kept off the topology config — supply it at runtime from a pipeline secret / `System.AccessToken`. Dependencies not present in the feed are resolved from `-ExtraIndexUrl` (PyPI by default), so the feed needs upstream sources configured or the agent needs outbound access to PyPI.
+> **Feed authentication:** the feed is accessed via an authenticated pip index URL of the form `https://build:<token>@pkgs.dev.azure.com/{org}/{project}/_packaging/{feed}/pypi/simple/`. The token (`-FeedToken`) is never logged and is never stored in config — supply it at runtime from a pipeline secret / `System.AccessToken`. Dependencies not present in the feed are resolved from `-ExtraIndexUrl` (PyPI by default), so the feed needs upstream sources configured or the agent needs outbound access to PyPI.
 
-> **Pinning dependency versions:** `--only-binary=:all:` means a dependency whose resolved version publishes no wheel for the target runtime fails the download. Where that happens (or where a transitive version needs holding back for other reasons), supply a pip [constraints file](https://pip.pypa.io/en/stable/user_guide/#constraints-files) via `-ConstraintsPath` / `$FabricConstraintsPath`. It lives in your repo alongside the topology config — this module ships no constraints of its own — and holds one requirement specifier per line, e.g. `cryptography==42.0.2`. Constraints only pin the version of a package *if* it is already in the dependency closure; they never add one. A path that does not exist is an error rather than a silent no-op, since the resolution would otherwise differ from the one intended.
+> **Pinning dependency versions:** `--only-binary=:all:` means a dependency whose resolved version publishes no wheel for the target runtime fails the download. Where that happens (or where a transitive version needs holding back for other reasons), supply a pip [constraints file](https://pip.pypa.io/en/stable/user_guide/#constraints-files) via `-ConstraintsPath` / `$FabricConstraintsPath`. It lives in your repo — this module ships no constraints of its own — and holds one requirement specifier per line, e.g. `cryptography==42.0.2`. Constraints only pin the version of a package *if* it is already in the dependency closure; they never add one. A path that does not exist is an error rather than a silent no-op, since the resolution would otherwise differ from the one intended.
 
 **Building-block functions** (normally called by `Invoke-FabricPythonLibraryDeploy`, usable directly):
 
@@ -1414,7 +1429,7 @@ The test suite covers:
 - `Publish-FabricEnvironment` — publish endpoint + timeout passthrough, "no pending changes" idempotent skip, error propagation, WhatIf
 - `Get-FabricEnvironmentLibraries` — custom-library name flattening, published vs staging endpoint, empty/404 handling
 - `Save-FabricLibraryPackage` — pip download invocation (package/version/dest/authenticated feed index), target-runtime wheel resolution (`--only-binary`/`--python-version`/`--abi`/`--platform`), CPython ABI tag derivation, malformed target version rejection, constraints-file pass-through/omission/missing-file error, destination creation, no-files and pip-failure errors
-- `Invoke-FabricPythonLibraryDeploy` — targets only environment-enabled workspaces (and only those whose environment is enabled for the target stage), single download for many targets, uploads every file, clear-down of stale staged libraries (and retention of desired ones), deploy rather than skip when a stale version is published, idempotent skip when already published, `-Force` re-publish, non-fatal missing-workspace failure, unknown-stage error, `-SkipDownload`, runtime-target pass-through, constraints-file pass-through and missing-file error
+- `Invoke-FabricPythonLibraryDeploy` — deploys into the named workspace and environment, uploads every file, clear-down of stale staged libraries (and retention of desired ones), deploy rather than skip when a stale version is published, idempotent skip when already published, `-Force` re-publish, missing workspace / environment errors before download, `-SkipDownload`, runtime-target pass-through, constraints-file pass-through and missing-file error, public/private split
 - Module-level tests — manifest validation, export checks, private function isolation
 
 ---

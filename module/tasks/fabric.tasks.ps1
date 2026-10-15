@@ -166,9 +166,9 @@ task ensureFabricPythonLibraryTooling -Before deployFabricPythonLibraries {
     Write-Build Green "Python/pip available: $($python.Source)"
 }
 
-# Deploys a Python library (a .whl + its dependencies from Azure Artifacts) into the Spark
-# Environments of a single stage. Standalone (not chained after provisioning) — intended to be
-# invoked by a separate deployment pipeline, once per stage.
+# Deploys a Python library (a .whl + its dependencies from Azure Artifacts) into a single, named
+# Spark Environment. Standalone (not chained after provisioning) and independent of the topology
+# config — intended to be invoked by a separate deployment pipeline, typically in the package's repo.
 task deployFabricPythonLibraries {
     if ($FabricSkipPythonLibraryDeploy) {
         Write-Build Yellow 'Skipping Fabric Python library deployment (FabricSkipPythonLibraryDeploy is set).'
@@ -176,7 +176,8 @@ task deployFabricPythonLibraries {
     }
 
     foreach ($required in @(
-        @{ Name = 'FabricPythonLibraryStage'; Value = $FabricPythonLibraryStage }
+        @{ Name = 'FabricPythonLibraryWorkspaceName';   Value = $FabricPythonLibraryWorkspaceName }
+        @{ Name = 'FabricPythonLibraryEnvironmentName'; Value = $FabricPythonLibraryEnvironmentName }
         @{ Name = 'FabricPackageName';   Value = $FabricPackageName }
         @{ Name = 'FabricPackageVersion'; Value = $FabricPackageVersion }
         @{ Name = 'FabricFeedOrganisation'; Value = $FabricFeedOrganisation }
@@ -189,15 +190,11 @@ task deployFabricPythonLibraries {
         }
     }
 
-    if (-not (Test-Path $FabricPythonLibraryConfigPath)) {
-        throw "Fabric topology config not found: $FabricPythonLibraryConfigPath"
-    }
-
-    Write-Build Cyan "Deploying '$FabricPackageName==$FabricPackageVersion' into stage '$FabricPythonLibraryStage' from: $FabricPythonLibraryConfigPath"
+    Write-Build Cyan "Deploying '$FabricPackageName==$FabricPackageVersion' into '$FabricPythonLibraryEnvironmentName' in workspace '$FabricPythonLibraryWorkspaceName'"
 
     $deployParams = @{
-        ConfigPath          = $FabricPythonLibraryConfigPath
-        Stage               = $FabricPythonLibraryStage
+        WorkspaceName       = $FabricPythonLibraryWorkspaceName
+        EnvironmentName     = $FabricPythonLibraryEnvironmentName
         PackageName         = $FabricPackageName
         PackageVersion      = $FabricPackageVersion
         FeedOrganisation    = $FabricFeedOrganisation
@@ -225,15 +222,9 @@ task deployFabricPythonLibraries {
 
     $result = Invoke-FabricPythonLibraryDeploy @deployParams
 
-    $s = $result.Summary
-    Write-Build Green "Python library deploy complete — Deployed: $($s.Deployed)  Skipped: $($s.Skipped)  Failed: $($s.Failed)"
-
-    if ($result.Failures.Count -gt 0) {
-        Write-Build Red "$($result.Failures.Count) workspace(s) failed:"
-        $result.Failures | ForEach-Object {
-            Write-Build Red "  $($_.WorkspaceName) [$($_.Stage)]: $($_.Error)"
-        }
-        throw "Fabric Python library deployment completed with $($result.Failures.Count) failure(s)."
+    Write-Build Green "Python library deploy complete — '$($result.EnvironmentName)' in '$($result.WorkspaceName)': $($result.Action)"
+    if ($result.Removed) {
+        Write-Build Green "  Removed: $($result.Removed -join ', ')"
     }
 }
 

@@ -41,9 +41,11 @@ $FabricProvisioningResult ??= $null
 $FabricProvisioningResultPath = property FabricProvisioningResultPath ''
 
 # Python library deployment (Invoke-FabricPythonLibraryDeploy) — runs after provisioning, typically
-# as a separate pipeline. Stage/package coordinates flow from the calling pipeline's build/stage context.
-$FabricPythonLibraryConfigPath = property FabricPythonLibraryConfigPath $FabricTopologyConfigPath
-$FabricPythonLibraryStage = property FabricPythonLibraryStage ''
+# as a separate pipeline in the repo that builds the package. Independent of the topology config: the
+# target workspace / Spark Environment are named directly, and package coordinates flow from the
+# calling pipeline's build context.
+$FabricPythonLibraryWorkspaceName   = property FabricPythonLibraryWorkspaceName ''
+$FabricPythonLibraryEnvironmentName = property FabricPythonLibraryEnvironmentName ''
 $FabricPackageName        = property FabricPackageName ''
 $FabricPackageVersion     = property FabricPackageVersion ''
 $FabricFeedOrganisation   = property FabricFeedOrganisation ''
@@ -51,7 +53,7 @@ $FabricFeedProject        = property FabricFeedProject ''
 $FabricFeedName           = property FabricFeedName ''
 $FabricFeedToken          = property FabricFeedToken ($env:SYSTEM_ACCESSTOKEN ?? '')
 $FabricPythonLibraryStagingPath = property FabricPythonLibraryStagingPath ''
-# Optional pip constraints file, supplied by the calling repo alongside the topology config.
+# Optional pip constraints file, supplied by the calling repo.
 $FabricConstraintsPath    = property FabricConstraintsPath ''
 $FabricPythonLibraryForce = [Convert]::ToBoolean((property FabricPythonLibraryForce $false))
 $FabricSkipPythonLibraryDeploy = [Convert]::ToBoolean((property FabricSkipPythonLibraryDeploy $false))
