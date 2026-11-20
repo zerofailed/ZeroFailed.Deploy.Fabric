@@ -26,27 +26,14 @@
         ZeroFailed = @{
             ExtensionDependencies = @(
                 @{
-                    Name           = 'ZeroFailed.Deploy.Common'
-                    GitRepository  = 'https://github.com/zerofailed/ZeroFailed.Deploy.Common'
-                    Process        = 'tasks/deploy.process.ps1'
-                    # >= 2.0.0 and < 3.0.0
-                    MinimumVersion = '2.0'
-                }
-                @{
-                    # Provides the 'setupModules' task and 'RequiredPowerShellModules' property
-                    # used by the 'ensureFabricModules' task to install Az.Accounts, Az.Resources
-                    # and MicrosoftFabricMgmt.
-                    Name           = 'ZeroFailed.DevOps.Common'
-                    GitRepository  = 'https://github.com/zerofailed/ZeroFailed.DevOps.Common'
-                    # >= 2.0.0 and < 3.0.0
-                    MinimumVersion = '2.0'
-                }
-                @{
                     # Provides 'Assert-PrivateEndpointConnectionApproval', used by
                     # Invoke-FabricManagedPrivateEndpointApproval to approve the private endpoint
                     # connections requested by managed private endpoints. Assume latest stable version.
+                    # Brings in other required dependencies transitively.
                     Name          = 'ZeroFailed.Deploy.Azure'
                     GitRepository = 'https://github.com/zerofailed/ZeroFailed.Deploy.Azure'
+                    # >= 1.6.0 and < 2.0.0
+                    MinimumVersion = '1.6'
                 }
             )
         }
