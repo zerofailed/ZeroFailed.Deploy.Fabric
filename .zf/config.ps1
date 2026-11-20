@@ -4,6 +4,11 @@ $zerofailedExtensions = @(
         GitRepository = 'https://github.com/zerofailed/ZeroFailed.Build.PowerShell.git'
         GitRef        = 'main'
     }
+    @{
+        Name          = 'ZeroFailed.Build.GitHub'
+        GitRepository = 'https://github.com/zerofailed/ZeroFailed.Build.GitHub.git'
+        GitRef        = 'main'
+    }
 )
 
 . ZeroFailed.tasks -ZfPath $here/.zf
@@ -38,7 +43,30 @@ $PowerShellRepositories = @(
 $PSMarkdownDocsFlattenOutputPath = $true
 $PSMarkdownDocsOutputPath        = './docs/functions'
 $PSMarkdownDocsIncludeModulePage = $false
-# Pin the docs locale so generated frontmatter doesn't vary with the build agent's culture.
-$PSMarkdownDocsLocale           = 'en-US'
+$CreateGitHubRelease = $true
 
+# Customise the build process
 task . FullBuild
+
+#
+# Build Process Extensibility Points - uncomment and implement as required
+#
+
+# task RunFirst {}
+# task PreInit {}
+# task PostInit {}
+# task PreVersion {}
+# task PostVersion {}
+# task PreBuild {}
+# task PostBuild {}
+# task PreTest {}
+# task PostTest {}
+# task PreTestReport {}
+# task PostTestReport {}
+# task PreAnalysis {}
+# task PostAnalysis {}
+# task PrePackage {}
+# task PostPackage {}
+# task PrePublish {}
+# task PostPublish {}
+# task RunLast {}

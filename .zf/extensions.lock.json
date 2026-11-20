@@ -14,8 +14,21 @@
       "contentHash": "sha256:9362b56553e5b4ea95309ad3519688597e5a57b34037460eeeba4fa8d638efd8",
       "direct": false,
       "requiredBy": [
+        "ZeroFailed.Build.GitHub",
         "ZeroFailed.Build.PowerShell"
       ]
+    },
+    "ZeroFailed.Build.GitHub": {
+      "source": {
+        "type": "git",
+        "folderPath": "module",
+        "repository": "https://github.com/zerofailed/ZeroFailed.Build.GitHub.git"
+      },
+      "requested": "main",
+      "resolved": "c55efe882cf3abfe99ae4afeb46398235cab5e33",
+      "contentHash": "sha256:6fce3985c6f39711c990b78bb435e8abf44dbc3e2fbf384880f63a968050564d",
+      "direct": true,
+      "requiredBy": []
     },
     "ZeroFailed.Build.PowerShell": {
       "source": {
